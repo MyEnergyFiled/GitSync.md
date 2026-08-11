@@ -133,7 +133,7 @@ final class OAuthService {
     }
 
     private func presentDeviceCode(_ code: String) async throws {
-        try await withCheckedThrowingContinuation { continuation in
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             guard let presenter = Self.topViewController() else {
                 continuation.resume(throwing: OAuthError.failed("Could not present GitHub authorization."))
                 return
