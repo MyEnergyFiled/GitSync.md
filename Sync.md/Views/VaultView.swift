@@ -135,20 +135,9 @@ struct VaultView: View {
         } message: {
             Text(state.lastError ?? String(localized: "Unknown error"))
         }
-        #if DEBUG
-        .onReceive(NotificationCenter.default.publisher(for: MarketingCapture.showGitSheetNotification)) { _ in
-            showCommitSheet = true
-        }
-        .onReceive(NotificationCenter.default.publisher(for: MarketingCapture.showSettingsNotification)) { _ in
-            showSettings = true
-        }
-        #endif
         .interactiveDismissDisabled(state.callbackNavigateToRepoID != nil)
         .navigationBarBackButtonHidden(state.callbackNavigateToRepoID != nil)
         .onAppear {
-            #if DEBUG
-            guard !MarketingCapture.isActive else { return }
-            #endif
             state.detectChanges(repoID: repoID, skipIfRecentlyStartedWithin: 5)
         }
         .onChange(of: state.repos) {

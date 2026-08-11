@@ -1,5 +1,5 @@
-import AuthenticationServices
 import Foundation
+import UIKit
 
 enum OAuthError: LocalizedError {
     case noToken
@@ -15,91 +15,184 @@ enum OAuthError: LocalizedError {
         switch self {
         case .noToken: return "No access token received from GitHub."
         case .cancelled: return "Sign-in was cancelled."
-        case .failed(let msg): return msg
+        case .failed(let message): return message
         }
     }
 }
 
-/// Handles GitHub OAuth via ASWebAuthenticationSession + our Vercel proxy.
-///
-/// Flow:
-/// 1. Open `server/api/auth/login` in an in-app browser sheet
-/// 2. User authorizes on github.com
-/// 3. GitHub redirects to `server/api/auth/callback`
-/// 4. Server exchanges code for token, redirects to `syncmd://auth?token=XXX`
-/// 5. ASWebAuthenticationSession captures the custom-scheme redirect
+/// GitHub Device Flow implemented entirely on-device.
+/// Requests go directly to github.com; no OAuth proxy or client secret is used.
 @MainActor
-final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProviding {
-
+final class OAuthService {
     static let shared = OAuthService()
 
-    private let serverURL = "https://oauth-server-beige.vercel.app"
-    private let callbackScheme = "syncmd"
+    private let clientID = "Iv23likGTprMGI5771G2"
+    private let deviceCodeURL = URL(string: "https://github.com/login/device/code")!
+    private let accessTokenURL = URL(string: "https://github.com/login/oauth/access_token")!
 
-    private override init() { super.init() }
-
-    // MARK: - Sign In
+    private init() {}
 
     func signIn() async throws -> String {
-        let state = UUID().uuidString.replacingOccurrences(of: "-", with: "")
+        let device = try await requestDeviceCode()
+        try await presentDeviceCode(device.userCode)
 
-        guard let loginURL = URL(string: "\(serverURL)/api/auth/login?state=\(state)") else {
-            throw OAuthError.failed("Invalid login URL")
+        UIPasteboard.general.string = device.userCode
+        guard await UIApplication.shared.open(device.verificationURI) else {
+            throw OAuthError.failed("Could not open the GitHub authorization page.")
         }
 
-        return try await withCheckedThrowingContinuation { continuation in
-            let session = ASWebAuthenticationSession(
-                url: loginURL,
-                callbackURLScheme: callbackScheme
-            ) { callbackURL, error in
-                if let error = error {
-                    if (error as NSError).code == ASWebAuthenticationSessionError.canceledLogin.rawValue {
-                        continuation.resume(throwing: OAuthError.cancelled)
-                    } else {
-                        continuation.resume(throwing: OAuthError.failed(error.localizedDescription))
-                    }
-                    return
-                }
+        return try await pollForAccessToken(device)
+    }
 
-                guard let url = callbackURL,
-                      let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-                      let token = components.queryItems?.first(where: { $0.name == "token" })?.value,
-                      !token.isEmpty
-                else {
-                    continuation.resume(throwing: OAuthError.noToken)
-                    return
-                }
-
-                // Validate state matches
-                let returnedState = components.queryItems?.first(where: { $0.name == "state" })?.value
-                if returnedState != state {
-                    // State mismatch — possible CSRF, but don't hard-fail for UX
-                    // (some browsers strip state on redirect)
-                }
-
-                continuation.resume(returning: token)
-            }
-
-            session.presentationContextProvider = self
-            // Use an ephemeral browser session so GitHub sign-in does not silently reuse
-            // Safari/previous ASWebAuthenticationSession cookies from a different account.
-            // This lets users choose the GitHub account they want for GitSync.md after
-            // signing out, instead of being auto-signed back in as the browser's default.
-            session.prefersEphemeralWebBrowserSession = true
-            session.start()
+    private func requestDeviceCode() async throws -> DeviceCodeResponse {
+        let data = try await postForm(
+            to: deviceCodeURL,
+            fields: ["client_id": clientID]
+        )
+        do {
+            return try JSONDecoder().decode(DeviceCodeResponse.self, from: data)
+        } catch {
+            throw OAuthError.failed("GitHub returned an invalid device authorization response.")
         }
     }
 
-    // MARK: - ASWebAuthenticationPresentationContextProviding
+    private func pollForAccessToken(_ device: DeviceCodeResponse) async throws -> String {
+        let deadline = Date().addingTimeInterval(TimeInterval(device.expiresIn))
+        var interval = max(device.interval, 5)
 
-    nonisolated func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
-        MainActor.assumeIsolated {
-            guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                  let window = scene.windows.first
-            else {
-                return ASPresentationAnchor(windowScene: UIApplication.shared.connectedScenes.first as! UIWindowScene)
+        while Date() < deadline {
+            try await Task.sleep(for: .seconds(interval))
+            try Task.checkCancellation()
+
+            let data = try await postForm(
+                to: accessTokenURL,
+                fields: [
+                    "client_id": clientID,
+                    "device_code": device.deviceCode,
+                    "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+                ]
+            )
+            let response: TokenResponse
+            do {
+                response = try JSONDecoder().decode(TokenResponse.self, from: data)
+            } catch {
+                throw OAuthError.failed("GitHub returned an invalid access token response.")
             }
-            return window
+
+            if let token = response.accessToken, !token.isEmpty {
+                return token
+            }
+
+            switch response.error {
+            case "authorization_pending":
+                continue
+            case "slow_down":
+                interval += 5
+            case "access_denied":
+                throw OAuthError.cancelled
+            case "expired_token":
+                throw OAuthError.failed("The GitHub authorization code expired. Please try again.")
+            case "device_flow_disabled":
+                throw OAuthError.failed("Device Flow is disabled in the GitHub App settings.")
+            case let error?:
+                throw OAuthError.failed(response.errorDescription ?? error)
+            case nil:
+                throw OAuthError.noToken
+            }
         }
+
+        throw OAuthError.failed("The GitHub authorization code expired. Please try again.")
+    }
+
+    private func postForm(to url: URL, fields: [String: String]) async throws -> Data {
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 20
+        request.httpBody = fields
+            .map { key, value in
+                "\(formEncode(key))=\(formEncode(value))"
+            }
+            .sorted()
+            .joined(separator: "&")
+            .data(using: .utf8)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse,
+              (200..<300).contains(http.statusCode) else {
+            throw OAuthError.failed("GitHub authorization request failed.")
+        }
+        return data
+    }
+
+    private func formEncode(_ value: String) -> String {
+        var allowed = CharacterSet.alphanumerics
+        allowed.insert(charactersIn: "-._~")
+        return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
+    }
+
+    private func presentDeviceCode(_ code: String) async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            guard let presenter = Self.topViewController() else {
+                continuation.resume(throwing: OAuthError.failed("Could not present GitHub authorization."))
+                return
+            }
+
+            let alert = UIAlertController(
+                title: "Connect GitHub",
+                message: "Code: \(code)\n\nThe code has been copied. Paste it on the GitHub page, approve access, then return to GitSync.md.",
+                preferredStyle: .alert
+            )
+            alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in
+                continuation.resume(throwing: OAuthError.cancelled)
+            })
+            alert.addAction(UIAlertAction(title: "Open GitHub", style: .default) { _ in
+                continuation.resume()
+            })
+            presenter.present(alert, animated: true)
+        }
+    }
+
+    private static func topViewController() -> UIViewController? {
+        let root = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .first(where: \.isKeyWindow)?
+            .rootViewController
+
+        var current = root
+        while let presented = current?.presentedViewController {
+            current = presented
+        }
+        return current
+    }
+}
+
+private struct DeviceCodeResponse: Decodable {
+    let deviceCode: String
+    let userCode: String
+    let verificationURI: URL
+    let expiresIn: Int
+    let interval: Int
+
+    enum CodingKeys: String, CodingKey {
+        case deviceCode = "device_code"
+        case userCode = "user_code"
+        case verificationURI = "verification_uri"
+        case expiresIn = "expires_in"
+        case interval
+    }
+}
+
+private struct TokenResponse: Decodable {
+    let accessToken: String?
+    let error: String?
+    let errorDescription: String?
+
+    enum CodingKeys: String, CodingKey {
+        case accessToken = "access_token"
+        case error
+        case errorDescription = "error_description"
     }
 }

@@ -14,7 +14,7 @@ final class RepositoryHistoryStore: ObservableObject {
     static let shared = RepositoryHistoryStore()
 
     /// Keychain service identifier.
-    private static let keychainService = "bontecou.Sync-md"
+    private static let keychainService = "com.myenergyfiled.GitSyncMD"
 
     /// Keychain key that stores a JSON-encoded array of repo identifiers (URLs / paths)
     /// ever added on this device. Written once per new identifier and never cleared

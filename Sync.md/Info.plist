@@ -14,12 +14,6 @@
 	<array>
 		<string>shareddocuments</string>
 	</array>
-	<key>NSCameraUsageDescription</key>
-	<string>Shows a live selfie overlay while you use GitSync.md.</string>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>Records audio during screen recording.</string>
-	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>Saves finished recordings to your photo library.</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -28,7 +22,7 @@
 				<string>syncmd</string>
 			</array>
 			<key>CFBundleURLName</key>
-			<string>com.bontecou.Sync-md</string>
+			<string>com.myenergyfiled.GitSyncMD</string>
 		</dict>
 	</array>
 </dict>

@@ -1,0 +1,82 @@
+name: Build SideStore IPA
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sidestore-ipa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Unsigned iOS IPA
+    runs-on: macos-26
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Show Xcode environment
+        run: |
+          xcodebuild -version
+          xcodebuild -list -project Sync.md.xcodeproj
+
+      - name: Build unsigned app
+        run: |
+          set -euo pipefail
+          xcodebuild build \
+            -project Sync.md.xcodeproj \
+            -scheme Sync.md \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM=""
+
+      - name: Package unsigned IPA
+        id: package
+        run: |
+          set -euo pipefail
+          APP_PATH="$RUNNER_TEMP/DerivedData/Build/Products/Release-iphoneos/Sync.md.app"
+          if [ ! -d "$APP_PATH" ]; then
+            echo "::error::Built app not found at $APP_PATH"
+            find "$RUNNER_TEMP/DerivedData/Build/Products" -maxdepth 3 -type d -name '*.app' -print
+            exit 1
+          fi
+
+          mkdir -p "$RUNNER_TEMP/package/Payload"
+          ditto "$APP_PATH" "$RUNNER_TEMP/package/Payload/Sync.md.app"
+          (
+            cd "$RUNNER_TEMP/package"
+            zip -qry "$GITHUB_WORKSPACE/GitSync-md-SideStore.ipa" Payload
+          )
+
+          shasum -a 256 GitSync-md-SideStore.ipa | tee GitSync-md-SideStore.ipa.sha256
+          echo "size=$(du -h GitSync-md-SideStore.ipa | cut -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GitSync-md-SideStore-${{ github.run_number }}
+          path: |
+            GitSync-md-SideStore.ipa
+            GitSync-md-SideStore.ipa.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Build summary
+        run: |
+          {
+            echo '## SideStore IPA ready'
+            echo ''
+            echo '- File: `GitSync-md-SideStore.ipa`'
+            echo '- Size: `${{ steps.package.outputs.size }}`'
+            echo '- This IPA is unsigned; SideStore will sign it with your Apple ID during installation.'
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -2,11 +2,7 @@
 
 **Markdown notes synced with Git** — a native iOS & iPadOS app that turns any GitHub repository into a synced markdown vault.
 
-<p align="center">
-  <img src="screenshots/02-login.png" width="200" />
-  <img src="screenshots/04-home-both-cloned.png" width="200" />
-  <img src="screenshots/03-blog-cloned.png" width="200" />
-</p>
+
 
 ## What It Does
 
@@ -60,8 +56,6 @@ GitSync.md/
 │       └── CallbackURLHandler.swift # x-callback-url handler (Obsidian integration)
 ├── Packages/
 │   └── Clibgit2/               # Swift package wrapping the libgit2 C library
-├── oauth-server/               # Vercel serverless functions for GitHub OAuth
-│   └── api/auth/               # Login & callback endpoints
 └── libgit2.xcframework/        # Pre-built libgit2 binary for iOS
 ```
 
@@ -116,6 +110,18 @@ syncmd://x-callback-url/<action>?repo=<folder-name>&x-success=<url>&x-error=<url
 
 The pre-built `libgit2.xcframework` is included in the repo so no additional dependency setup is needed.
 
+## Building an IPA from Linux
+
+Linux cannot run Xcode locally. This fork includes a manually triggered GitHub Actions workflow that builds an unsigned IPA on a macOS runner for SideStore:
+
+1. Push the repository to GitHub.
+2. Open **Actions → Build SideStore IPA**.
+3. Choose **Run workflow**.
+4. Download the `GitSync-md-SideStore-*` artifact after the job succeeds.
+5. Extract it and open `GitSync-md-SideStore.ipa` with SideStore.
+
+No Apple certificate is stored in GitHub; SideStore signs the IPA during installation.
+
 ## Testing
 
 Run the unit XCTest gate locally with:
@@ -135,16 +141,9 @@ The local git tests create isolated temporary repositories via `FileManager.defa
 
 The same unit gate runs in GitHub Actions via `.github/workflows/xctest.yml` on pull requests and pushes to `main`.
 
-### OAuth Server (Optional)
+### GitHub authentication
 
-The `oauth-server/` directory contains Vercel serverless functions that handle the GitHub OAuth flow. If you want to use OAuth sign-in (instead of a PAT), you'll need to:
-
-1. Create a [GitHub OAuth App](https://github.com/settings/developers)
-2. Deploy the oauth-server to Vercel
-3. Set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` as environment variables
-4. Update the `serverURL` in `OAuthService.swift`
-
-Using a **Personal Access Token** works without any server setup — just paste a token with `repo` scope.
+GitHub sign-in uses the native Device Flow and talks directly to GitHub. No OAuth proxy or client secret is required.
 
 ## Contributing
 

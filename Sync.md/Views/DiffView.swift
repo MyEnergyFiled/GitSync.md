@@ -192,12 +192,6 @@ struct FileDiffView: View {
         }
         .animation(.easeOut(duration: 0.18), value: showRevertModal)
         .task {
-            #if DEBUG
-            if MarketingCapture.isActive {
-                isLoading = false
-                return
-            }
-            #endif
             await state.loadUnifiedDiff(repoID: repoID, path: path)
             isLoading = false
         }

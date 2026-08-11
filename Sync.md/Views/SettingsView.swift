@@ -322,11 +322,6 @@ struct SettingsView: View {
                     configureAuthDefaults(for: repo.repoURL)
                 }
             }
-            #if DEBUG
-            .onReceive(NotificationCenter.default.publisher(for: MarketingCapture.dismissSheetNotification)) { _ in
-                dismiss()
-            }
-            #endif
             .alert("Remove from GitSync.md?", isPresented: $showRemoveConfirm) {
                 Button("Cancel", role: .cancel) {}
                 Button("Remove", role: .destructive) {

@@ -1,3 +1,0 @@
-• Delete previously cloned repositories from the Previously Cloned list
-• Free up old local repo slots without deleting anything from GitHub
-• New in-app release notes highlight updates only after existing users reach the home page

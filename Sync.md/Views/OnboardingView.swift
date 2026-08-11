@@ -5,8 +5,6 @@ struct OnboardingView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var currentPage = 0
     @State private var appeared = false
-    @State private var trackedSteps: Set<OnboardingAnalyticsStep> = []
-    private let analytics = OnboardingAnalyticsClient.shared
 
     private let slides: [OnboardingSlide] = [
         OnboardingSlide(
@@ -79,13 +77,9 @@ struct OnboardingView: View {
         .background(Color.brutalBg)
         .opacity(appeared ? 1 : 0)
         .onAppear {
-            trackCurrentPageIfNeeded(markOnboardingStart: true)
             withAnimation(.easeOut(duration: 0.5)) {
                 appeared = true
             }
-        }
-        .onChange(of: currentPage) { _, _ in
-            trackCurrentPageIfNeeded()
         }
     }
 
@@ -143,22 +137,6 @@ struct OnboardingView: View {
         dismiss()
     }
 
-    private func trackCurrentPageIfNeeded(markOnboardingStart: Bool = false) {
-        let step = analyticsStep(for: currentPage)
-        if markOnboardingStart {
-            analytics.trackOnboardingStarted(step: step)
-        }
-        guard trackedSteps.insert(step).inserted else { return }
-        analytics.trackOnboardingStepViewed(step)
-    }
-
-    private func analyticsStep(for page: Int) -> OnboardingAnalyticsStep {
-        switch page {
-        case 0: return .welcome
-        case 1: return .editAnywhere
-        default: return .fullGit
-        }
-    }
 }
 
 // MARK: - Slide Model

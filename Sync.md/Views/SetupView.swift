@@ -3,7 +3,6 @@ import UniformTypeIdentifiers
 
 struct SetupView: View {
     @Environment(AppState.self) private var state
-    private let analytics = OnboardingAnalyticsClient.shared
 
     // PAT flow
     @State private var showPATFlow = false
@@ -16,9 +15,6 @@ struct SetupView: View {
     @State private var showFolderPicker = false
     @State private var selectedFolderURL: URL? = nil
 
-    // Analytics
-    @State private var trackedSteps: Set<OnboardingAnalyticsStep> = []
-    @State private var completedAuthMethod: OnboardingAnalyticsAuthMethod? = nil
 
     var body: some View {
         NavigationStack {
@@ -68,14 +64,10 @@ struct SetupView: View {
                 allowsMultipleSelection: false
             ) { result in
                 if case .success(let urls) = result, let url = urls.first {
-                    analytics.trackOnboardingSaveLocationSelected(preference: .customFolder)
                     withAnimation(.easeInOut(duration: 0.2)) {
                         selectedFolderURL = url
                     }
                 }
-            }
-            .onAppear {
-                trackSetupStep(.accountChoice)
             }
         }
     }
@@ -123,20 +115,11 @@ struct SetupView: View {
         VStack(spacing: 0) {
             // Primary: OAuth
             BPrimaryButton(title: "Sign in with GitHub", icon: "person.fill") {
-                analytics.trackOnboardingAuthStarted(method: .githubOAuth)
-                trackSetupStep(.githubSignIn)
                 Task {
                     await state.signInWithGitHub()
                     if state.isSignedIn {
-                        completedAuthMethod = .githubOAuth
-                        analytics.trackOnboardingAuthCompleted(method: .githubOAuth, outcome: .succeeded)
                         presentSaveLocationStep()
                     } else {
-                        analytics.trackOnboardingAuthCompleted(
-                            method: .githubOAuth,
-                            outcome: .failed,
-                            errorCategory: .authFailed
-                        )
                     }
                 }
             }
@@ -149,7 +132,6 @@ struct SetupView: View {
 
             // Secondary: PAT
             BSecondaryButton(title: "Personal Access Token", icon: "key.fill") {
-                trackSetupStep(.personalAccessToken)
                 withAnimation(.easeInOut(duration: 0.25)) {
                     showPATFlow = true
                 }
@@ -159,27 +141,11 @@ struct SetupView: View {
 
             // Continue without GitHub for self-hosted, SSH, public, or local repos.
             BSecondaryButton(title: "Continue without GitHub", icon: "network") {
-                completedAuthMethod = .none
-                analytics.trackOnboardingAuthCompleted(method: .none, outcome: .skipped)
                 presentSaveLocationStep()
             }
             .padding(.horizontal, 24)
             .padding(.bottom, 16)
 
-            // Demo Mode
-            BGhostButton(title: "Try Demo", icon: "play.fill") {
-                completedAuthMethod = .demo
-                analytics.trackOnboardingAuthCompleted(method: .demo, outcome: .succeeded)
-                analytics.trackOnboardingCompleted(
-                    authMethod: .demo,
-                    saveLocationPreference: .defaultAppFolder
-                )
-                state.activateDemoMode()
-                state.hasCompletedOnboarding = true
-                state.saveGlobalSettings()
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 14)
         }
     }
 
@@ -249,21 +215,12 @@ struct SetupView: View {
                 icon: isSigningIn ? nil : "arrow.right"
             ) {
                 isSigningIn = true
-                analytics.trackOnboardingAuthStarted(method: .personalAccessToken)
-                trackSetupStep(.personalAccessToken)
                 Task {
                     await state.signInWithPAT(token: patToken)
                     isSigningIn = false
                     if state.isSignedIn {
-                        completedAuthMethod = .personalAccessToken
-                        analytics.trackOnboardingAuthCompleted(method: .personalAccessToken, outcome: .succeeded)
                         presentSaveLocationStep()
                     } else {
-                        analytics.trackOnboardingAuthCompleted(
-                            method: .personalAccessToken,
-                            outcome: .failed,
-                            errorCategory: .authFailed
-                        )
                     }
                 }
             }
@@ -274,31 +231,17 @@ struct SetupView: View {
     // MARK: - Save Location Step
 
     private func presentSaveLocationStep() {
-        trackSetupStep(.saveLocation)
         withAnimation(.easeInOut(duration: 0.3)) {
             showSaveLocationStep = true
         }
     }
 
     private func finishOnboarding() {
-        let saveLocationPreference: OnboardingAnalyticsSaveLocationPreference
         if let url = selectedFolderURL {
-            saveLocationPreference = .customFolder
             state.setDefaultSaveLocation(url)
-        } else {
-            saveLocationPreference = .defaultAppFolder
         }
-        analytics.trackOnboardingCompleted(
-            authMethod: completedAuthMethod ?? (state.isSignedIn ? .githubOAuth : .none),
-            saveLocationPreference: saveLocationPreference
-        )
         state.hasCompletedOnboarding = true
         state.saveGlobalSettings()
-    }
-
-    private func trackSetupStep(_ step: OnboardingAnalyticsStep) {
-        guard trackedSteps.insert(step).inserted else { return }
-        analytics.trackOnboardingStepViewed(step)
     }
 
     private var saveLocationStepView: some View {

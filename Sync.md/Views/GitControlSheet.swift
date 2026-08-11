@@ -106,19 +106,11 @@ struct GitControlSheet: View {
                 ConflictEditorView(repoID: dest.repoID, path: dest.path)
             }
             .task {
-                #if DEBUG
-                guard !MarketingCapture.isActive else { return }
-                #endif
                 await state.loadBranches(repoID: repoID)
                 await state.loadConflictSession(repoID: repoID)
                 await state.loadStashes(repoID: repoID)
                 await state.loadTags(repoID: repoID)
             }
-            #if DEBUG
-            .onReceive(NotificationCenter.default.publisher(for: MarketingCapture.dismissSheetNotification)) { _ in
-                dismiss()
-            }
-            #endif
         }
     }
 

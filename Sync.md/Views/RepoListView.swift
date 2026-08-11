@@ -1,5 +1,4 @@
 import SwiftUI
-import Notelet
 
 extension UUID: @retroactive Identifiable {
     public var id: UUID { self }
@@ -26,17 +25,9 @@ struct RepoListView: View {
                 Color.brutalBg.ignoresSafeArea()
 
                 VStack(spacing: 0) {
-                    DiscordPromoBanner()
-
                     if state.visibleRepos.isEmpty {
                         emptyState
                     } else {
-                        if state.isDemoMode {
-                            demoBanner
-                                .padding(.horizontal, 20)
-                                .padding(.top, 8)
-                                .padding(.bottom, 4)
-                        }
                         repoList
                         addRepoButton
                             .padding(.horizontal, 20)
@@ -169,14 +160,6 @@ struct RepoListView: View {
             } message: {
                 Text(state.lastError ?? String(localized: "Unknown error"))
             }
-            .noteletSheet(
-                notes: AppReleaseNotes.all,
-                version: AppReleaseNotes.presentedVersionForHomePage(
-                    hasExistingAppData: hasExistingAppDataForReleaseNotes
-                ),
-                onDismiss: AppReleaseNotes.markCurrentVersionAsSeen,
-                configuration: AppReleaseNotes.configuration
-            )
             .onChange(of: state.callbackNavigateToRepoID) { _, newValue in
                 if let repoID = newValue {
                     navigationPath = NavigationPath([repoID])
@@ -184,65 +167,9 @@ struct RepoListView: View {
                     navigationPath = NavigationPath()
                 }
             }
-            #if DEBUG
-            .onAppear {
-                guard MarketingCapture.isActive,
-                      !MarketingCaptureCoordinator.shared.hasStarted else { return }
-                MarketingCaptureCoordinator.shared.hasStarted = true
-
-                Task {
-                    try? await Task.sleep(for: .milliseconds(1500))
-                    guard let primaryRepo = state.repos.first else { return }
-                    let repoID = primaryRepo.id
-
-                    let steps: [CaptureStep] = [
-                        CaptureStep(name: "01-repo-list") {
-                            // Already showing
-                        },
-
-                        CaptureStep(name: "02-vault") {
-                            navigationPath.append(repoID)
-                        },
-
-                        CaptureStep(name: "03-git-control", settle: .milliseconds(2000)) {
-                            NotificationCenter.default.post(
-                                name: MarketingCapture.showGitSheetNotification, object: nil
-                            )
-                        } cleanup: {
-                            NotificationCenter.default.post(
-                                name: MarketingCapture.dismissSheetNotification, object: nil
-                            )
-                        },
-
-                        CaptureStep(name: "04-diff", settle: .milliseconds(2000)) {
-                            navigationPath.append(
-                                DiffDestination(repoID: repoID, path: "projects/app-launch.md")
-                            )
-                        } cleanup: {
-                            navigationPath.removeLast()
-                        },
-
-                        CaptureStep(name: "05-settings") {
-                            NotificationCenter.default.post(
-                                name: MarketingCapture.showSettingsNotification, object: nil
-                            )
-                        } cleanup: {
-                            NotificationCenter.default.post(
-                                name: MarketingCapture.dismissSheetNotification, object: nil
-                            )
-                        },
-                    ]
-
-                    await MarketingCaptureCoordinator.shared.run(steps: steps)
-                }
-            }
-            #endif
         }
     }
 
-    private var hasExistingAppDataForReleaseNotes: Bool {
-        state.hasSeenOnboarding || state.hasCompletedOnboarding || !state.repos.isEmpty
-    }
 
     // MARK: - Empty State
 
@@ -331,7 +258,7 @@ struct RepoListView: View {
     /// in the active `state.repos` list. Local file paths are device-specific,
     /// so only parseable remote URLs are surfaced here.
     private var ghostRepoIdentifiers: [String] {
-        guard !state.isDemoMode, !state.isSignedIn else { return [] }
+        guard !state.isSignedIn else { return [] }
         let activeURLs = Set(
             state.visibleRepos.map { $0.repoURL.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
         )
@@ -522,30 +449,6 @@ struct RepoListView: View {
         .buttonStyle(.plain)
     }
 
-    // MARK: - Demo Banner
-
-    private var demoBanner: some View {
-        BCard(padding: 12, bg: .brutalSurface) {
-            HStack(spacing: 10) {
-                BBadge(text: String(localized: "Demo Mode"), style: .warning)
-
-                Spacer()
-
-                Button {
-                    state.deactivateDemoMode()
-                } label: {
-                    Text(String(localized: "Exit").uppercased())
-                        .font(.system(size: 12, weight: .bold, design: .monospaced))
-                        .foregroundStyle(Color.brutalText)
-                        .tracking(1)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .overlay(Rectangle().strokeBorder(Color.brutalBorder, lineWidth: 1))
-                }
-                .buttonStyle(.plain)
-            }
-        }
-    }
 
     // MARK: - Helpers
 

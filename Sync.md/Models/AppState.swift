@@ -154,14 +154,7 @@ final class AppState {
     /// Whether the user has seen the feature onboarding slides.
     var hasSeenOnboarding: Bool = false
 
-    // MARK: - Demo Mode
 
-    var isDemoMode: Bool = false
-
-    // MARK: - Review Prompt
-
-    /// Set to `true` after the user's first successful clone, so the UI can trigger a review request.
-    var shouldRequestReview: Bool = false
 
     // MARK: - Errors & Confirmations
 
@@ -224,7 +217,6 @@ final class AppState {
     }
 
     private func shouldShowRepoForActiveAccount(_ repo: RepoConfig) -> Bool {
-        if isDemoMode { return true }
         if let ownerLogin = repo.gitHubAccountLogin?.trimmingCharacters(in: .whitespacesAndNewlines), !ownerLogin.isEmpty {
             return isSignedIn && ownerLogin.caseInsensitiveCompare(activeGitHubAccountLogin) == .orderedSame
         }
@@ -756,7 +748,6 @@ final class AppState {
     /// Check all repos marked as cloned and reset any whose `.git` directory
     /// has been deleted from the filesystem (e.g. via Files app).
     func validateClonedRepos() {
-        if isDemoMode { return }
         var didChange = false
         for (index, repo) in repos.enumerated() where repo.isCloned {
             let vaultDir = vaultURL(for: repo.id)
@@ -806,7 +797,6 @@ final class AppState {
 
     func detectChanges(repoID: UUID, skipIfRecentlyStartedWithin interval: TimeInterval? = nil) {
         guard let repo = repo(id: repoID), repo.isCloned else { return }
-        if isDemoMode { return }
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
 
@@ -892,7 +882,6 @@ final class AppState {
 
     func fetchRemote(repoID: UUID) async {
         guard let repo = repo(id: repoID), repo.isCloned else { return }
-        if isDemoMode { return }
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
         guard gitService.hasGitDirectory else { return }
@@ -906,10 +895,6 @@ final class AppState {
 
     func loadUnifiedDiff(repoID: UUID, path: String? = nil) async {
         guard let repo = repo(id: repoID), repo.isCloned else {
-            diffByRepo[repoID] = .empty
-            return
-        }
-        if isDemoMode {
             diffByRepo[repoID] = .empty
             return
         }
@@ -935,10 +920,6 @@ final class AppState {
             branchesByRepo[repoID] = .empty
             return
         }
-        if isDemoMode {
-            branchesByRepo[repoID] = .empty
-            return
-        }
 
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
@@ -961,10 +942,6 @@ final class AppState {
             conflictSessionByRepo[repoID] = .none
             return
         }
-        if isDemoMode {
-            conflictSessionByRepo[repoID] = .none
-            return
-        }
 
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
@@ -984,7 +961,6 @@ final class AppState {
 
     func resolveConflictFile(repoID: UUID, path: String, strategy: ConflictResolutionStrategy) async {
         guard let repo = repo(id: repoID), repo.isCloned else { return }
-        if isDemoMode { return }
 
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
@@ -1006,7 +982,6 @@ final class AppState {
 
     func loadConflictDetail(repoID: UUID, path: String) async -> ConflictFileDetail? {
         guard let repo = repo(id: repoID), repo.isCloned else { return nil }
-        if isDemoMode { return nil }
 
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
@@ -1028,7 +1003,6 @@ final class AppState {
         additionalPathsToRemove: [String] = []
     ) async {
         guard let repo = repo(id: repoID), repo.isCloned else { return }
-        if isDemoMode { return }
 
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
@@ -1059,7 +1033,6 @@ final class AppState {
     /// conflict editor) than block them with no in-app way forward.
     func commitLocalAndAttemptMerge(repoID: UUID, message: String) async {
         guard let idx = repoIndex(id: repoID), repos[idx].isCloned else { return }
-        if isDemoMode { return }
 
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
@@ -1186,10 +1159,6 @@ final class AppState {
             stashesByRepo[repoID] = []
             return
         }
-        if isDemoMode {
-            stashesByRepo[repoID] = []
-            return
-        }
 
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
@@ -1209,7 +1178,6 @@ final class AppState {
 
     func saveStash(repoID: UUID, message: String = "", includeUntracked: Bool = true) async {
         guard let repo = repo(id: repoID), repo.isCloned else { return }
-        if isDemoMode { return }
 
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
@@ -1235,7 +1203,6 @@ final class AppState {
 
     func applyStash(repoID: UUID, index: Int, reinstateIndex: Bool = false) async {
         guard let repo = repo(id: repoID), repo.isCloned else { return }
-        if isDemoMode { return }
 
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
@@ -1258,7 +1225,6 @@ final class AppState {
 
     func popStash(repoID: UUID, index: Int, reinstateIndex: Bool = false) async {
         guard let repo = repo(id: repoID), repo.isCloned else { return }
-        if isDemoMode { return }
 
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
@@ -1281,7 +1247,6 @@ final class AppState {
 
     func dropStash(repoID: UUID, index: Int) async {
         guard let repo = repo(id: repoID), repo.isCloned else { return }
-        if isDemoMode { return }
 
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
@@ -1304,10 +1269,6 @@ final class AppState {
             tagsByRepo[repoID] = []
             return
         }
-        if isDemoMode {
-            tagsByRepo[repoID] = []
-            return
-        }
 
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
@@ -1327,7 +1288,6 @@ final class AppState {
 
     func createTag(repoID: UUID, name: String, targetOID: String? = nil, message: String? = nil) async {
         guard let repo = repo(id: repoID), repo.isCloned else { return }
-        if isDemoMode { return }
 
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
@@ -1353,7 +1313,6 @@ final class AppState {
 
     func deleteTag(repoID: UUID, name: String) async {
         guard let repo = repo(id: repoID), repo.isCloned else { return }
-        if isDemoMode { return }
 
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
@@ -1373,7 +1332,6 @@ final class AppState {
 
     func pushTag(repoID: UUID, name: String) async {
         guard let repo = repo(id: repoID), repo.isCloned else { return }
-        if isDemoMode { return }
 
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
@@ -1392,11 +1350,6 @@ final class AppState {
 
     func loadCommitHistory(repoID: UUID, pageSize: Int = 30, reset: Bool = false) async {
         guard let repo = repo(id: repoID), repo.isCloned else {
-            commitHistoryByRepo[repoID] = []
-            commitHistoryHasMoreByRepo[repoID] = false
-            return
-        }
-        if isDemoMode {
             commitHistoryByRepo[repoID] = []
             commitHistoryHasMoreByRepo[repoID] = false
             return
@@ -1434,7 +1387,6 @@ final class AppState {
 
     func loadCommitDetail(repoID: UUID, oid: String) async {
         guard let repo = repo(id: repoID), repo.isCloned else { return }
-        if isDemoMode { return }
 
         let trimmedOID = oid.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedOID.isEmpty else { return }
@@ -1456,7 +1408,6 @@ final class AppState {
 
     func createBranch(repoID: UUID, name: String) async {
         guard let repo = repo(id: repoID), repo.isCloned else { return }
-        if isDemoMode { return }
 
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
@@ -1476,7 +1427,6 @@ final class AppState {
 
     func switchBranch(repoID: UUID, name: String) async {
         guard let idx = repoIndex(id: repoID), repos[idx].isCloned else { return }
-        if isDemoMode { return }
 
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
@@ -1511,7 +1461,6 @@ final class AppState {
 
     func deleteBranch(repoID: UUID, name: String) async {
         guard let repo = repo(id: repoID), repo.isCloned else { return }
-        if isDemoMode { return }
 
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
@@ -1531,7 +1480,6 @@ final class AppState {
 
     func mergeBranch(repoID: UUID, from branchName: String) async {
         guard let idx = repoIndex(id: repoID), repos[idx].isCloned else { return }
-        if isDemoMode { return }
 
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
@@ -1571,7 +1519,6 @@ final class AppState {
 
     func mergeWithRemote(repoID: UUID) async {
         guard let idx = repoIndex(id: repoID), repos[idx].isCloned else { return }
-        if isDemoMode { return }
 
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
@@ -1643,7 +1590,6 @@ final class AppState {
 
     func revertCommit(repoID: UUID, oid: String, message: String = "") async {
         guard let idx = repoIndex(id: repoID), repos[idx].isCloned else { return }
-        if isDemoMode { return }
 
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
@@ -1695,7 +1641,6 @@ final class AppState {
 
     func completeMerge(repoID: UUID, message: String = "") async {
         guard let idx = repoIndex(id: repoID), repos[idx].isCloned else { return }
-        if isDemoMode { return }
 
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
@@ -1751,7 +1696,6 @@ final class AppState {
 
     func abortMerge(repoID: UUID) async {
         guard let _ = repoIndex(id: repoID), repo(id: repoID)?.isCloned == true else { return }
-        if isDemoMode { return }
 
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
@@ -1861,7 +1805,6 @@ final class AppState {
         promptForLFS: Bool
     ) async {
         guard let repo = repo(id: repoID), repo.isCloned else { return }
-        if isDemoMode { return }
 
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
@@ -1908,7 +1851,6 @@ final class AppState {
 
     private func stageAllChanges(repoID: UUID, lfsAutoTrack: Bool, promptForLFS: Bool) async {
         guard let repo = repo(id: repoID), repo.isCloned else { return }
-        if isDemoMode { return }
 
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
@@ -2029,7 +1971,6 @@ final class AppState {
 
     func unstageFile(repoID: UUID, path: String, oldPath: String? = nil) async {
         guard let repo = repo(id: repoID), repo.isCloned else { return }
-        if isDemoMode { return }
 
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
@@ -2060,7 +2001,6 @@ final class AppState {
 
     func discardAllFileChanges(repoID: UUID) async {
         guard let repo = repo(id: repoID), repo.isCloned else { return }
-        if isDemoMode { return }
 
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
@@ -2082,7 +2022,6 @@ final class AppState {
 
     func discardFileChanges(repoID: UUID, path: String) async {
         guard let repo = repo(id: repoID), repo.isCloned else { return }
-        if isDemoMode { return }
 
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
@@ -2113,16 +2052,6 @@ final class AppState {
         isSyncing = true
         syncingRepoID = repoID
         syncProgress = String(localized: "Preparing to clone...")
-
-        if isDemoMode {
-            syncProgress = String(localized: "Cloning repository...")
-            try? await Task.sleep(for: .seconds(1.5))
-            syncProgress = String(localized: "Clone complete! (%lld files)", defaultValue: "Clone complete! (4 files)")
-            try? await Task.sleep(for: .seconds(1))
-            isSyncing = false
-            syncingRepoID = nil
-            return
-        }
 
         do {
             let fm = FileManager.default
@@ -2210,21 +2139,6 @@ final class AppState {
         syncingRepoID = repoID
         syncProgress = String(localized: "Checking for updates...")
 
-        if isDemoMode {
-            if showsProgressDelay {
-                try? await Task.sleep(for: .seconds(1))
-            }
-            syncProgress = String(localized: "Already up to date!")
-            repos[idx].gitState.lastSyncDate = Date()
-            saveRepos()
-            if showsProgressDelay {
-                try? await Task.sleep(for: .seconds(1))
-            }
-            isSyncing = false
-            syncingRepoID = nil
-            return true
-        }
-
         pullOutcomeByRepo.removeValue(forKey: repoID)
 
         do {
@@ -2300,7 +2214,6 @@ final class AppState {
                         kind: .fastForwarded,
                         message: String(localized: "Pulled latest changes (fast-forward)")
                     )
-                    requestReviewIfNeeded()
                 }
             }
 
@@ -2372,17 +2285,6 @@ final class AppState {
         isSyncing = true
         syncingRepoID = repoID
         syncProgress = String(localized: "Checking for updates...")
-
-        if isDemoMode {
-            if showsProgressDelay { try? await Task.sleep(for: .seconds(1)) }
-            syncProgress = String(localized: "Rebase complete!")
-            repos[idx].gitState.lastSyncDate = Date()
-            saveRepos()
-            if showsProgressDelay { try? await Task.sleep(for: .seconds(1)) }
-            isSyncing = false
-            syncingRepoID = nil
-            return true
-        }
 
         pullOutcomeByRepo.removeValue(forKey: repoID)
 
@@ -2468,7 +2370,6 @@ final class AppState {
                         ? String(localized: "Rebased local commits onto origin/\(plan.branch)")
                         : String(localized: "Pulled latest changes (fast-forward)")
                 )
-                requestReviewIfNeeded()
             } else {
                 syncProgress = String(localized: "Already up to date!")
                 setPullOutcome(repoID: repoID, kind: .upToDate, message: String(localized: "Already up to date"))
@@ -2502,7 +2403,6 @@ final class AppState {
 
     func continueRebase(repoID: UUID) async {
         guard let idx = repoIndex(id: repoID), repos[idx].isCloned else { return }
-        if isDemoMode { return }
 
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
@@ -2555,7 +2455,6 @@ final class AppState {
 
     func abortRebase(repoID: UUID) async {
         guard let _ = repoIndex(id: repoID), repo(id: repoID)?.isCloned == true else { return }
-        if isDemoMode { return }
 
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
@@ -2591,13 +2490,6 @@ final class AppState {
     @discardableResult
     func pushCurrentBranch(repoID: UUID) async -> Bool {
         guard let idx = repoIndex(id: repoID), repos[idx].isCloned else { return false }
-        if isDemoMode {
-            syncProgress = String(localized: "Push complete!")
-            repos[idx].gitState.lastSyncDate = Date()
-            saveRepos()
-            syncStateByRepo[repoID] = .upToDate
-            return true
-        }
 
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
@@ -2628,7 +2520,6 @@ final class AppState {
             detectChanges(repoID: repoID)
             await loadBranches(repoID: repoID)
             syncProgress = String(localized: "Push complete!")
-            requestReviewIfNeeded()
             isSyncing = false
             syncingRepoID = nil
             return true
@@ -2669,20 +2560,6 @@ final class AppState {
         syncingRepoID = repoID
         syncProgress = String(localized: "Preparing changes...")
 
-        if isDemoMode {
-            syncProgress = String(localized: "Committing and pushing...")
-            try? await Task.sleep(for: .seconds(1.5))
-            repos[idx].gitState.commitSHA = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(40).lowercased()
-            repos[idx].gitState.lastSyncDate = Date()
-            saveRepos()
-            changeCounts[repoID] = 0
-            syncProgress = String(localized: "Push complete!")
-            try? await Task.sleep(for: .seconds(1))
-            isSyncing = false
-            syncingRepoID = nil
-            return true
-        }
-
         do {
             var repo = repos[idx]
             let vaultDir = vaultURL(for: repoID)
@@ -2712,8 +2589,6 @@ final class AppState {
             detectChanges(repoID: repoID)
             syncProgress = String(localized: "Push complete!")
             DebugLogger.shared.info("push", "Push complete", detail: "SHA: \(result.commitSHA)")
-            requestReviewIfNeeded()
-
             try? await Task.sleep(for: .seconds(1))
             isSyncing = false
             syncingRepoID = nil
@@ -2731,15 +2606,6 @@ final class AppState {
         return false
     }
 
-    // MARK: - Review Prompt
-
-    private func requestReviewIfNeeded() {
-        let reviewKey = "hasRequestedReview"
-        if !UserDefaults.standard.bool(forKey: reviewKey) {
-            UserDefaults.standard.set(true, forKey: reviewKey)
-            shouldRequestReview = true
-        }
-    }
 
     // MARK: - Repo Management
 
@@ -3075,10 +2941,6 @@ final class AppState {
     }
 
     func signOut() {
-        if isDemoMode {
-            deactivateDemoMode()
-            return
-        }
 
         let login = activeGitHubAccountLogin
         if login.isEmpty {
@@ -3137,153 +2999,6 @@ final class AppState {
         DebugLogger.shared.error(category, message)
     }
 
-    // MARK: - Demo Mode
-
-    func activateDemoMode() {
-        isDemoMode = true
-        isSignedIn = true
-        gitHubUsername = "demo-user"
-        gitHubDisplayName = "Demo User"
-        gitHubAvatarURL = ""
-        defaultAuthorName = "Demo User"
-        defaultAuthorEmail = "demo@example.com"
-
-        // Create a demo repo that appears already cloned with sample content
-        let demoRepo = RepoConfig(
-            repoURL: "https://github.com/demo-user/my-project.git",
-            branch: "main",
-            authorName: "Demo User",
-            authorEmail: "demo@example.com",
-            vaultFolderName: "my-project",
-            gitState: GitState(
-                commitSHA: "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
-                treeSHA: "f6e5d4c3b2a1f6e5d4c3b2a1f6e5d4c3b2a1f6e5",
-                branch: "main",
-                blobSHAs: [:],
-                lastSyncDate: Date()
-            )
-        )
-
-        repos = [demoRepo]
-        saveRepos()
-        saveGlobalSettings()
-
-        // Write sample markdown files to the vault directory
-        createDemoFiles(for: demoRepo)
-
-        // Set a fake change count so the reviewer can see the push UI
-        changeCounts[demoRepo.id] = 2
-    }
-
-    func deactivateDemoMode() {
-        let demoRepos = repos
-        isDemoMode = false
-        clearGitHubSession()
-
-        // Remove demo repo files
-        for repo in demoRepos {
-            let vaultDir = vaultURL(for: repo.id)
-            try? FileManager.default.removeItem(at: vaultDir)
-            clearCachedRepoState(for: repo.id)
-        }
-        repos = []
-        isSyncing = false
-        syncingRepoID = nil
-        syncProgress = ""
-        callbackNavigateToRepoID = nil
-        callbackResult = nil
-        pendingLFSAutoTrackingConfirmation = nil
-        saveRepos()
-        saveGlobalSettings()
-    }
-
-    private func createDemoFiles(for repo: RepoConfig) {
-        let vaultDir = repo.defaultVaultURL
-        let fm = FileManager.default
-
-        // Create vault directory
-        try? fm.createDirectory(at: vaultDir, withIntermediateDirectories: true)
-
-        // Create a fake .git directory so the app considers it cloned
-        let gitDir = vaultDir.appendingPathComponent(".git", isDirectory: true)
-        try? fm.createDirectory(at: gitDir, withIntermediateDirectories: true)
-        // Write a minimal HEAD file
-        let headFile = gitDir.appendingPathComponent("HEAD")
-        try? "ref: refs/heads/main\n".write(to: headFile, atomically: true, encoding: .utf8)
-
-        let sampleFiles: [(String, String)] = [
-            ("README.md", """
-            # Welcome to GitSync.md 👋
-
-            This is a **demo repository** showing how GitSync.md works.
-
-            ## Features
-            - 📥 **Pull** — fetch the latest changes from GitHub
-            - 📤 **Push** — commit and push your local edits
-            - 🔄 **Sync** — keep any repo in sync between your iPhone and GitHub
-
-            ## How It Works
-            1. Sign in with GitHub
-            2. Pick a repository (or enter any URL)
-            3. Clone it to your iPhone
-            4. Edit files in the **Files** app or any app that reads from it
-            5. Push your changes back to GitHub
-
-            > Files live in the **Files** app under `On My iPhone › GitSync.md`
-            """),
-            ("notes/meeting-2026-02-10.md", """
-            # Team Standup — Feb 10, 2026
-
-            - Shipped v1.0 to App Store 🚀
-            - Next sprint: collaboration features
-            - @alice to investigate conflict resolution
-
-            ## Product Review (Feb 7)
-            - Approved new sync indicator design
-            - Decided on 3-way merge strategy
-            - Launch marketing site by end of month
-
-            ### Action Items
-            - [ ] Update onboarding flow
-            - [ ] Add pull-to-refresh animation
-            - [x] Fix branch detection on clone
-            """),
-            ("notes/ideas.md", """
-            # Ideas & Backlog
-
-            ## 🟢 In Progress
-            - iPad split-view support
-            - Conflict resolution UI
-
-            ## 🔵 Planned
-            - Branch switching
-            - Multiple repository support
-            - Shared team repositories
-
-            ## 💡 Someday
-            - End-to-end encryption option
-            - Widget for sync status
-            - Shortcuts integration
-            """),
-            ("config/settings.json", """
-            {
-              "project": "my-project",
-              "version": "1.0.0",
-              "sync": {
-                "branch": "main",
-                "autoCommit": false
-              }
-            }
-            """),
-        ]
-
-        for (path, content) in sampleFiles {
-            let fileURL = vaultDir.appendingPathComponent(path)
-            let dir = fileURL.deletingLastPathComponent()
-            try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
-            try? content.write(to: fileURL, atomically: true, encoding: .utf8)
-        }
-    }
 }
 
 // MARK: - Callback Result State
