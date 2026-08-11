@@ -123,7 +123,7 @@ struct HugoNewContentView: View {
         }
     }
 
-    private func commandHelpRow(code: String, explanation: String) -> some View {
+    private func commandHelpRow(code: String, explanation: LocalizedStringKey) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(code)
                 .font(.system(size: 12, weight: .bold, design: .monospaced))
@@ -164,7 +164,7 @@ struct HugoNewContentView: View {
     private func applyTerminalCommandAndCreate() {
         let parts = terminalCommand.split(whereSeparator: { $0.isWhitespace }).map(String.init)
         guard parts.count >= 3, parts[0] == "hugo", parts[1] == "new" else {
-            errorMessage = "Use: hugo new --kind <template> content/<directory>/<file>.md"
+            errorMessage = String(localized: "Use: hugo new --kind <template> content/<directory>/<file>.md")
             return
         }
         var kind: String?
@@ -174,7 +174,7 @@ struct HugoNewContentView: View {
             kind = String(value.dropFirst("--kind=".count))
         }
         guard let path = parts.last, path.hasPrefix("content/"), !path.contains("..") else {
-            errorMessage = "The destination must be a safe path below content/."
+            errorMessage = String(localized: "The destination must be a safe path below content/.")
             return
         }
         let pathValue = path as NSString
@@ -183,7 +183,7 @@ struct HugoNewContentView: View {
         if let kind {
             let candidate = "archetypes/\(kind).md"
             guard archetypes.contains(candidate) else {
-                errorMessage = "Template \(candidate) was not found."
+                errorMessage = String(localized: "Template \(candidate) was not found.")
                 return
             }
             archetype = candidate
@@ -201,13 +201,13 @@ struct HugoNewContentView: View {
         var safeName = filename.trimmingCharacters(in: .whitespacesAndNewlines)
         if URL(fileURLWithPath: safeName).pathExtension.isEmpty { safeName += ".md" }
         guard !safeName.contains("/"), !safeName.contains("..") else {
-            errorMessage = "Filename cannot contain a path."
+            errorMessage = String(localized: "Filename cannot contain a path.")
             return
         }
         let safeDirectory = directory.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         guard (safeDirectory == "content" || safeDirectory.hasPrefix("content/")),
               !safeDirectory.contains(".."), archetypes.contains(archetype) else {
-            errorMessage = "Choose a safe content/ directory and an existing archetype."
+            errorMessage = String(localized: "Choose a safe content/ directory and an existing archetype.")
             return
         }
         directory = safeDirectory
@@ -215,7 +215,7 @@ struct HugoNewContentView: View {
         let destinationDirectory = root.appendingPathComponent(directory, isDirectory: true)
         let destination = destinationDirectory.appendingPathComponent(safeName)
         guard !FileManager.default.fileExists(atPath: destination.path) else {
-            errorMessage = "A file with this name already exists."
+            errorMessage = String(localized: "A file with this name already exists.")
             return
         }
         do {

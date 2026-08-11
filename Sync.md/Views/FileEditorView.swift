@@ -14,6 +14,7 @@ private enum MarkdownEditorMode: String, CaseIterable, Identifiable {
     case preview = "Preview"
     case properties = "Properties"
     var id: String { rawValue }
+    var title: String { String(localized: String.LocalizationValue(rawValue)) }
 }
 
 struct FileEditorView: View {
@@ -59,7 +60,7 @@ struct FileEditorView: View {
                     if isMarkdown {
                         Picker("Editor mode", selection: $editorMode) {
                             ForEach(MarkdownEditorMode.allCases) { mode in
-                                Text(mode.rawValue).tag(mode)
+                                Text(mode.title).tag(mode)
                             }
                         }
                         .pickerStyle(.segmented)
