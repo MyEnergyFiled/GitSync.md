@@ -9,6 +9,13 @@ struct FileEditorDestination: Hashable {
 
 // MARK: - View
 
+private enum MarkdownEditorMode: String, CaseIterable, Identifiable {
+    case source = "Source"
+    case preview = "Preview"
+    case properties = "Properties"
+    var id: String { rawValue }
+}
+
 struct FileEditorView: View {
     @Environment(AppState.self) private var state
     let repoID: UUID
@@ -24,6 +31,8 @@ struct FileEditorView: View {
     @State private var showRenameModal = false
     @State private var renameText: String = ""
     @State private var showSaveToast = false
+    @State private var editorMode: MarkdownEditorMode = .source
+    @State private var frontMatter = MarkdownFrontMatter(markdown: "")
 
     init(repoID: UUID, fileURL: URL) {
         self.repoID = repoID
@@ -32,8 +41,12 @@ struct FileEditorView: View {
     }
 
     private var fileName: String { liveURL.lastPathComponent }
-    private var isDirty: Bool { content != originalContent }
+    private var pendingContent: String {
+        isMarkdown && editorMode == .properties ? frontMatter.applying(to: content) : content
+    }
+    private var isDirty: Bool { pendingContent != originalContent }
     private var language: SyntaxLanguage { SyntaxLanguage.detect(fileExtension: liveURL.pathExtension) }
+    private var isMarkdown: Bool { ["md", "markdown"].contains(liveURL.pathExtension.lowercased()) }
 
     var body: some View {
         ZStack {
@@ -42,8 +55,20 @@ struct FileEditorView: View {
             if isBinary {
                 binaryState
             } else {
-                CodeEditorView(text: $content, language: language)
-                    .padding(.horizontal, 8)
+                VStack(spacing: 0) {
+                    if isMarkdown {
+                        Picker("Editor mode", selection: $editorMode) {
+                            ForEach(MarkdownEditorMode.allCases) { mode in
+                                Text(mode.rawValue).tag(mode)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(Color.brutalSurface)
+                    }
+                    editorContent
+                }
             }
 
             if showDeleteConfirm {
@@ -116,6 +141,62 @@ struct FileEditorView: View {
             }
         }
         .onAppear { loadContent() }
+        .onChange(of: editorMode) { oldMode, newMode in
+            if oldMode == .properties { content = frontMatter.applying(to: content) }
+            if newMode == .properties { frontMatter = MarkdownFrontMatter(markdown: content) }
+        }
+    }
+
+    @ViewBuilder
+    private var editorContent: some View {
+        if !isMarkdown || editorMode == .source {
+            CodeEditorView(text: $content, language: language)
+                .padding(.horizontal, 8)
+        } else if editorMode == .preview {
+            let parsed = MarkdownFrontMatter(markdown: content)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    if !parsed.title.isEmpty {
+                        Text(parsed.title)
+                            .font(.system(size: 28, weight: .bold, design: .serif))
+                            .foregroundStyle(Color.brutalText)
+                    }
+                    if let attributed = try? AttributedString(markdown: parsed.body) {
+                        Text(attributed)
+                            .font(.system(size: 17, design: .serif))
+                            .foregroundStyle(Color.brutalText)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        Text(parsed.body)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                .padding(24)
+            }
+        } else {
+            Form {
+                Section("Front Matter") {
+                    TextField("Title", text: $frontMatter.title)
+                    TextField("Date", text: $frontMatter.date)
+                        .textInputAutocapitalization(.never)
+                    Toggle("Draft", isOn: $frontMatter.draft)
+                    TextField("Tags (comma separated)", text: $frontMatter.tags)
+                }
+                Section("Body") {
+                    TextEditor(text: $frontMatter.body)
+                        .font(.system(size: 15, design: .serif))
+                        .frame(minHeight: 320)
+                }
+                Section {
+                    Text("Unrecognized Front Matter fields are preserved when saving.")
+                        .font(.caption.monospaced())
+                        .foregroundStyle(Color.brutalTextFaint)
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .background(Color.brutalBg)
+        }
     }
 
     // MARK: - Binary Fallback
@@ -146,9 +227,11 @@ struct FileEditorView: View {
         }
         content = text
         originalContent = text
+        if isMarkdown { frontMatter = MarkdownFrontMatter(markdown: text) }
     }
 
     private func performSave() {
+        content = pendingContent
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         guard let data = content.data(using: .utf8) else { return }
         try? data.write(to: liveURL, options: .atomic)

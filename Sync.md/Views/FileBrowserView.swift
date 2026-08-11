@@ -29,6 +29,7 @@ struct FileBrowserView: View {
     @State private var showRenameAlert = false
     @State private var showCreateFileAlert = false
     @State private var newFileName: String = ""
+    @State private var showHugoCreator = false
 
     private var vaultURL: URL { state.vaultURL(for: repoID) }
     private var currentURL: URL {
@@ -64,9 +65,18 @@ struct FileBrowserView: View {
                     .tracking(2)
             }
             ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    newFileName = ""
-                    showCreateFileAlert = true
+                Menu {
+                    Button {
+                        showHugoCreator = true
+                    } label: {
+                        Label("New Hugo Content", systemImage: "doc.badge.plus")
+                    }
+                    Button {
+                        newFileName = ""
+                        showCreateFileAlert = true
+                    } label: {
+                        Label("New Empty File", systemImage: "doc")
+                    }
                 } label: {
                     Image(systemName: "plus")
                         .font(.system(size: 14, weight: .semibold))
@@ -100,6 +110,13 @@ struct FileBrowserView: View {
             Button("Cancel", role: .cancel) { newFileName = "" }
         } message: {
             Text("Enter a name for the new file in \"\(navTitle)\"")
+        }
+        .sheet(isPresented: $showHugoCreator) {
+            HugoNewContentView(
+                repoID: repoID,
+                initialDirectory: relativePath.hasPrefix("content") ? relativePath : "",
+                onCreated: { _ in loadItems() }
+            )
         }
         .onAppear { loadItems() }
     }
