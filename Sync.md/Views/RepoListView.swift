@@ -398,6 +398,11 @@ struct RepoListView: View {
                             .foregroundStyle(Color.brutalText)
                             .lineLimit(1)
                         Spacer()
+                        if let progress = state.syncProgressFraction {
+                            Text("\(Int(progress * 100))%")
+                                .font(.system(size: 12, weight: .black, design: .monospaced))
+                                .foregroundStyle(Color.brutalText)
+                        }
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)

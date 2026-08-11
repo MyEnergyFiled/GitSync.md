@@ -120,6 +120,7 @@ final class AppState {
     var isSyncing: Bool = false
     var syncingRepoID: UUID? = nil
     var syncProgress: String = ""
+    var syncProgressFraction: Double? = nil
 
     // MARK: - OAuth / Auth
 
@@ -2052,6 +2053,9 @@ final class AppState {
         isSyncing = true
         syncingRepoID = repoID
         syncProgress = String(localized: "Preparing to clone...")
+        syncProgressFraction = 0.08
+        var cloneProgressTask: Task<Void, Never>?
+        defer { cloneProgressTask?.cancel() }
 
         do {
             let fm = FileManager.default
@@ -2090,8 +2094,21 @@ final class AppState {
             let gitService = gitRepositoryFactory(vaultDir)
 
             syncProgress = String(localized: "Cloning repository...")
+            syncProgressFraction = 0.18
+            cloneProgressTask = Task { @MainActor [weak self] in
+                var progress = 0.18
+                while !Task.isCancelled && progress < 0.82 {
+                    try? await Task.sleep(for: .milliseconds(700))
+                    guard !Task.isCancelled else { return }
+                    progress += max(0.01, (0.82 - progress) * 0.10)
+                    self?.syncProgressFraction = min(progress, 0.82)
+                }
+            }
             DebugLogger.shared.info("clone", "Starting clone", detail: cloneURL)
             let result = try await gitService.clone(remoteURL: cloneURL, pat: authPayload(for: repo))
+            cloneProgressTask?.cancel()
+            syncProgress = String(localized: "Finalizing repository...")
+            syncProgressFraction = 0.92
 
             // Update branch from what was actually checked out
             if repo.branch.isEmpty {
@@ -2111,6 +2128,7 @@ final class AppState {
             clearCommitHistoryCache(for: repoID)
             detectChanges(repoID: repoID)
             syncProgress = String(localized: "Clone complete! (\(result.fileCount) files)")
+            syncProgressFraction = 1.0
             DebugLogger.shared.info("clone", "Clone complete", detail: "\(result.fileCount) files, branch: \(result.branch)")
             if let lfsWarning = result.lfsWarning {
                 showError(message: lfsWarning, category: "lfs")
@@ -2126,6 +2144,7 @@ final class AppState {
         try? await Task.sleep(for: .seconds(1))
         isSyncing = false
         syncingRepoID = nil
+        syncProgressFraction = nil
     }
 
     @discardableResult

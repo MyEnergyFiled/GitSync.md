@@ -606,15 +606,25 @@ struct VaultView: View {
 
     private var syncProgressCard: some View {
         BCard(padding: 14, bg: .brutalSurface) {
-            HStack(spacing: 12) {
-                ProgressView()
-                    .controlSize(.small)
-                    .tint(Color.brutalAccent)
-                Text(state.syncProgress.uppercased())
-                    .font(.system(size: 13, weight: .medium, design: .monospaced))
-                    .foregroundStyle(Color.brutalText)
-                    .tracking(1)
-                Spacer()
+            VStack(spacing: 10) {
+                HStack(spacing: 12) {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(Color.brutalAccent)
+                    Text(state.syncProgress.uppercased())
+                        .font(.system(size: 13, weight: .medium, design: .monospaced))
+                        .foregroundStyle(Color.brutalText)
+                        .tracking(1)
+                    Spacer()
+                    if let progress = state.syncProgressFraction {
+                        Text("\(Int(progress * 100))%")
+                            .font(.system(size: 13, weight: .black, design: .monospaced))
+                            .foregroundStyle(Color.brutalText)
+                    }
+                }
+                if let progress = state.syncProgressFraction {
+                    BProgressBar(progress: progress, height: 5)
+                }
             }
         }
     }
@@ -694,14 +704,21 @@ struct VaultView: View {
 
             BLoading(text: String(localized: "Cloning Repository"))
 
-            Text(state.syncProgress)
-                .font(.system(size: 13, design: .monospaced))
-                .foregroundStyle(Color.brutalText)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 40)
+            VStack(spacing: 10) {
+                HStack {
+                    Text(state.syncProgress)
+                        .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(Color.brutalText)
+                        .multilineTextAlignment(.leading)
+                    Spacer()
+                    Text("\(Int((state.syncProgressFraction ?? 0) * 100))%")
+                        .font(.system(size: 15, weight: .black, design: .monospaced))
+                        .foregroundStyle(Color.brutalText)
+                }
 
-            BProgressBar(progress: 0.5)
-                .padding(.horizontal, 40)
+                BProgressBar(progress: state.syncProgressFraction ?? 0, height: 6)
+            }
+            .padding(.horizontal, 40)
 
             Spacer()
             Spacer()
