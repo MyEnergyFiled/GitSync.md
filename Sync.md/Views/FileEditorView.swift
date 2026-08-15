@@ -1,6 +1,7 @@
 import SwiftUI
 import PhotosUI
 import UniformTypeIdentifiers
+import UIKit
 
 // MARK: - Navigation Destination
 
@@ -15,6 +16,7 @@ private enum MarkdownEditorMode: String, CaseIterable, Identifiable {
     case source = "Source"
     case preview = "Preview"
     case properties = "Properties"
+    case split = "Split"
     var id: String { rawValue }
     var title: String { String(localized: String.LocalizationValue(rawValue)) }
 }
@@ -39,6 +41,10 @@ struct FileEditorView: View {
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var showImageImporter = false
     @State private var imageMessage: String?
+    @State private var editorSelection = NSRange(location: 0, length: 0)
+    @State private var images: [URL] = []
+    @State private var showImageLibrary = false
+    @State private var showDiscardConfirm = false
 
     init(repoID: UUID, fileURL: URL) {
         self.repoID = repoID
@@ -89,6 +95,18 @@ struct FileEditorView: View {
                 .transition(.opacity.combined(with: .scale(scale: 0.97)))
             }
 
+            if showDiscardConfirm {
+                BConfirmModal(
+                    title: String(localized: "Discard Changes?"),
+                    message: String(localized: "Your unsaved edits will be lost."),
+                    confirmLabel: String(localized: "Discard"),
+                    isDestructive: true,
+                    onConfirm: { showDiscardConfirm = false; dismiss() },
+                    onCancel: { showDiscardConfirm = false }
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.97)))
+            }
+
             if showRenameModal {
                 BRenameModal(
                     title: String(localized: "Rename File"),
@@ -117,7 +135,16 @@ struct FileEditorView: View {
         .animation(.easeOut(duration: 0.15), value: showDeleteConfirm)
         .animation(.easeOut(duration: 0.15), value: showRenameModal)
         .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(isDirty)
         .toolbar {
+            if isDirty {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { showDiscardConfirm = true } label: {
+                        Image(systemName: "chevron.left")
+                    }
+                    .accessibilityLabel("Back")
+                }
+            }
             ToolbarItem(placement: .principal) {
                 Text(fileName.uppercased())
                     .font(.system(size: 12, weight: .black, design: .monospaced))
@@ -136,6 +163,12 @@ struct FileEditorView: View {
                                 showImageImporter = true
                             } label: {
                                 Label("Choose Image File", systemImage: "folder")
+                            }
+                            Button {
+                                loadImages()
+                                showImageLibrary = true
+                            } label: {
+                                Label("Manage Images", systemImage: "photo.stack")
                             }
                         } label: {
                             Image(systemName: "photo.badge.plus")
@@ -167,6 +200,16 @@ struct FileEditorView: View {
                 }
             }
         }
+        .sheet(isPresented: $showImageLibrary) {
+            HugoImageLibraryView(
+                images: $images,
+                isReferenced: { isImageReferenced($0.lastPathComponent) },
+                onInsert: { insertMarkdownImage(named: $0.lastPathComponent) },
+                onRename: renameImage,
+                onReplace: replaceImage,
+                onDelete: deleteImage
+            )
+        }
         .fileImporter(isPresented: $showImageImporter, allowedContentTypes: [.image]) { result in
             guard case .success(let source) = result else { return }
             importImageFile(source)
@@ -183,7 +226,7 @@ struct FileEditorView: View {
         } message: {
             Text(imageMessage ?? "")
         }
-        .onAppear { loadContent() }
+        .onAppear { loadContent(); loadImages() }
         .onChange(of: editorMode) { oldMode, newMode in
             if oldMode == .properties { content = frontMatter.applying(to: content) }
             if newMode == .properties { frontMatter = MarkdownFrontMatter(markdown: content) }
@@ -193,29 +236,28 @@ struct FileEditorView: View {
     @ViewBuilder
     private var editorContent: some View {
         if !isMarkdown || editorMode == .source {
-            CodeEditorView(text: $content, language: language)
+            CodeEditorView(text: $content, selection: $editorSelection, language: language)
                 .padding(.horizontal, 8)
         } else if editorMode == .preview {
-            let parsed = MarkdownFrontMatter(markdown: content)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    if !parsed.title.isEmpty {
-                        Text(parsed.title)
-                            .font(.system(size: 28, weight: .bold, design: .serif))
-                            .foregroundStyle(Color.brutalText)
+            markdownPreview
+        } else if editorMode == .split {
+            GeometryReader { geometry in
+                if geometry.size.width >= 760 {
+                    HStack(spacing: 0) {
+                        CodeEditorView(text: $content, selection: $editorSelection, language: language)
+                            .padding(.horizontal, 8)
+                            .frame(width: geometry.size.width / 2)
+                        Rectangle().fill(Color.brutalBorder).frame(width: 1)
+                        markdownPreview
                     }
-                    if let attributed = try? AttributedString(markdown: parsed.body) {
-                        Text(attributed)
-                            .font(.system(size: 17, design: .serif))
-                            .foregroundStyle(Color.brutalText)
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    } else {
-                        Text(parsed.body)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    VStack(spacing: 0) {
+                        CodeEditorView(text: $content, selection: $editorSelection, language: language)
+                            .padding(.horizontal, 8)
+                        Rectangle().fill(Color.brutalBorder).frame(height: 1)
+                        markdownPreview
                     }
                 }
-                .padding(24)
             }
         } else {
             Form {
@@ -242,16 +284,33 @@ struct FileEditorView: View {
         }
     }
 
+    private var markdownPreview: some View {
+        let parsed = MarkdownFrontMatter(markdown: content)
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                if !parsed.title.isEmpty {
+                    Text(parsed.title)
+                        .font(.system(size: 28, weight: .bold, design: .serif))
+                        .foregroundStyle(Color.brutalText)
+                }
+                HugoMarkdownPreview(markdownBody: parsed.body, bundleURL: liveURL.deletingLastPathComponent())
+            }
+            .padding(24)
+        }
+    }
+
     private var markdownFormattingBar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                formattingButton("H1", insertion: "\n# Heading\n")
-                formattingButton("B", insertion: "**bold**")
-                formattingButton("I", insertion: "*italic*")
-                formattingButton("LINK", insertion: "[text](https://)")
-                formattingButton("CODE", insertion: "`code`")
-                formattingButton("QUOTE", insertion: "\n> Quote\n")
-                formattingButton("LIST", insertion: "\n- Item\n")
+                formattingButton("↶") { UIApplication.shared.sendAction(Selector(("undo:")), to: nil, from: nil, for: nil) }
+                formattingButton("↷") { UIApplication.shared.sendAction(Selector(("redo:")), to: nil, from: nil, for: nil) }
+                formattingButton("H1") { applyMarkdown(prefix: "# ", placeholder: "Heading") }
+                formattingButton("B") { applyMarkdown(prefix: "**", suffix: "**", placeholder: "bold") }
+                formattingButton("I") { applyMarkdown(prefix: "*", suffix: "*", placeholder: "italic") }
+                formattingButton("LINK") { applyMarkdown(prefix: "[", suffix: "](https://)", placeholder: "text") }
+                formattingButton("CODE") { applyMarkdown(prefix: "`", suffix: "`", placeholder: "code") }
+                formattingButton("QUOTE") { applyMarkdown(prefix: "> ", placeholder: "Quote") }
+                formattingButton("LIST") { applyMarkdown(prefix: "- ", placeholder: "Item") }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -260,8 +319,8 @@ struct FileEditorView: View {
         .overlay(alignment: .top) { Rectangle().fill(Color.brutalBorder).frame(height: 1) }
     }
 
-    private func formattingButton(_ label: String, insertion: String) -> some View {
-        Button(label) { appendMarkdown(insertion) }
+    private func formattingButton(_ label: String, action: @escaping () -> Void) -> some View {
+        Button(label, action: action)
             .font(.system(size: 11, weight: .bold, design: .monospaced))
             .foregroundStyle(Color.brutalText)
             .padding(.horizontal, 10)
@@ -270,8 +329,23 @@ struct FileEditorView: View {
             .overlay { Rectangle().stroke(Color.brutalBorder, lineWidth: 1) }
     }
 
+    private func applyMarkdown(prefix: String, suffix: String = "", placeholder: String) {
+        let source = content as NSString
+        let location = min(editorSelection.location, source.length)
+        let length = min(editorSelection.length, source.length - location)
+        let selected = length > 0 ? source.substring(with: NSRange(location: location, length: length)) : placeholder
+        let insertion = prefix + selected + suffix
+        content = source.replacingCharacters(in: NSRange(location: location, length: length), with: insertion)
+        let selectedLocation = location + (prefix as NSString).length
+        editorSelection = NSRange(location: selectedLocation, length: (selected as NSString).length)
+    }
+
     private func appendMarkdown(_ insertion: String) {
-        content += (content.isEmpty || content.hasSuffix("\n") ? "" : "\n") + insertion
+        let source = content as NSString
+        let location = min(editorSelection.location, source.length)
+        let length = min(editorSelection.length, source.length - location)
+        content = source.replacingCharacters(in: NSRange(location: location, length: length), with: insertion)
+        editorSelection = NSRange(location: location + (insertion as NSString).length, length: 0)
     }
 
     // MARK: - Binary Fallback
@@ -339,6 +413,7 @@ struct FileEditorView: View {
                 suffix += 1
             }
             try data.write(to: destination, options: .atomic)
+            loadImages()
             insertMarkdownImage(named: destination.lastPathComponent)
             state.detectChanges(repoID: repoID)
             imageMessage = String(localized: "Image added to images/ and inserted into Markdown.")
@@ -351,10 +426,79 @@ struct FileEditorView: View {
         let markdown = "![\(URL(fileURLWithPath: name).deletingPathExtension().lastPathComponent)](images/\(name))"
         if editorMode == .properties {
             frontMatter.body += (frontMatter.body.isEmpty ? "" : "\n\n") + markdown
+        } else if editorMode == .source || editorMode == .split {
+            appendMarkdown(markdown)
         } else {
-            content += (content.hasSuffix("\n") || content.isEmpty ? "" : "\n") + "\n\(markdown)\n"
+            let end = (content as NSString).length
+            editorSelection = NSRange(location: end, length: 0)
             editorMode = .source
+            appendMarkdown((content.hasSuffix("\n") ? "" : "\n") + markdown)
         }
+    }
+
+    private var imageDirectory: URL {
+        liveURL.deletingLastPathComponent().appendingPathComponent("images", isDirectory: true)
+    }
+
+    private func loadImages() {
+        let supported = Set(["jpg", "jpeg", "png", "gif", "webp", "heic", "heif", "avif"])
+        images = ((try? FileManager.default.contentsOfDirectory(
+            at: imageDirectory,
+            includingPropertiesForKeys: nil,
+            options: .skipsHiddenFiles
+        )) ?? []).filter { supported.contains($0.pathExtension.lowercased()) }
+            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+    }
+
+    private func isImageReferenced(_ name: String) -> Bool {
+        content.contains("images/\(name)") || frontMatter.body.contains("images/\(name)")
+    }
+
+    private func renameImage(_ image: URL, _ requestedName: String) {
+        let raw = URL(fileURLWithPath: requestedName)
+        let ext = raw.pathExtension.isEmpty ? image.pathExtension : raw.pathExtension.lowercased()
+        let stem = HugoContentService.slugify(raw.deletingPathExtension().lastPathComponent)
+        guard !stem.isEmpty else { return }
+        let destination = imageDirectory.appendingPathComponent("\(stem).\(ext)")
+        guard destination != image, !FileManager.default.fileExists(atPath: destination.path) else { return }
+        do {
+            try FileManager.default.moveItem(at: image, to: destination)
+            replaceImageReference(from: image.lastPathComponent, to: destination.lastPathComponent)
+            loadImages()
+            state.detectChanges(repoID: repoID)
+        } catch { imageMessage = error.localizedDescription }
+    }
+
+    private func replaceImage(_ image: URL, _ source: URL) {
+        let accessing = source.startAccessingSecurityScopedResource()
+        defer { if accessing { source.stopAccessingSecurityScopedResource() } }
+        do {
+            let data = try Data(contentsOf: source)
+            let sourceExtension = source.pathExtension.lowercased()
+            let destination = sourceExtension.isEmpty || sourceExtension == image.pathExtension.lowercased()
+                ? image
+                : image.deletingPathExtension().appendingPathExtension(sourceExtension)
+            try data.write(to: destination, options: .atomic)
+            if destination != image {
+                try FileManager.default.removeItem(at: image)
+                replaceImageReference(from: image.lastPathComponent, to: destination.lastPathComponent)
+            }
+            loadImages()
+            state.detectChanges(repoID: repoID)
+        } catch { imageMessage = error.localizedDescription }
+    }
+
+    private func deleteImage(_ image: URL) {
+        do {
+            try FileManager.default.removeItem(at: image)
+            loadImages()
+            state.detectChanges(repoID: repoID)
+        } catch { imageMessage = error.localizedDescription }
+    }
+
+    private func replaceImageReference(from oldName: String, to newName: String) {
+        content = content.replacingOccurrences(of: "images/\(oldName)", with: "images/\(newName)")
+        frontMatter.body = frontMatter.body.replacingOccurrences(of: "images/\(oldName)", with: "images/\(newName)")
     }
 
     private func performSave() {
@@ -390,5 +534,201 @@ struct FileEditorView: View {
             liveURL = dest
             state.detectChanges(repoID: repoID)
         } catch {}
+    }
+}
+
+
+
+private struct HugoMarkdownPreview: View {
+    let markdownBody: String
+    let bundleURL: URL
+
+    var bodyView: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(Array(markdownBody.components(separatedBy: .newlines).enumerated()), id: \.offset) { item in
+                let line = item.element
+                if let image = localImage(from: line) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Image(uiImage: image.value)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        if !image.alt.isEmpty {
+                            Text(image.alt)
+                                .font(.caption.monospaced())
+                                .foregroundStyle(Color.brutalTextFaint)
+                        }
+                    }
+                } else if line.isEmpty {
+                    Color.clear.frame(height: 6)
+                } else if let attributed = try? AttributedString(markdown: line) {
+                    Text(attributed)
+                        .font(.system(size: 17, design: .serif))
+                        .foregroundStyle(Color.brutalText)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    Text(line)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+    }
+
+    var body: some View { bodyView }
+
+    private func localImage(from line: String) -> (value: UIImage, alt: String)? {
+        let pattern = #"^!\[([^]]*)\]\((images/[^)]+)\)$"#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
+              match.range.location != NSNotFound,
+              let altRange = Range(match.range(at: 1), in: line),
+              let pathRange = Range(match.range(at: 2), in: line) else { return nil }
+        let path = String(line[pathRange]).removingPercentEncoding ?? String(line[pathRange])
+        guard !path.contains("..") else { return nil }
+        let url = bundleURL.appendingPathComponent(path)
+        guard let image = UIImage(contentsOfFile: url.path) else { return nil }
+        return (image, String(line[altRange]))
+    }
+}
+
+private struct HugoImageLibraryView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Binding var images: [URL]
+    let isReferenced: (URL) -> Bool
+    let onInsert: (URL) -> Void
+    let onRename: (URL, String) -> Void
+    let onReplace: (URL, URL) -> Void
+    let onDelete: (URL) -> Void
+
+    @State private var renameTarget: URL?
+    @State private var renameName = ""
+    @State private var deleteTarget: URL?
+    @State private var replaceTarget: URL?
+    @State private var showReplacementImporter = false
+
+    private let columns = [GridItem(.adaptive(minimum: 140), spacing: 12)]
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if images.isEmpty {
+                    ContentUnavailableView(
+                        "No Images",
+                        systemImage: "photo.stack",
+                        description: Text("Import an image from the editor toolbar first.")
+                    )
+                } else {
+                    ScrollView {
+                        LazyVGrid(columns: columns, spacing: 12) {
+                            ForEach(images, id: \.path) { image in
+                                imageCard(image)
+                            }
+                        }
+                        .padding(16)
+                    }
+                }
+            }
+            .background(Color.brutalBg)
+            .navigationTitle("Images")
+            .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(isDirty)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        .alert("Rename Image", isPresented: Binding(
+            get: { renameTarget != nil },
+            set: { if !$0 { renameTarget = nil } }
+        )) {
+            TextField("image-name.jpg", text: $renameName)
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+            Button("Rename") {
+                if let target = renameTarget { onRename(target, renameName) }
+                renameTarget = nil
+            }
+            Button("Cancel", role: .cancel) { renameTarget = nil }
+        } message: {
+            Text("Use an English file name. Markdown references will be updated automatically.")
+        }
+        .alert("Delete Image?", isPresented: Binding(
+            get: { deleteTarget != nil },
+            set: { if !$0 { deleteTarget = nil } }
+        )) {
+            Button("Delete", role: .destructive) {
+                if let target = deleteTarget { onDelete(target) }
+                deleteTarget = nil
+            }
+            Button("Cancel", role: .cancel) { deleteTarget = nil }
+        } message: {
+            if let target = deleteTarget, isReferenced(target) {
+                Text("This image is referenced by the article. Deleting it will leave a broken Markdown link.")
+            } else {
+                Text("This removes the image from the article bundle.")
+            }
+        }
+        .fileImporter(isPresented: $showReplacementImporter, allowedContentTypes: [.image]) { result in
+            guard case .success(let source) = result, let target = replaceTarget else { return }
+            onReplace(target, source)
+            replaceTarget = nil
+        }
+    }
+
+    private func imageCard(_ imageURL: URL) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Group {
+                if let value = UIImage(contentsOfFile: imageURL.path) {
+                    Image(uiImage: value)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    Image(systemName: "photo")
+                        .font(.system(size: 32))
+                        .foregroundStyle(Color.brutalTextFaint)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 110)
+            .clipped()
+            .background(Color.brutalSurface)
+
+            Text(imageURL.lastPathComponent)
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .foregroundStyle(Color.brutalText)
+                .lineLimit(1)
+                .truncationMode(.middle)
+
+            HStack {
+                Button {
+                    onInsert(imageURL)
+                    dismiss()
+                } label: {
+                    Label("Insert", systemImage: "plus.square.on.square")
+                }
+                Spacer()
+                Menu {
+                    Button {
+                        renameTarget = imageURL
+                        renameName = imageURL.lastPathComponent
+                    } label: { Label("Rename", systemImage: "pencil") }
+                    Button {
+                        replaceTarget = imageURL
+                        showReplacementImporter = true
+                    } label: { Label("Replace", systemImage: "arrow.triangle.2.circlepath") }
+                    Button(role: .destructive) {
+                        deleteTarget = imageURL
+                    } label: { Label("Delete", systemImage: "trash") }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+            }
+            .font(.system(size: 11, weight: .bold, design: .monospaced))
+        }
+        .padding(10)
+        .background(Color.brutalSurface)
+        .overlay { Rectangle().stroke(Color.brutalBorder, lineWidth: 1) }
     }
 }

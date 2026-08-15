@@ -4,6 +4,7 @@ import UIKit
 /// A UITextView-backed editor with debounced syntax highlighting.
 struct CodeEditorView: UIViewRepresentable {
     @Binding var text: String
+    @Binding var selection: NSRange
     let language: SyntaxLanguage
     @Environment(\.colorScheme) private var colorScheme
 
@@ -41,6 +42,7 @@ struct CodeEditorView: UIViewRepresentable {
         var parent: CodeEditorView
         var lastColorScheme: ColorScheme = .light
         private var debounce: DispatchWorkItem?
+        private var isApplyingHighlight = false
 
         init(_ parent: CodeEditorView) { self.parent = parent }
 
@@ -48,27 +50,23 @@ struct CodeEditorView: UIViewRepresentable {
         func applyHighlighting(to textView: UITextView, overrideText: String? = nil) {
             let content = overrideText ?? textView.text ?? ""
             let theme = parent.colorScheme == .dark ? SyntaxTheme.dark : SyntaxTheme.light
-            let selection = textView.selectedRange
+            let desiredSelection = overrideText == nil ? textView.selectedRange : parent.selection
             let offset = textView.contentOffset
 
+            isApplyingHighlight = true
             textView.attributedText = SyntaxHighlighter.highlight(content, language: parent.language, theme: theme)
             textView.typingAttributes = [
                 .font: UIFont.monospacedSystemFont(ofSize: 13, weight: .regular),
                 .foregroundColor: theme.plain
             ]
 
-            if overrideText != nil {
-                // New file loaded — reset to top
-                textView.selectedRange = NSRange(location: 0, length: 0)
-            } else {
-                // Re-highlight only — preserve cursor and scroll
-                let length = (textView.text ?? "").utf16.count
-                let safeLoc = min(selection.location, length)
-                let safeLen = min(selection.length, length - safeLoc)
-                textView.selectedRange = NSRange(location: safeLoc, length: safeLen)
-                textView.setContentOffset(offset, animated: false)
-            }
-
+            let length = (textView.text ?? "").utf16.count
+            let safeLoc = min(desiredSelection.location, length)
+            let safeLen = min(desiredSelection.length, length - safeLoc)
+            textView.selectedRange = NSRange(location: safeLoc, length: safeLen)
+            textView.setContentOffset(offset, animated: false)
+            parent.selection = textView.selectedRange
+            isApplyingHighlight = false
             lastColorScheme = parent.colorScheme
         }
 
@@ -76,6 +74,7 @@ struct CodeEditorView: UIViewRepresentable {
 
         func textViewDidChange(_ textView: UITextView) {
             parent.text = textView.text ?? ""
+            parent.selection = textView.selectedRange
 
             debounce?.cancel()
             let item = DispatchWorkItem { [weak self, weak textView] in
@@ -84,6 +83,11 @@ struct CodeEditorView: UIViewRepresentable {
             }
             debounce = item
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: item)
+        }
+
+        func textViewDidChangeSelection(_ textView: UITextView) {
+            guard !isApplyingHighlight else { return }
+            parent.selection = textView.selectedRange
         }
     }
 }
