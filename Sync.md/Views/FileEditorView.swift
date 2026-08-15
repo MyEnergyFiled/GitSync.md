@@ -55,6 +55,7 @@ struct FileEditorView: View {
     @State private var isQuickPublishing = false
     @State private var oversizedImageNames: [String] = []
     @State private var showLargeImageConfirm = false
+    @State private var pendingPublishOperationID: String?
     @State private var persistenceMessage = String(localized: "File loaded")
 
     private let draftStore = FileEditorDraftStore()
@@ -66,6 +67,7 @@ struct FileEditorView: View {
     }
 
     private var fileName: String { liveURL.lastPathComponent }
+    private var logRepoName: String? { state.repo(id: repoID)?.displayName }
     private var pendingContent: String {
         isMarkdown && editorMode == .properties ? frontMatter.applying(to: content) : content
     }
@@ -154,9 +156,14 @@ struct FileEditorView: View {
                     isDestructive: false,
                     onConfirm: {
                         showLargeImageConfirm = false
-                        Task { await quickPublish(skipLargeImageWarning: true) }
+                        let operationID = pendingPublishOperationID
+                        pendingPublishOperationID = nil
+                        Task { await quickPublish(skipLargeImageWarning: true, operationID: operationID) }
                     },
-                    onCancel: { showLargeImageConfirm = false }
+                    onCancel: {
+                        showLargeImageConfirm = false
+                        pendingPublishOperationID = nil
+                    }
                 )
                 .zIndex(40)
             }
@@ -507,6 +514,10 @@ struct FileEditorView: View {
         pendingRecoveredDraft = nil
         showDraftRecovery = false
         persistenceMessage = String(localized: "Recovered unsaved draft")
+        DebugLogger.shared.info(
+            "editor", "Recovered unsaved draft", detail: fileName,
+            repoID: repoID, repoName: logRepoName
+        )
     }
 
     private func discardPendingDraft() {
@@ -514,6 +525,10 @@ struct FileEditorView: View {
         showDraftRecovery = false
         try? draftStore.remove(repoID: repoID, fileURL: liveURL)
         persistenceMessage = String(localized: "Using saved file")
+        DebugLogger.shared.info(
+            "editor", "Discarded recovered draft", detail: fileName,
+            repoID: repoID, repoName: logRepoName
+        )
     }
 
     private func scheduleDraftSave(_ value: String) {
@@ -527,14 +542,30 @@ struct FileEditorView: View {
         draftSaveTask = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(700))
             guard !Task.isCancelled else { return }
-            try? draftStore.save(content: value, repoID: repoID, fileURL: targetURL)
-            persistenceMessage = String(localized: "Draft saved locally")
+            do {
+                try draftStore.save(content: value, repoID: repoID, fileURL: targetURL)
+                persistenceMessage = String(localized: "Draft saved locally")
+            } catch {
+                persistenceMessage = String(localized: "Draft save failed")
+                DebugLogger.shared.error(
+                    "editor", "Draft save failed", detail: error.localizedDescription,
+                    repoID: repoID, repoName: logRepoName
+                )
+            }
         }
     }
 
     private func saveDraftImmediately() {
         guard isDirty else { return }
-        try? draftStore.save(content: pendingContent, repoID: repoID, fileURL: liveURL)
+        do {
+            try draftStore.save(content: pendingContent, repoID: repoID, fileURL: liveURL)
+        } catch {
+            persistenceMessage = String(localized: "Draft save failed")
+            DebugLogger.shared.error(
+                "editor", "Immediate draft save failed", detail: error.localizedDescription,
+                repoID: repoID, repoName: logRepoName
+            )
+        }
     }
 
     private func importPhoto(_ item: PhotosPickerItem) async {
@@ -660,7 +691,7 @@ struct FileEditorView: View {
     }
 
     @discardableResult
-    private func performSave() -> Bool {
+    private func performSave(operationID: String? = nil) -> Bool {
         content = pendingContent
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         guard let data = content.data(using: .utf8) else { return false }
@@ -671,6 +702,10 @@ struct FileEditorView: View {
             try? draftStore.remove(repoID: repoID, fileURL: liveURL)
             state.detectChanges(repoID: repoID)
             persistenceMessage = String(localized: "File saved · not committed")
+            DebugLogger.shared.info(
+                "editor", "File saved", detail: fileName,
+                repoID: repoID, repoName: logRepoName, operationID: operationID
+            )
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                 showSaveToast = true
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
@@ -681,13 +716,22 @@ struct FileEditorView: View {
         } catch {
             imageMessage = error.localizedDescription
             persistenceMessage = String(localized: "Save failed · draft preserved")
+            DebugLogger.shared.error(
+                "editor", "File save failed", detail: error.localizedDescription,
+                repoID: repoID, repoName: logRepoName, operationID: operationID
+            )
             saveDraftImmediately()
             return false
         }
     }
 
-    private func quickPublish(skipLargeImageWarning: Bool = false) async {
+    private func quickPublish(skipLargeImageWarning: Bool = false, operationID suppliedOperationID: String? = nil) async {
         guard !isQuickPublishing else { return }
+        let operationID = suppliedOperationID ?? String(UUID().uuidString.prefix(8)).lowercased()
+        DebugLogger.shared.info(
+            "publish", "Starting article publish", detail: fileName,
+            repoID: repoID, repoName: logRepoName, operationID: operationID
+        )
         let validation = HugoContentService.validateArticleBundle(
             markdown: pendingContent,
             fileURL: liveURL
@@ -696,18 +740,29 @@ struct FileEditorView: View {
             imageMessage = String(localized: "Missing image files:")
                 + "\n\n" + validation.missingImagePaths.joined(separator: "\n")
             persistenceMessage = String(localized: "Publish blocked · missing images")
+            DebugLogger.shared.warning(
+                "publish", "Publish blocked by missing images",
+                detail: validation.missingImagePaths.joined(separator: ", "),
+                repoID: repoID, repoName: logRepoName, operationID: operationID
+            )
             return
         }
         if !skipLargeImageWarning && !validation.oversizedImageNames.isEmpty {
             oversizedImageNames = validation.oversizedImageNames
+            pendingPublishOperationID = operationID
             showLargeImageConfirm = true
+            DebugLogger.shared.warning(
+                "publish", "Large images require confirmation",
+                detail: validation.oversizedImageNames.joined(separator: ", "),
+                repoID: repoID, repoName: logRepoName, operationID: operationID
+            )
             return
         }
-        guard performSave() else { return }
+        guard performSave(operationID: operationID) else { return }
         isQuickPublishing = true
         persistenceMessage = String(localized: "Saving file…")
 
-        let staged = await state.stageArticleBundle(repoID: repoID, fileURL: liveURL)
+        let staged = await state.stageArticleBundle(repoID: repoID, fileURL: liveURL, operationID: operationID)
         guard staged else {
             isQuickPublishing = false
             persistenceMessage = String(localized: "No article changes to commit")
@@ -715,7 +770,7 @@ struct FileEditorView: View {
         }
 
         persistenceMessage = String(localized: "Article staged · pushing…")
-        let pushed = await state.push(repoID: repoID, message: quickCommitMessage)
+        let pushed = await state.push(repoID: repoID, message: quickCommitMessage, operationID: operationID)
         isQuickPublishing = false
         if pushed {
             quickCommitMessage = ""

@@ -136,6 +136,19 @@ struct DebugLogView: View {
                     .foregroundStyle(Color.brutalTextFaint)
             }
 
+            if entry.repoName != nil || entry.operationID != nil {
+                HStack(spacing: 8) {
+                    if let repoName = entry.repoName {
+                        Text("REPO \(repoName)")
+                    }
+                    if let operationID = entry.operationID {
+                        Text("OP \(operationID)")
+                    }
+                }
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .foregroundStyle(Color.brutalTextFaint)
+            }
+
             // Message
             Text(entry.message)
                 .font(.system(size: 13, design: .monospaced))

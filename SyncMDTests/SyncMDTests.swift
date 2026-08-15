@@ -15,6 +15,37 @@ final class SyncMDTests: XCTestCase {
         XCTAssertTrue(true)
     }
 
+    func testLegacyLogEntryDecodesWithoutRepositoryContext() throws {
+        let id = UUID()
+        let payload: [String: Any] = [
+            "id": id.uuidString,
+            "date": 0.0,
+            "level": "info",
+            "category": "clone",
+            "message": "legacy",
+            "detail": NSNull()
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload)
+        let entry = try JSONDecoder().decode(LogEntry.self, from: data)
+
+        XCTAssertEqual(entry.id, id)
+        XCTAssertNil(entry.repoID)
+        XCTAssertNil(entry.repoName)
+        XCTAssertNil(entry.operationID)
+    }
+
+    func testDebugLoggerRedactsCredentialsAndPrivateKeys() {
+        let input = "Authorization: Bearer github_pat_abcdefghijklmnop https://secret@example.com/repo.git?token=ghp_abcdefghijk -----BEGIN OPENSSH PRIVATE KEY-----\nsecret\n-----END OPENSSH PRIVATE KEY-----"
+        let output = DebugLogger.redact(input)
+
+        XCTAssertFalse(output.contains("github_pat_abcdefghijklmnop"))
+        XCTAssertFalse(output.contains("ghp_abcdefghijk"))
+        XCTAssertFalse(output.contains("secret@example.com"))
+        XCTAssertFalse(output.contains("OPENSSH PRIVATE KEY"))
+        XCTAssertTrue(output.contains("<redacted"))
+    }
+
+
     func testDraftStoreRoundTripsAndRemovesEditorText() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }

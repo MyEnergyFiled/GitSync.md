@@ -222,7 +222,13 @@ struct HugoNewContentView: View {
     }
 
     private func create() {
+        let operationID = String(UUID().uuidString.prefix(8)).lowercased()
+        let repoName = state.repo(id: repoID)?.displayName
         let safeBundleName = normalizedBundleName
+        DebugLogger.shared.info(
+            "hugo", "Creating article bundle", detail: "\(directory)/\(safeBundleName)",
+            repoID: repoID, repoName: repoName, operationID: operationID
+        )
         guard HugoContentService.isValidBundleName(safeBundleName) else {
             errorMessage = String(localized: "Use a lowercase English folder name containing letters, numbers, and hyphens only.")
             return
@@ -258,10 +264,18 @@ struct HugoNewContentView: View {
             config.contentMappings.append(HugoContentMapping(directory: directory, archetype: archetype))
             try HugoContentService.saveConfiguration(config, to: root)
             state.detectChanges(repoID: repoID)
+            DebugLogger.shared.info(
+                "hugo", "Article bundle created", detail: "\(directory)/\(safeBundleName)/index.md",
+                repoID: repoID, repoName: repoName, operationID: operationID
+            )
             dismiss()
             onCreated(destination)
         } catch {
             errorMessage = error.localizedDescription
+            DebugLogger.shared.error(
+                "hugo", "Article creation failed", detail: error.localizedDescription,
+                repoID: repoID, repoName: repoName, operationID: operationID
+            )
         }
     }
 }

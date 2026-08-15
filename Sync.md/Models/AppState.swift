@@ -378,7 +378,14 @@ final class AppState {
             if let decoded = try? decoder.decode([RepoConfig].self, from: data) {
                 repos = Self.deduplicatedRepos(decoded)
                 duplicateReposCleanedCount = decoded.count - repos.count
-                if duplicateReposCleanedCount > 0 { saveRepos() }
+                if duplicateReposCleanedCount > 0 {
+                    saveRepos()
+                    DebugLogger.shared.info(
+                        "repository",
+                        "Merged duplicate repository records",
+                        detail: "\(duplicateReposCleanedCount) records; local files preserved"
+                    )
+                }
             }
         } else {
             // Migration from single-repo state
@@ -1852,7 +1859,7 @@ final class AppState {
     /// Stages only the current Hugo leaf bundle (`index.md` and its sibling
     /// `images/` directory). Existing staged changes elsewhere are preserved.
     @discardableResult
-    func stageArticleBundle(repoID: UUID, fileURL: URL) async -> Bool {
+    func stageArticleBundle(repoID: UUID, fileURL: URL, operationID: String? = nil) async -> Bool {
         guard let repo = repo(id: repoID), repo.isCloned else { return false }
         guard indexMutationRepoIDs.insert(repoID).inserted else { return false }
         defer { indexMutationRepoIDs.remove(repoID) }
@@ -1877,6 +1884,14 @@ final class AppState {
                     || ($0.oldPath?.hasPrefix(prefix) == true)
             }
             let unstagedEntries = bundleEntries.filter { $0.workTreeStatus != nil }
+            DebugLogger.shared.info(
+                "publish",
+                "Staging article bundle",
+                detail: "\(bundlePath): \(unstagedEntries.count) unstaged, \(bundleEntries.count) changed",
+                repoID: repoID,
+                repoName: repo.displayName,
+                operationID: operationID
+            )
             for entry in unstagedEntries {
                 try await gitService.stage(path: entry.path, oldPath: entry.oldPath, lfsAutoTrack: false)
             }
@@ -1887,9 +1902,17 @@ final class AppState {
                 optimisticallyStageStatusEntry(repoID: repoID, path: entry.path)
             }
             detectChanges(repoID: repoID)
+            DebugLogger.shared.info(
+                "publish",
+                "Article bundle staged",
+                detail: bundlePath,
+                repoID: repoID,
+                repoName: repo.displayName,
+                operationID: operationID
+            )
             return true
         } catch {
-            showError(message: error.localizedDescription)
+            showError(message: error.localizedDescription, category: "publish", repoID: repoID, operationID: operationID)
             return false
         }
     }
@@ -2102,6 +2125,7 @@ final class AppState {
             return
         }
 
+        let operationID = String(UUID().uuidString.prefix(8)).lowercased()
         isSyncing = true
         syncingRepoID = repoID
         syncProgress = String(localized: "Preparing to clone...")
@@ -2164,7 +2188,10 @@ final class AppState {
                     self?.syncProgressFraction = min(progress, 0.82)
                 }
             }
-            DebugLogger.shared.info("clone", "Starting clone", detail: cloneURL)
+            DebugLogger.shared.info(
+                "clone", "Starting clone", detail: cloneURL,
+                repoID: repoID, repoName: repo.displayName, operationID: operationID
+            )
             let result = try await gitService.clone(remoteURL: cloneURL, pat: authPayload(for: repo))
             if fm.fileExists(atPath: cloneWorkingDir.path) {
                 try fm.moveItem(at: cloneWorkingDir, to: vaultDir)
@@ -2194,7 +2221,10 @@ final class AppState {
             detectChanges(repoID: repoID)
             syncProgress = String(localized: "Clone complete! (\(result.fileCount) files)")
             syncProgressFraction = 1.0
-            DebugLogger.shared.info("clone", "Clone complete", detail: "\(result.fileCount) files, branch: \(result.branch)")
+            DebugLogger.shared.info(
+                "clone", "Clone complete", detail: "\(result.fileCount) files, branch: \(result.branch)",
+                repoID: repoID, repoName: repo.displayName, operationID: operationID
+            )
             if let lfsWarning = result.lfsWarning {
                 showError(message: lfsWarning, category: "lfs")
             }
@@ -2202,7 +2232,7 @@ final class AppState {
 
         } catch {
             if !handleSSHHostKeyTrustIfNeeded(error, repoID: repoID, operation: .clone) {
-                showError(message: error.localizedDescription, category: "clone")
+                showError(message: error.localizedDescription, category: "clone", repoID: repoID, operationID: operationID)
             }
         }
 
@@ -2618,7 +2648,7 @@ final class AppState {
     }
 
     @discardableResult
-    func push(repoID: UUID, message: String) async -> Bool {
+    func push(repoID: UUID, message: String, operationID suppliedOperationID: String? = nil) async -> Bool {
         guard let idx = repoIndex(id: repoID) else {
             showError(message: String(localized: "Repository not found"))
             return false
@@ -2640,6 +2670,7 @@ final class AppState {
             }
         }
 
+        let operationID = suppliedOperationID ?? String(UUID().uuidString.prefix(8)).lowercased()
         isSyncing = true
         syncingRepoID = repoID
         syncProgress = String(localized: "Preparing changes...")
@@ -2656,7 +2687,10 @@ final class AppState {
             let commitMsg = message.isEmpty ? String(localized: "Update from GitSync.md") : message
 
             syncProgress = String(localized: "Committing and pushing...")
-            DebugLogger.shared.info("push", "Starting commit & push", detail: "message: \(commitMsg)")
+            DebugLogger.shared.info(
+                "push", "Starting commit & push", detail: "commit message length: \(commitMsg.count)",
+                repoID: repoID, repoName: repo.displayName, operationID: operationID
+            )
             let result = try await gitService.commitAndPush(
                 message: commitMsg,
                 authorName: repo.authorName,
@@ -2672,7 +2706,10 @@ final class AppState {
             clearCommitHistoryCache(for: repoID)
             detectChanges(repoID: repoID)
             syncProgress = String(localized: "Push complete!")
-            DebugLogger.shared.info("push", "Push complete", detail: "SHA: \(result.commitSHA)")
+            DebugLogger.shared.info(
+                "push", "Push complete", detail: "SHA: \(result.commitSHA)",
+                repoID: repoID, repoName: repo.displayName, operationID: operationID
+            )
             try? await Task.sleep(for: .seconds(1))
             isSyncing = false
             syncingRepoID = nil
@@ -2680,7 +2717,7 @@ final class AppState {
 
         } catch {
             if !handleSSHHostKeyTrustIfNeeded(error, repoID: repoID, operation: .pushCommit(message: message)) {
-                showError(message: error.localizedDescription, category: "push")
+                showError(message: error.localizedDescription, category: "push", repoID: repoID, operationID: operationID)
             }
         }
 
@@ -2950,21 +2987,37 @@ final class AppState {
     // MARK: - OAuth
 
     func signInWithGitHub() async {
+        let operationID = String(UUID().uuidString.prefix(8)).lowercased()
+        DebugLogger.shared.info("auth", "Starting GitHub Device Flow", operationID: operationID)
         do {
             let token = try await OAuthService.shared.signIn()
             try await activateGitHubAccount(token: token)
+            DebugLogger.shared.info(
+                "auth", "GitHub sign-in complete", detail: activeGitHubAccountLogin,
+                operationID: operationID
+            )
         } catch let oauthError as OAuthError where oauthError.isCancelled {
-            // User cancelled — do nothing
+            DebugLogger.shared.info("auth", "GitHub sign-in cancelled", operationID: operationID)
         } catch {
-            showError(message: error.localizedDescription)
+            showError(message: error.localizedDescription, category: "auth", operationID: operationID)
         }
     }
 
     func signInWithPAT(token: String) async {
+        let operationID = String(UUID().uuidString.prefix(8)).lowercased()
+        DebugLogger.shared.info("auth", "Validating personal access token", operationID: operationID)
         do {
             try await activateGitHubAccount(token: token)
+            DebugLogger.shared.info(
+                "auth", "Token sign-in complete", detail: activeGitHubAccountLogin,
+                operationID: operationID
+            )
         } catch {
-            showError(message: String(localized: "Invalid token: \(error.localizedDescription)"))
+            showError(
+                message: String(localized: "Invalid token: \(error.localizedDescription)"),
+                category: "auth",
+                operationID: operationID
+            )
         }
     }
 
@@ -3123,10 +3176,21 @@ final class AppState {
 
     // MARK: - Error Handling
 
-    private func showError(message: String, category: String = "general") {
+    private func showError(
+        message: String,
+        category: String = "general",
+        repoID: UUID? = nil,
+        operationID: String? = nil
+    ) {
         lastError = message
         showError = true
-        DebugLogger.shared.error(category, message)
+        DebugLogger.shared.error(
+            category,
+            message,
+            repoID: repoID,
+            repoName: repoID.flatMap { repo(id: $0)?.displayName },
+            operationID: operationID
+        )
     }
 
 }
