@@ -18,8 +18,6 @@ jobs:
       XCODE_PROJECT: Sync.md.xcodeproj
       XCODE_SCHEME: Sync.md
       TEST_TARGET: SyncMDTests
-      DERIVED_DATA: ${{ runner.temp }}/DerivedData
-      RESULT_BUNDLE: ${{ runner.temp }}/SyncMDTests.xcresult
     steps:
       - uses: actions/checkout@v4
 
@@ -54,7 +52,7 @@ jobs:
           time xcodebuild -resolvePackageDependencies \
             -project "$XCODE_PROJECT" \
             -scheme "$XCODE_SCHEME" \
-            -derivedDataPath "$DERIVED_DATA"
+            -derivedDataPath "$RUNNER_TEMP/DerivedData"
 
       - name: Build tests
         shell: bash
@@ -65,7 +63,7 @@ jobs:
             -scheme "$XCODE_SCHEME" \
             -destination "id=${{ steps.simulator.outputs.udid }}" \
             -only-testing:"$TEST_TARGET" \
-            -derivedDataPath "$DERIVED_DATA" \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
             CODE_SIGNING_ALLOWED=NO
 
       - name: Boot simulator
@@ -85,9 +83,9 @@ jobs:
             -scheme "$XCODE_SCHEME" \
             -destination "id=${{ steps.simulator.outputs.udid }}" \
             -only-testing:"$TEST_TARGET" \
-            -resultBundlePath "$RESULT_BUNDLE" \
+            -resultBundlePath "$RUNNER_TEMP/SyncMDTests.xcresult" \
             -parallel-testing-enabled NO \
-            -derivedDataPath "$DERIVED_DATA" \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
             CODE_SIGNING_ALLOWED=NO
 
       - name: Upload XCTest result bundle
