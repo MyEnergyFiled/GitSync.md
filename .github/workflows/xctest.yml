@@ -84,7 +84,8 @@ jobs:
             -destination "id=${{ steps.simulator.outputs.udid }}" \
             -only-testing:"$TEST_TARGET" \
             -resultBundlePath "$RUNNER_TEMP/SyncMDTests.xcresult" \
-            -parallel-testing-enabled NO \
+            -parallel-testing-enabled YES \
+            -maximum-parallel-testing-workers 2 \
             -derivedDataPath "$RUNNER_TEMP/DerivedData" \
             CODE_SIGNING_ALLOWED=NO
 

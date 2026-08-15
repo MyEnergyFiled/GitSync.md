@@ -132,12 +132,13 @@ xcodebuild test \
   -scheme Sync.md \
   -destination 'platform=iOS Simulator,name=iPhone 17' \
   -only-testing:SyncMDTests \
-  -parallel-testing-enabled NO
+  -parallel-testing-enabled YES \
+  -maximum-parallel-testing-workers 2
 ```
 
 If your machine does not have an `iPhone 17` simulator, replace the destination with any available iPhone simulator from `xcrun simctl list devices available`.
 
-The local git tests create isolated temporary repositories via `FileManager.default.temporaryDirectory` and clean them up with `defer`. Fixture setup should use local-only commits (`commitLocalFixtureChanges` in `SyncMDTests`) unless the test is explicitly exercising push behavior; this avoids depending on expected push failures from repositories without an `origin` remote.
+The local git tests create isolated, UUID-named temporary repositories via `FileManager.default.temporaryDirectory` and clean them up with `defer`, so XCTest can safely run test classes in parallel. CI deliberately caps parallel execution at two workers to avoid simulator memory pressure. Fixture setup should use local-only commits (`commitLocalFixtureChanges` in `SyncMDTests`) unless the test is explicitly exercising push behavior; this avoids depending on expected push failures from repositories without an `origin` remote.
 
 The same unit gate runs in GitHub Actions via `.github/workflows/xctest.yml` on pull requests and pushes to `main`.
 
