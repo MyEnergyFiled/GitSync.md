@@ -16,10 +16,33 @@ struct HugoNewContentView: View {
     @State private var terminalCommand = ""
 
     private var root: URL { state.vaultURL(for: repoID) }
-    private var canCreate: Bool {
-        !bundleName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        !directory.isEmpty && !archetype.isEmpty
+    private var normalizedBundleName: String {
+        bundleName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
+
+    private var normalizedDirectory: String {
+        directory.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+    }
+
+    private var bundleValidationMessage: String? {
+        guard !normalizedBundleName.isEmpty else { return String(localized: "Enter an English folder name.") }
+        guard HugoContentService.isValidBundleName(normalizedBundleName) else {
+            return String(localized: "Use lowercase English letters, numbers, and single hyphens.")
+        }
+        guard normalizedDirectory == "content" || normalizedDirectory.hasPrefix("content/"),
+              !normalizedDirectory.contains("..") else {
+            return String(localized: "Choose a directory below content/.")
+        }
+        guard archetypes.contains(archetype) else { return String(localized: "Choose an existing archetype template.") }
+        let destination = root.appendingPathComponent(normalizedDirectory)
+            .appendingPathComponent(normalizedBundleName, isDirectory: true)
+        guard !FileManager.default.fileExists(atPath: destination.path) else {
+            return String(localized: "This article folder already exists.")
+        }
+        return nil
+    }
+
+    private var canCreate: Bool { bundleValidationMessage == nil }
 
     var body: some View {
         NavigationStack {
@@ -76,6 +99,15 @@ struct HugoNewContentView: View {
                     Text("The archetype generates index.md. An images directory is created beside it.")
                         .font(.caption.monospaced())
                         .foregroundStyle(Color.brutalTextFaint)
+                    if let message = bundleValidationMessage {
+                        Label(message, systemImage: "exclamationmark.circle")
+                            .font(.caption.monospaced())
+                            .foregroundStyle(Color.brutalError)
+                    } else {
+                        Label(String(localized: "Ready to create index.md and images/."), systemImage: "checkmark.circle")
+                            .font(.caption.monospaced())
+                            .foregroundStyle(Color.brutalSuccess)
+                    }
                 }
                 Section("Content directory") {
                     TextField("content/posts", text: $directory)
@@ -190,8 +222,8 @@ struct HugoNewContentView: View {
     }
 
     private func create() {
-        let safeBundleName = bundleName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard safeBundleName.range(of: #"^[a-z0-9]+(?:-[a-z0-9]+)*$"#, options: .regularExpression) != nil else {
+        let safeBundleName = normalizedBundleName
+        guard HugoContentService.isValidBundleName(safeBundleName) else {
             errorMessage = String(localized: "Use a lowercase English folder name containing letters, numbers, and hyphens only.")
             return
         }

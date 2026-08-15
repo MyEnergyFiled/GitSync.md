@@ -53,6 +53,8 @@ struct FileEditorView: View {
     @State private var showQuickPublish = false
     @State private var quickCommitMessage = ""
     @State private var isQuickPublishing = false
+    @State private var oversizedImageNames: [String] = []
+    @State private var showLargeImageConfirm = false
     @State private var persistenceMessage = String(localized: "File loaded")
 
     private let draftStore = FileEditorDraftStore()
@@ -141,6 +143,22 @@ struct FileEditorView: View {
                     onCancel: { if !isQuickPublishing { showQuickPublish = false } }
                 )
                 .zIndex(30)
+            }
+
+            if showLargeImageConfirm {
+                BConfirmModal(
+                    title: String(localized: "Large Images Found"),
+                    message: String(localized: "These images exceed 10 MB and may take longer to push:")
+                        + "\n\n" + oversizedImageNames.joined(separator: "\n"),
+                    confirmLabel: String(localized: "Push Anyway"),
+                    isDestructive: false,
+                    onConfirm: {
+                        showLargeImageConfirm = false
+                        Task { await quickPublish(skipLargeImageWarning: true) }
+                    },
+                    onCancel: { showLargeImageConfirm = false }
+                )
+                .zIndex(40)
             }
 
             if showRenameModal {
@@ -668,8 +686,23 @@ struct FileEditorView: View {
         }
     }
 
-    private func quickPublish() async {
+    private func quickPublish(skipLargeImageWarning: Bool = false) async {
         guard !isQuickPublishing else { return }
+        let validation = HugoContentService.validateArticleBundle(
+            markdown: pendingContent,
+            fileURL: liveURL
+        )
+        guard validation.isValid else {
+            imageMessage = String(localized: "Missing image files:")
+                + "\n\n" + validation.missingImagePaths.joined(separator: "\n")
+            persistenceMessage = String(localized: "Publish blocked · missing images")
+            return
+        }
+        if !skipLargeImageWarning && !validation.oversizedImageNames.isEmpty {
+            oversizedImageNames = validation.oversizedImageNames
+            showLargeImageConfirm = true
+            return
+        }
         guard performSave() else { return }
         isQuickPublishing = true
         persistenceMessage = String(localized: "Saving file…")

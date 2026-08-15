@@ -120721,6 +120721,198 @@
           }
         }
       }
+    },
+    "Large Images Found": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发现大图片"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "發現大型圖片"
+          }
+        }
+      }
+    },
+    "These images exceed 10 MB and may take longer to push:": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以下图片超过 10 MB，推送可能需要更长时间："
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以下圖片超過 10 MB，推送可能需要更長時間："
+          }
+        }
+      }
+    },
+    "Push Anyway": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仍然推送"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仍然推送"
+          }
+        }
+      }
+    },
+    "Missing image files:": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "缺少图片文件："
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "缺少圖片檔案："
+          }
+        }
+      }
+    },
+    "Publish blocked · missing images": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发布已阻止 · 缺少图片"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "發佈已阻止 · 缺少圖片"
+          }
+        }
+      }
+    },
+    "Enter an English folder name.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请输入英文目录名。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請輸入英文目錄名稱。"
+          }
+        }
+      }
+    },
+    "Use lowercase English letters, numbers, and single hyphens.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅使用小写英文字母、数字和单个连字符。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "僅使用小寫英文字母、數字和單個連字號。"
+          }
+        }
+      }
+    },
+    "Choose a directory below content/.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请选择 content/ 下的目录。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請選擇 content/ 下的目錄。"
+          }
+        }
+      }
+    },
+    "Choose an existing archetype template.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请选择现有的 archetype 模板。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請選擇現有的 archetype 範本。"
+          }
+        }
+      }
+    },
+    "This article folder already exists.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该文章目录已存在。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "該文章目錄已存在。"
+          }
+        }
+      }
+    },
+    "Ready to create index.md and images/.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可以创建 index.md 和 images/。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可以建立 index.md 和 images/。"
+          }
+        }
+      }
+    },
+    "Merged %lld duplicate repository records. Local files were not deleted.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已合并 %1$lld 条重复仓库记录，未删除本地文件。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已合併 %1$lld 條重複儲存庫記錄，未刪除本機檔案。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

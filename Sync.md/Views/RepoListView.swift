@@ -18,6 +18,8 @@ struct RepoListView: View {
     @State private var navigationPath = NavigationPath()
     @State private var pendingRepoRemovalID: UUID?
     @State private var showRepoRemovalConfirm = false
+    @State private var duplicateCleanupCount = 0
+    @State private var showDuplicateCleanupToast = false
 
     var body: some View {
         @Bindable var state = state
@@ -46,6 +48,20 @@ struct RepoListView: View {
                     }
                     .zIndex(10)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+
+                if showDuplicateCleanupToast {
+                    VStack {
+                        BToast(
+                            message: String(localized: "Merged \(duplicateCleanupCount) duplicate repository records. Local files were not deleted."),
+                            systemImage: "checkmark"
+                        )
+                        .padding(.horizontal, 20)
+                        .padding(.top, 12)
+                        Spacer()
+                    }
+                    .zIndex(10)
+                    .transition(.move(edge: .top).combined(with: .opacity))
                 }
 
                 if showSignOutConfirm {
@@ -181,6 +197,16 @@ struct RepoListView: View {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(state.lastError ?? String(localized: "Unknown error"))
+            }
+            .onAppear {
+                let count = state.consumeDuplicateReposCleanedCount()
+                guard count > 0 else { return }
+                duplicateCleanupCount = count
+                withAnimation { showDuplicateCleanupToast = true }
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(4))
+                    withAnimation { showDuplicateCleanupToast = false }
+                }
             }
             .onChange(of: state.callbackNavigateToRepoID) { _, newValue in
                 if let repoID = newValue {

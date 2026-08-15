@@ -29,6 +29,36 @@ final class SyncMDTests: XCTestCase {
         XCTAssertNil(store.draft(repoID: repoID, fileURL: fileURL))
     }
 
+    func testHugoBundleNameValidationRequiresEnglishSlug() {
+        XCTAssertTrue(HugoContentService.isValidBundleName("my-first-post"))
+        XCTAssertTrue(HugoContentService.isValidBundleName("post-2026"))
+        XCTAssertFalse(HugoContentService.isValidBundleName("My Post"))
+        XCTAssertFalse(HugoContentService.isValidBundleName("中文目录"))
+        XCTAssertFalse(HugoContentService.isValidBundleName("double--dash"))
+        XCTAssertFalse(HugoContentService.isValidBundleName("../post"))
+    }
+
+    func testHugoArticleValidationFindsMissingAndOversizedImages() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundle = root.appendingPathComponent("content/posts/test", isDirectory: true)
+        let images = bundle.appendingPathComponent("images", isDirectory: true)
+        try FileManager.default.createDirectory(at: images, withIntermediateDirectories: true)
+        let fileURL = bundle.appendingPathComponent("index.md")
+        try Data([0, 1, 2, 3]).write(to: images.appendingPathComponent("large.jpg"))
+        let markdown = "![exists](images/large.jpg)\n![missing](images/missing.jpg)"
+
+        let result = HugoContentService.validateArticleBundle(
+            markdown: markdown,
+            fileURL: fileURL,
+            oversizedThreshold: 3
+        )
+
+        XCTAssertEqual(result.missingImagePaths, ["images/missing.jpg"])
+        XCTAssertEqual(result.oversizedImageNames, ["large.jpg"])
+        XCTAssertFalse(result.isValid)
+    }
+
     func testRepositoryDeduplicationPrefersClonedRecord() {
         let failed = RepoConfig(
             repoURL: "https://github.com/Owner/Notes.git",

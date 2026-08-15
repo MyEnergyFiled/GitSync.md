@@ -104,6 +104,7 @@ final class AppState {
     // MARK: - Repositories
 
     var repos: [RepoConfig] = []
+    private(set) var duplicateReposCleanedCount = 0
     var changeCounts: [UUID: Int] = [:]
     var statusEntriesByRepo: [UUID: [GitStatusEntry]] = [:]
     var syncStateByRepo: [UUID: RepoSyncState] = [:]
@@ -376,7 +377,8 @@ final class AppState {
             decoder.dateDecodingStrategy = .iso8601
             if let decoded = try? decoder.decode([RepoConfig].self, from: data) {
                 repos = Self.deduplicatedRepos(decoded)
-                if repos.count != decoded.count { saveRepos() }
+                duplicateReposCleanedCount = decoded.count - repos.count
+                if duplicateReposCleanedCount > 0 { saveRepos() }
             }
         } else {
             // Migration from single-repo state
@@ -2690,6 +2692,11 @@ final class AppState {
 
 
     // MARK: - Repo Management
+
+    func consumeDuplicateReposCleanedCount() -> Int {
+        defer { duplicateReposCleanedCount = 0 }
+        return duplicateReposCleanedCount
+    }
 
     static func deduplicatedRepos(_ source: [RepoConfig]) -> [RepoConfig] {
         var result: [RepoConfig] = []

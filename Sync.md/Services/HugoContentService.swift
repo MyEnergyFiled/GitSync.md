@@ -10,6 +10,13 @@ struct HugoRepositoryConfiguration: Codable {
     var contentMappings: [HugoContentMapping] = []
 }
 
+struct HugoArticleValidation: Equatable {
+    var missingImagePaths: [String]
+    var oversizedImageNames: [String]
+
+    var isValid: Bool { missingImagePaths.isEmpty }
+}
+
 enum HugoContentService {
     static let configurationFile = ".gitsync-hugo.json"
 
@@ -88,6 +95,44 @@ enum HugoContentService {
             output = regex.stringByReplacingMatches(in: output, range: range, withTemplate: display)
         }
         return output
+    }
+
+    static func validateArticleBundle(
+        markdown: String,
+        fileURL: URL,
+        oversizedThreshold: Int64 = 10 * 1024 * 1024
+    ) -> HugoArticleValidation {
+        let bundleURL = fileURL.deletingLastPathComponent()
+        let pattern = #"images/[^\s)\]\}"']+"#
+        let regex = try? NSRegularExpression(pattern: pattern)
+        let range = NSRange(markdown.startIndex..., in: markdown)
+        let references = regex?.matches(in: markdown, range: range).compactMap { match -> String? in
+            guard let valueRange = Range(match.range, in: markdown) else { return nil }
+            return String(markdown[valueRange]).removingPercentEncoding
+        } ?? []
+        let uniqueReferences = Array(Set(references)).sorted()
+        let missing = uniqueReferences.filter { path in
+            path.contains("..") || !FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent(path).path)
+        }
+
+        let imagesURL = bundleURL.appendingPathComponent("images", isDirectory: true)
+        let imageFiles = (try? FileManager.default.contentsOfDirectory(
+            at: imagesURL,
+            includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey],
+            options: .skipsHiddenFiles
+        )) ?? []
+        let oversized = imageFiles.compactMap { url -> String? in
+            guard let values = try? url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]),
+                  values.isRegularFile == true,
+                  Int64(values.fileSize ?? 0) > oversizedThreshold else { return nil }
+            return url.lastPathComponent
+        }.sorted()
+
+        return HugoArticleValidation(missingImagePaths: missing, oversizedImageNames: oversized)
+    }
+
+    static func isValidBundleName(_ value: String) -> Bool {
+        value.range(of: #"^[a-z0-9]+(?:-[a-z0-9]+)*$"#, options: .regularExpression) != nil
     }
 
     static func slugify(_ value: String) -> String {
