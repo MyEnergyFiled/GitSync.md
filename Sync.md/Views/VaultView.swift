@@ -97,6 +97,9 @@ struct VaultView: View {
         .navigationDestination(for: FileEditorDestination.self) { dest in
             FileEditorView(repoID: dest.repoID, fileURL: dest.fileURL)
         }
+        .navigationDestination(for: HugoArticleListDestination.self) { dest in
+            HugoArticleListView(repoID: dest.repoID)
+        }
         .overlay {
             if showRevertAllConfirm {
                 RevertConfirmModal(
@@ -669,6 +672,17 @@ struct VaultView: View {
     private var filesLocationCard: some View {
         BCard(padding: 0) {
             VStack(spacing: 0) {
+                NavigationLink(value: HugoArticleListDestination(repoID: repoID)) {
+                    BActionRow(
+                        icon: "📝",
+                        title: String(localized: "Manage Articles"),
+                        subtitle: String(localized: "Browse Hugo titles, drafts, dates, and covers")
+                    )
+                }
+                .buttonStyle(.plain)
+
+                BDivider()
+
                 NavigationLink(value: FileBrowserDestination(repoID: repoID, relativePath: "")) {
                     BActionRow(
                         icon: "🗂️",

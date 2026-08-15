@@ -4020,6 +4020,16 @@ final class HugoContentServiceTests: XCTestCase {
         XCTAssertTrue(output.contains("layout = \"post\""))
     }
 
+    func testCoverFieldCanBeEditedWithoutDroppingCustomFields() {
+        let original = "---\ntitle: \"Post\"\ncover: \"images/old.jpg\"\nlayout: special\n---\n\nBody"
+        var matter = MarkdownFrontMatter(markdown: original)
+        XCTAssertEqual(matter.cover, "images/old.jpg")
+        matter.cover = "images/new.jpg"
+        let output = matter.applying(to: original)
+        XCTAssertTrue(output.contains("cover: \"images/new.jpg\""))
+        XCTAssertTrue(output.contains("layout: special"))
+    }
+
     func testSlugifyUsesEnglishPathCharacters() {
         XCTAssertEqual(HugoContentService.slugify("My First Post!"), "my-first-post")
     }

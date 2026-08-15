@@ -103,6 +103,7 @@ struct MarkdownFrontMatter {
     var date = ""
     var draft = false
     var tags = ""
+    var cover = ""
     var body = ""
     var delimiter = "---"
 
@@ -126,6 +127,7 @@ struct MarkdownFrontMatter {
             case "date": date = value
             case "draft": draft = ["true", "yes", "1"].contains(value.lowercased())
             case "tags": tags = value.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+            case "cover": cover = value
             default: break
             }
         }
@@ -139,7 +141,7 @@ struct MarkdownFrontMatter {
             extra = lines[1..<end].filter {
                 let separator: Character = delimiter == "+++" ? "=" : ":"
                 let key = $0.split(separator: separator, maxSplits: 1).first?.trimmingCharacters(in: .whitespaces) ?? ""
-                return !["title", "date", "draft", "tags"].contains(key)
+                return !["title", "date", "draft", "tags", "cover"].contains(key)
             }
         }
         let assignment = delimiter == "+++" ? " = " : ": "
@@ -147,6 +149,7 @@ struct MarkdownFrontMatter {
         if !date.isEmpty { header.append("date\(assignment)\(date)") }
         header.append("draft\(assignment)\(draft ? "true" : "false")")
         if !tags.isEmpty { header.append("tags\(assignment)[\(tags)]") }
+        if !cover.isEmpty { header.append("cover\(assignment)\"\(cover)\"") }
         header.append(contentsOf: extra)
         return ([delimiter] + header + [delimiter, "", body]).joined(separator: "\n")
     }

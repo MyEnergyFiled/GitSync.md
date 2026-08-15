@@ -267,6 +267,18 @@ struct FileEditorView: View {
                         .textInputAutocapitalization(.never)
                     Toggle("Draft", isOn: $frontMatter.draft)
                     TextField("Tags (comma separated)", text: $frontMatter.tags)
+                    TextField("Cover image", text: $frontMatter.cover)
+                        .textInputAutocapitalization(.never)
+                    if !images.isEmpty {
+                        Menu("Choose Cover Image") {
+                            Button("No Cover") { frontMatter.cover = "" }
+                            ForEach(images, id: \.path) { image in
+                                Button(image.lastPathComponent) {
+                                    frontMatter.cover = "images/\(image.lastPathComponent)"
+                                }
+                            }
+                        }
+                    }
                 }
                 Section("Body") {
                     TextEditor(text: $frontMatter.body)
