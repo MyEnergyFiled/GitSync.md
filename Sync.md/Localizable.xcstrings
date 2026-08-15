@@ -78840,13 +78840,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "从...中移除 GitSync.md"
+            "value": "从 GitSync.md 中移除"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "從...中移除 GitSync.md"
+            "value": "從 GitSync.md 中移除"
           }
         }
       }
@@ -79000,7 +79000,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "從 GitSync.md 移除？"
+            "value": "從 GitSync.md 中移除？"
           }
         },
         "en": {
@@ -120398,6 +120398,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "這會永久刪除所選暫存，且無法復原。"
+          }
+        }
+      }
+    },
+    "This removes the repository from GitSync.md only. Local files will not be deleted.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这只会从 GitSync.md 列表中移除仓库，不会删除本地文件。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這只會從 GitSync.md 列表中移除儲存庫，不會刪除本機檔案。"
           }
         }
       }

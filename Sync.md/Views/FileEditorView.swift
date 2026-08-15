@@ -23,6 +23,7 @@ private enum MarkdownEditorMode: String, CaseIterable, Identifiable {
 
 struct FileEditorView: View {
     @Environment(AppState.self) private var state
+    @Environment(\.scenePhase) private var scenePhase
     let repoID: UUID
     let fileURL: URL
 
@@ -45,6 +46,10 @@ struct FileEditorView: View {
     @State private var images: [URL] = []
     @State private var showImageLibrary = false
     @State private var showDiscardConfirm = false
+    @State private var draftSaveTask: Task<Void, Never>?
+    @State private var isDiscardingEdits = false
+
+    private let draftStore = FileEditorDraftStore()
 
     init(repoID: UUID, fileURL: URL) {
         self.repoID = repoID
@@ -101,7 +106,13 @@ struct FileEditorView: View {
                     message: String(localized: "Your unsaved edits will be lost."),
                     confirmLabel: String(localized: "Discard"),
                     isDestructive: true,
-                    onConfirm: { showDiscardConfirm = false; dismiss() },
+                    onConfirm: {
+                        showDiscardConfirm = false
+                        isDiscardingEdits = true
+                        draftSaveTask?.cancel()
+                        try? draftStore.remove(repoID: repoID, fileURL: liveURL)
+                        dismiss()
+                    },
                     onCancel: { showDiscardConfirm = false }
                 )
                 .transition(.opacity.combined(with: .scale(scale: 0.97)))
@@ -218,7 +229,7 @@ struct FileEditorView: View {
             guard let item else { return }
             Task { await importPhoto(item) }
         }
-        .alert("Image", isPresented: Binding(
+        .alert("Error", isPresented: Binding(
             get: { imageMessage != nil },
             set: { if !$0 { imageMessage = nil } }
         )) {
@@ -227,6 +238,16 @@ struct FileEditorView: View {
             Text(imageMessage ?? "")
         }
         .onAppear { loadContent(); loadImages() }
+        .onChange(of: pendingContent) { _, newValue in
+            scheduleDraftSave(newValue)
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { saveDraftImmediately() }
+        }
+        .onDisappear {
+            draftSaveTask?.cancel()
+            if !isDiscardingEdits { saveDraftImmediately() }
+        }
         .onChange(of: editorMode) { oldMode, newMode in
             if oldMode == .properties { content = frontMatter.applying(to: content) }
             if newMode == .properties { frontMatter = MarkdownFrontMatter(markdown: content) }
@@ -388,7 +409,31 @@ struct FileEditorView: View {
         }
         content = text
         originalContent = text
-        if isMarkdown { frontMatter = MarkdownFrontMatter(markdown: text) }
+        if let draft = draftStore.draft(repoID: repoID, fileURL: liveURL), draft.content != text {
+            content = draft.content
+        } else {
+            try? draftStore.remove(repoID: repoID, fileURL: liveURL)
+        }
+        if isMarkdown { frontMatter = MarkdownFrontMatter(markdown: content) }
+    }
+
+    private func scheduleDraftSave(_ value: String) {
+        draftSaveTask?.cancel()
+        guard value != originalContent else {
+            try? draftStore.remove(repoID: repoID, fileURL: liveURL)
+            return
+        }
+        let targetURL = liveURL
+        draftSaveTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(700))
+            guard !Task.isCancelled else { return }
+            try? draftStore.save(content: value, repoID: repoID, fileURL: targetURL)
+        }
+    }
+
+    private func saveDraftImmediately() {
+        guard isDirty else { return }
+        try? draftStore.save(content: pendingContent, repoID: repoID, fileURL: liveURL)
     }
 
     private func importPhoto(_ item: PhotosPickerItem) async {
@@ -517,18 +562,26 @@ struct FileEditorView: View {
         content = pendingContent
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         guard let data = content.data(using: .utf8) else { return }
-        try? data.write(to: liveURL, options: .atomic)
-        originalContent = content
-        state.detectChanges(repoID: repoID)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            showSaveToast = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
-                showSaveToast = false
+        do {
+            try data.write(to: liveURL, options: .atomic)
+            originalContent = content
+            draftSaveTask?.cancel()
+            try? draftStore.remove(repoID: repoID, fileURL: liveURL)
+            state.detectChanges(repoID: repoID)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                showSaveToast = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
+                    showSaveToast = false
+                }
             }
+        } catch {
+            imageMessage = error.localizedDescription
+            saveDraftImmediately()
         }
     }
 
     private func performDelete() {
+        try? draftStore.remove(repoID: repoID, fileURL: liveURL)
         try? FileManager.default.removeItem(at: liveURL)
         state.detectChanges(repoID: repoID)
         dismiss()
@@ -542,7 +595,12 @@ struct FileEditorView: View {
         let dest = liveURL.deletingLastPathComponent().appendingPathComponent(trimmed)
         guard !FileManager.default.fileExists(atPath: dest.path) else { return }
         do {
-            try FileManager.default.moveItem(at: liveURL, to: dest)
+            let previousURL = liveURL
+            try FileManager.default.moveItem(at: previousURL, to: dest)
+            if isDirty {
+                try? draftStore.save(content: pendingContent, repoID: repoID, fileURL: dest)
+            }
+            try? draftStore.remove(repoID: repoID, fileURL: previousURL)
             liveURL = dest
             state.detectChanges(repoID: repoID)
         } catch {}

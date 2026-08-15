@@ -16,6 +16,8 @@ struct RepoListView: View {
     @State private var showGhostRemovalConfirm = false
     @State private var showGhostRemovedToast = false
     @State private var navigationPath = NavigationPath()
+    @State private var pendingRepoRemovalID: UUID?
+    @State private var showRepoRemovalConfirm = false
 
     var body: some View {
         @Bindable var state = state
@@ -77,6 +79,26 @@ struct RepoListView: View {
                     )
                     .zIndex(20)
                     .transition(.opacity)
+                }
+
+                if showRepoRemovalConfirm, let repoID = pendingRepoRemovalID,
+                   let repo = state.repo(id: repoID) {
+                    BConfirmModal(
+                        title: String(localized: "Remove from GitSync.md?"),
+                        message: String(localized: "This removes the repository from GitSync.md only. Local files will not be deleted."),
+                        confirmLabel: String(localized: "Remove"),
+                        isDestructive: true,
+                        onConfirm: {
+                            state.removeRepo(id: repo.id, deleteLocalFiles: false)
+                            pendingRepoRemovalID = nil
+                            showRepoRemovalConfirm = false
+                        },
+                        onCancel: {
+                            pendingRepoRemovalID = nil
+                            showRepoRemovalConfirm = false
+                        }
+                    )
+                    .zIndex(20)
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
@@ -231,6 +253,12 @@ struct RepoListView: View {
                             settingsRepoID = repo.id
                         } label: {
                             Label(String(localized: "Settings"), systemImage: "gearshape")
+                        }
+                        Button(role: .destructive) {
+                            pendingRepoRemovalID = repo.id
+                            showRepoRemovalConfirm = true
+                        } label: {
+                            Label(String(localized: "Remove from GitSync.md"), systemImage: "trash")
                         }
                     }
                 }

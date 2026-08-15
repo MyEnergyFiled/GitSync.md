@@ -375,7 +375,8 @@ final class AppState {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
             if let decoded = try? decoder.decode([RepoConfig].self, from: data) {
-                repos = decoded
+                repos = Self.deduplicatedRepos(decoded)
+                if repos.count != decoded.count { saveRepos() }
             }
         } else {
             // Migration from single-repo state
@@ -2645,6 +2646,35 @@ final class AppState {
 
     // MARK: - Repo Management
 
+    static func deduplicatedRepos(_ source: [RepoConfig]) -> [RepoConfig] {
+        var result: [RepoConfig] = []
+        var indexByRemote: [String: Int] = [:]
+
+        for repo in source {
+            let key = normalizedRemoteKey(repo.repoURL)
+            guard let existingIndex = indexByRemote[key] else {
+                indexByRemote[key] = result.count
+                result.append(repo)
+                continue
+            }
+
+            // Prefer the record carrying cloned Git state. Failed clone retries
+            // typically produced empty records for the same remote.
+            if !result[existingIndex].isCloned && repo.isCloned {
+                result[existingIndex] = repo
+            }
+        }
+        return result
+    }
+
+    private static func normalizedRemoteKey(_ value: String) -> String {
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let withoutTrailingSlash = normalized.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        return withoutTrailingSlash.hasSuffix(".git")
+            ? String(withoutTrailingSlash.dropLast(4)).lowercased()
+            : withoutTrailingSlash.lowercased()
+    }
+
     @discardableResult
     func addRepo(_ config: RepoConfig) -> UUID {
         var config = config
@@ -2654,9 +2684,9 @@ final class AppState {
            !activeGitHubAccountLogin.isEmpty {
             config.gitHubAccountLogin = activeGitHubAccountLogin
         }
-        let normalizedRemote = config.repoURL.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let normalizedRemote = Self.normalizedRemoteKey(config.repoURL)
         if let index = repos.firstIndex(where: {
-            $0.repoURL.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == normalizedRemote
+            Self.normalizedRemoteKey($0.repoURL) == normalizedRemote
         }) {
             repos[index].authMethod = config.authMethod
             repos[index].authUsername = config.authUsername

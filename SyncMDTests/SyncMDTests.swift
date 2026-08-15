@@ -15,6 +15,44 @@ final class SyncMDTests: XCTestCase {
         XCTAssertTrue(true)
     }
 
+    func testDraftStoreRoundTripsAndRemovesEditorText() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = FileEditorDraftStore(directoryURL: directory)
+        let repoID = UUID()
+        let fileURL = directory.appendingPathComponent("content/posts/test/index.md")
+
+        try store.save(content: "draft text", repoID: repoID, fileURL: fileURL)
+        XCTAssertEqual(store.draft(repoID: repoID, fileURL: fileURL)?.content, "draft text")
+
+        try store.remove(repoID: repoID, fileURL: fileURL)
+        XCTAssertNil(store.draft(repoID: repoID, fileURL: fileURL))
+    }
+
+    func testRepositoryDeduplicationPrefersClonedRecord() {
+        let failed = RepoConfig(
+            repoURL: "https://github.com/Owner/Notes.git",
+            branch: "main",
+            authorName: "",
+            authorEmail: "",
+            vaultFolderName: "failed"
+        )
+        let cloned = RepoConfig(
+            repoURL: "https://github.com/owner/notes/",
+            branch: "main",
+            authorName: "Writer",
+            authorEmail: "writer@example.com",
+            vaultFolderName: "notes",
+            gitState: GitState(commitSHA: "abc123", treeSHA: "", branch: "main", blobSHAs: [:], lastSyncDate: .now)
+        )
+
+        let result = AppState.deduplicatedRepos([failed, cloned, failed])
+
+        XCTAssertEqual(result.count, 1)
+        XCTAssertEqual(result.first?.id, cloned.id)
+        XCTAssertTrue(result.first?.isCloned == true)
+    }
+
     @discardableResult
     private func commitLocalFixtureChanges(
         using service: LocalGitService,
