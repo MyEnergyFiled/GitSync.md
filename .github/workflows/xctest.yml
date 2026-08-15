@@ -18,8 +18,20 @@ jobs:
       XCODE_PROJECT: Sync.md.xcodeproj
       XCODE_SCHEME: Sync.md
       TEST_TARGET: SyncMDTests
+      DERIVED_DATA: ${{ runner.temp }}/DerivedData
+      RESULT_BUNDLE: ${{ runner.temp }}/SyncMDTests.xcresult
     steps:
       - uses: actions/checkout@v4
+
+      - name: Cache Swift packages and build products
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ runner.temp }}/DerivedData/SourcePackages
+            ${{ runner.temp }}/DerivedData/Build
+          key: xctest-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
+          restore-keys: |
+            xctest-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Select iPhone simulator
         id: simulator
@@ -35,6 +47,27 @@ jobs:
           echo "udid=$SIMULATOR_UDID" >> "$GITHUB_OUTPUT"
           echo "Selected simulator: $SIMULATOR_UDID"
 
+      - name: Resolve Swift package dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          time xcodebuild -resolvePackageDependencies \
+            -project "$XCODE_PROJECT" \
+            -scheme "$XCODE_SCHEME" \
+            -derivedDataPath "$DERIVED_DATA"
+
+      - name: Build tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          time xcodebuild build-for-testing \
+            -project "$XCODE_PROJECT" \
+            -scheme "$XCODE_SCHEME" \
+            -destination "id=${{ steps.simulator.outputs.udid }}" \
+            -only-testing:"$TEST_TARGET" \
+            -derivedDataPath "$DERIVED_DATA" \
+            CODE_SIGNING_ALLOWED=NO
+
       - name: Boot simulator
         shell: bash
         run: |
@@ -43,15 +76,25 @@ jobs:
           xcrun simctl boot "${{ steps.simulator.outputs.udid }}" || true
           xcrun simctl bootstatus "${{ steps.simulator.outputs.udid }}" -b
 
-      - name: Run unit XCTest suite
+      - name: Run unit tests without rebuilding
         shell: bash
         run: |
           set -euo pipefail
-          xcodebuild test \
+          time xcodebuild test-without-building \
             -project "$XCODE_PROJECT" \
             -scheme "$XCODE_SCHEME" \
             -destination "id=${{ steps.simulator.outputs.udid }}" \
             -only-testing:"$TEST_TARGET" \
+            -resultBundlePath "$RESULT_BUNDLE" \
             -parallel-testing-enabled NO \
-            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            -derivedDataPath "$DERIVED_DATA" \
             CODE_SIGNING_ALLOWED=NO
+
+      - name: Upload XCTest result bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: SyncMDTests-xcresult-${{ github.run_number }}
+          path: ${{ runner.temp }}/SyncMDTests.xcresult
+          if-no-files-found: warn
+          retention-days: 14
