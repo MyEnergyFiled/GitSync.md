@@ -632,7 +632,6 @@ private struct HugoImageLibraryView: View {
             .background(Color.brutalBg)
             .navigationTitle("Images")
             .navigationBarTitleDisplayMode(.inline)
-        .navigationBarBackButtonHidden(isDirty)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
