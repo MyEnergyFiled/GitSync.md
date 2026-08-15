@@ -79,9 +79,9 @@ struct FileEditorView: View {
 
             if showDeleteConfirm {
                 BConfirmModal(
-                    title: "Delete \"\(fileName)\"?",
-                    message: "This will be reflected in git status as a deletion.",
-                    confirmLabel: "Delete",
+                    title: String(localized: "Delete \"\(fileName)\"?"),
+                    message: String(localized: "This will be reflected in git status as a deletion."),
+                    confirmLabel: String(localized: "Delete"),
                     isDestructive: true,
                     onConfirm: performDelete,
                     onCancel: { showDeleteConfirm = false }
@@ -91,7 +91,7 @@ struct FileEditorView: View {
 
             if showRenameModal {
                 BRenameModal(
-                    title: "Rename File",
+                    title: String(localized: "Rename File"),
                     text: $renameText,
                     onConfirm: performRename,
                     onCancel: { showRenameModal = false; renameText = "" }
@@ -107,7 +107,7 @@ struct FileEditorView: View {
         .overlay(alignment: .bottom) {
             Group {
                 if showSaveToast {
-                    BToast(message: "Saved", systemImage: "checkmark")
+                    BToast(message: String(localized: "Saved"), systemImage: "checkmark")
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                         .allowsHitTesting(false)
                 }

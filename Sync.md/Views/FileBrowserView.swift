@@ -43,7 +43,7 @@ struct FileBrowserView: View {
     }
     private var navTitle: String {
         relativePath.isEmpty
-            ? "Files"
+            ? String(localized: "Files")
             : URL(fileURLWithPath: relativePath).lastPathComponent
     }
 
@@ -87,6 +87,7 @@ struct FileBrowserView: View {
         }
         .navigationDestination(for: FileBrowserDestination.self) { dest in
             FileBrowserView(repoID: dest.repoID, relativePath: dest.relativePath)
+                .id(dest)
         }
         .navigationDestination(for: FileEditorDestination.self) { dest in
             FileEditorView(repoID: dest.repoID, fileURL: dest.fileURL)
@@ -128,6 +129,7 @@ struct FileBrowserView: View {
             )
         }
         .onAppear { loadItems() }
+        .onChange(of: relativePath) { _, _ in loadItems() }
     }
 
     // MARK: - File List
