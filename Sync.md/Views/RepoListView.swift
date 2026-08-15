@@ -534,8 +534,8 @@ struct RepoListView: View {
 
         // recordRepoAdded is a no-op here — identifier is already in the seen set.
         repositoryHistory.recordRepoAdded(identifier: identifier)
-        state.addRepo(config)
-        Task { await state.clone(repoID: config.id) }
+        let repoID = state.addRepo(config)
+        Task { await state.clone(repoID: repoID) }
     }
 
     private func handleAddRepoTapped() {

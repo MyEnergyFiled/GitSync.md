@@ -14,10 +14,12 @@ struct GitControlSheet: View {
     @State private var stashMessage = ""
     @State private var newTagName = ""
     @State private var newTagMessage = ""
+    @State private var stashPendingDeletion: GitStashEntry?
 
     private var repo: RepoConfig? { state.repo(id: repoID) }
     private var changeCount: Int { state.changeCounts[repoID] ?? 0 }
     private var statusEntries: [GitStatusEntry] { state.statusEntriesByRepo[repoID] ?? [] }
+    private var isIndexBusy: Bool { state.isIndexMutationInProgress(repoID: repoID) }
     private var stagedCount: Int { statusEntries.filter { $0.indexStatus != nil }.count }
     private var unstagedEntries: [GitStatusEntry] { statusEntries.filter { $0.workTreeStatus != nil } }
     private var isThisRepoSyncing: Bool { state.isSyncing && state.syncingRepoID == repoID }
@@ -98,6 +100,19 @@ struct GitControlSheet: View {
                 }
             } message: {
                 Text(state.pendingLFSAutoTrackingConfirmation?.message ?? "")
+            }
+            .alert("Delete Stash?", isPresented: Binding(
+                get: { stashPendingDeletion != nil },
+                set: { if !$0 { stashPendingDeletion = nil } }
+            )) {
+                Button("Delete", role: .destructive) {
+                    guard let entry = stashPendingDeletion else { return }
+                    stashPendingDeletion = nil
+                    Task { await state.dropStash(repoID: repoID, index: entry.index) }
+                }
+                Button("Cancel", role: .cancel) { stashPendingDeletion = nil }
+            } message: {
+                Text("This permanently deletes the selected stash. It cannot be recovered.")
             }
             .navigationDestination(item: $diffDestination) { dest in
                 FileDiffView(repoID: dest.repoID, path: dest.path)
@@ -292,7 +307,7 @@ struct GitControlSheet: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .disabled(state.isSyncing)
+        .disabled(state.isSyncing || isIndexBusy)
     }
 
     // MARK: - Conflict Center Card
@@ -338,7 +353,7 @@ struct GitControlSheet: View {
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 9)
                                 .background(Color.brutalSurface)
-                                .disabled(state.isSyncing)
+                                .disabled(state.isSyncing || isIndexBusy)
 
                             Button(String(localized: "Complete").uppercased()) {
                                 Task {
@@ -372,7 +387,7 @@ struct GitControlSheet: View {
                             .overlay(Rectangle().strokeBorder(Color.brutalError.opacity(0.4), lineWidth: 1))
                         }
                         .buttonStyle(.plain)
-                        .disabled(state.isSyncing)
+                        .disabled(state.isSyncing || isIndexBusy)
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
@@ -406,7 +421,7 @@ struct GitControlSheet: View {
                             .overlay(Rectangle().strokeBorder(Color.brutalError.opacity(0.4), lineWidth: 1))
                         }
                         .buttonStyle(.plain)
-                        .disabled(state.isSyncing)
+                        .disabled(state.isSyncing || isIndexBusy)
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
@@ -440,7 +455,7 @@ struct GitControlSheet: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .disabled(state.isSyncing)
+        .disabled(state.isSyncing || isIndexBusy)
     }
 
     // MARK: - Changes Card
@@ -479,7 +494,7 @@ struct GitControlSheet: View {
                         }
                         .padding(.horizontal, 16)
                         .padding(.bottom, 8)
-                        .disabled(state.isSyncing)
+                        .disabled(state.isSyncing || isIndexBusy)
                     }
 
                     LazyVStack(spacing: 0) {
@@ -527,7 +542,7 @@ struct GitControlSheet: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .disabled(state.isSyncing)
+        .disabled(state.isSyncing || isIndexBusy)
     }
 
     private func changeSummary(for entry: GitStatusEntry) -> String {
@@ -658,7 +673,7 @@ struct GitControlSheet: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .disabled(state.isSyncing)
+        .disabled(state.isSyncing || isIndexBusy)
     }
 
     // MARK: - Stash Card
@@ -747,13 +762,13 @@ struct GitControlSheet: View {
                 }
                 Spacer()
                 smallActionButton("✕", isDestructive: true) {
-                    Task { await state.dropStash(repoID: repoID, index: entry.index) }
+                    stashPendingDeletion = entry
                 }
             }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .disabled(state.isSyncing)
+        .disabled(state.isSyncing || isIndexBusy)
     }
 
     // MARK: - Fetch Card
@@ -767,7 +782,7 @@ struct GitControlSheet: View {
             }
         }
         .buttonStyle(.plain)
-        .disabled(state.isSyncing)
+        .disabled(state.isSyncing || isIndexBusy)
         .opacity(state.isSyncing ? 0.45 : 1)
     }
 
@@ -785,7 +800,7 @@ struct GitControlSheet: View {
             }
         }
         .buttonStyle(.plain)
-        .disabled(state.isSyncing)
+        .disabled(state.isSyncing || isIndexBusy)
         .opacity(state.isSyncing ? 0.45 : 1)
     }
 
@@ -801,7 +816,7 @@ struct GitControlSheet: View {
             }
         }
         .buttonStyle(.plain)
-        .disabled(state.isSyncing)
+        .disabled(state.isSyncing || isIndexBusy)
         .opacity(state.isSyncing ? 0.45 : 1)
     }
 

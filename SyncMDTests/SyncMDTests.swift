@@ -315,6 +315,36 @@ final class SyncMDTests: XCTestCase {
     }
 
     @MainActor
+    func testCloneRefusesToDeleteNonEmptyDestination() async throws {
+        let repository = FakeGitRepository(repoInfoResult: LocalRepoInfo(
+            branch: "main",
+            commitSHA: "1111111111111111111111111111111111111111",
+            changeCount: 0
+        ))
+        let repo = RepoConfig(
+            repoURL: "https://github.com/example/protected.git",
+            branch: "main",
+            authorName: "Test User",
+            authorEmail: "test@example.com",
+            vaultFolderName: "SyncMD-Protected-\(UUID().uuidString)",
+            authMethod: .none
+        )
+        let destination = repo.defaultVaultURL
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        let markerFile = destination.appendingPathComponent("uncommitted.md")
+        try Data("do not delete".utf8).write(to: markerFile)
+        defer { try? FileManager.default.removeItem(at: destination) }
+
+        let appState = AppState(gitRepositoryFactory: { _ in repository }, loadPersistedState: false)
+        appState.repos = [repo]
+        await appState.clone(repoID: repo.id)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: markerFile.path))
+        XCTAssertTrue(repository.cloneRemoteURLs.isEmpty)
+        XCTAssertTrue(appState.showError)
+    }
+
+    @MainActor
     func testTrustingPendingSSHHostKeyPersistsFingerprintAndRetriesClone() async throws {
         let repoInfo = LocalRepoInfo(branch: "main", commitSHA: "2222222222222222222222222222222222222222", changeCount: 0)
         let repository = FakeGitRepository(repoInfoResult: repoInfo)

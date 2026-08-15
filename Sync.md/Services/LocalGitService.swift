@@ -8,6 +8,7 @@ enum LocalGitError: LocalizedError {
     case notCloned
     case invalidRemoteURL
     case cloneFailed(String)
+    case cloneDestinationNotEmpty(String)
     case fetchFailed(String)
     case pushFailed(String)
     case commitFailed(String)
@@ -45,6 +46,8 @@ enum LocalGitError: LocalizedError {
             return String(localized: "Invalid remote URL.")
         case .cloneFailed(let msg):
             return String(localized: "Clone failed: \(msg)")
+        case .cloneDestinationNotEmpty(let path):
+            return String(localized: "Clone stopped to protect existing files at \(path). Open that folder as an existing repository or choose another location.")
         case .fetchFailed(let msg):
             return String(localized: "Fetch failed: \(msg)")
         case .pushFailed(let msg):
@@ -2705,13 +2708,9 @@ final class LocalGitService: GitRepositoryProtocol, @unchecked Sendable {
             }
             try git2Check(stashCode, context: "Save stash")
 
-            let entries = try await self.listStashes()
-            let stashOIDHex = oidToHex(&stashOID)
-            if let match = entries.first(where: { $0.oid == stashOIDHex }) {
-                return match
-            }
-
-            return GitStashEntry(index: 0, oid: stashOIDHex, message: message)
+            // The stash is durable once git_stash_save succeeds. Listing it is
+            // a separate refresh and must not turn success into a false failure.
+            return GitStashEntry(index: 0, oid: oidToHex(&stashOID), message: message)
         }.value
     }
 

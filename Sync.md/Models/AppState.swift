@@ -116,6 +116,11 @@ final class AppState {
     var commitDetailByRepo: [UUID: [String: GitCommitDetail]] = [:]
     var stashesByRepo: [UUID: [GitStashEntry]] = [:]
     var tagsByRepo: [UUID: [GitTag]] = [:]
+    private(set) var indexMutationRepoIDs: Set<UUID> = []
+
+    func isIndexMutationInProgress(repoID: UUID) -> Bool {
+        indexMutationRepoIDs.contains(repoID)
+    }
 
     // MARK: - Sync State
 
@@ -862,16 +867,7 @@ final class AppState {
             } catch {
                 let isStale = startedGeneration != (repoMutationGeneration[repoID] ?? 0)
                 if !isStale {
-                    changeCounts[repoID] = 0
-                    statusEntriesByRepo[repoID] = []
-                    syncStateByRepo[repoID] = .unknown
-                    diffByRepo[repoID] = .empty
-                    branchesByRepo[repoID] = .empty
-                    conflictSessionByRepo[repoID] = .none
-                    commitHistoryByRepo[repoID] = []
-                    commitHistoryHasMoreByRepo[repoID] = false
-                    commitDetailByRepo[repoID] = [:]
-                    stashesByRepo[repoID] = []
+                    DebugLogger.shared.error("status", "Status refresh failed", detail: error.localizedDescription)
                 }
             }
 
@@ -1808,6 +1804,8 @@ final class AppState {
         promptForLFS: Bool
     ) async {
         guard let repo = repo(id: repoID), repo.isCloned else { return }
+        guard indexMutationRepoIDs.insert(repoID).inserted else { return }
+        defer { indexMutationRepoIDs.remove(repoID) }
 
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
@@ -1854,6 +1852,8 @@ final class AppState {
 
     private func stageAllChanges(repoID: UUID, lfsAutoTrack: Bool, promptForLFS: Bool) async {
         guard let repo = repo(id: repoID), repo.isCloned else { return }
+        guard indexMutationRepoIDs.insert(repoID).inserted else { return }
+        defer { indexMutationRepoIDs.remove(repoID) }
 
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
@@ -1974,6 +1974,8 @@ final class AppState {
 
     func unstageFile(repoID: UUID, path: String, oldPath: String? = nil) async {
         guard let repo = repo(id: repoID), repo.isCloned else { return }
+        guard indexMutationRepoIDs.insert(repoID).inserted else { return }
+        defer { indexMutationRepoIDs.remove(repoID) }
 
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
@@ -2072,7 +2074,8 @@ final class AppState {
                 repos[idx].customLocationIsParent = true
                 saveRepos()
                 resolveVaultBookmark(for: repoID)
-                if fm.fileExists(atPath: staleVaultDir.path) {
+                if fm.fileExists(atPath: staleVaultDir.path),
+                   ((try? fm.contentsOfDirectory(atPath: staleVaultDir.path)) ?? []).isEmpty {
                     try? fm.removeItem(at: staleVaultDir)
                 }
             }
@@ -2080,20 +2083,27 @@ final class AppState {
             var repo = repos[idx]
             let vaultDir = vaultURL(for: repoID)
 
-            // Remove existing vault directory — git clone needs a clean target
+            // Never delete an existing non-empty destination. It may contain
+            // uncommitted work even when persisted clone state is stale.
             if fm.fileExists(atPath: vaultDir.path) {
+                let existing = try fm.contentsOfDirectory(atPath: vaultDir.path)
+                guard existing.isEmpty else {
+                    throw LocalGitError.cloneDestinationNotEmpty(vaultDir.path)
+                }
                 try fm.removeItem(at: vaultDir)
             }
 
-            // Ensure parent directory exists (git clone creates the target dir itself)
+            // Clone into a unique sibling and only publish it after success.
             let parentDir = vaultDir.deletingLastPathComponent()
             try fm.createDirectory(at: parentDir, withIntermediateDirectories: true)
+            let cloneWorkingDir = parentDir.appendingPathComponent(".gitsync-clone-\(UUID().uuidString)", isDirectory: true)
+            defer { try? fm.removeItem(at: cloneWorkingDir) }
 
             // Build a clone-friendly URL. Preserve custom remotes exactly;
             // only expand the historical GitHub owner/repo shorthand.
             let cloneURL = GitRemoteURL.cloneURLString(from: repo.repoURL) ?? repo.repoURL
 
-            let gitService = gitRepositoryFactory(vaultDir)
+            let gitService = gitRepositoryFactory(cloneWorkingDir)
 
             syncProgress = String(localized: "Cloning repository...")
             syncProgressFraction = 0.18
@@ -2108,6 +2118,11 @@ final class AppState {
             }
             DebugLogger.shared.info("clone", "Starting clone", detail: cloneURL)
             let result = try await gitService.clone(remoteURL: cloneURL, pat: authPayload(for: repo))
+            if fm.fileExists(atPath: cloneWorkingDir.path) {
+                try fm.moveItem(at: cloneWorkingDir, to: vaultDir)
+            } else if gitService is LocalGitService {
+                throw LocalGitError.cloneFailed(String(localized: "Clone completed without creating its destination directory."))
+            }
             cloneProgressTask?.cancel()
             syncProgress = String(localized: "Finalizing repository...")
             syncProgressFraction = 0.92
@@ -2630,7 +2645,8 @@ final class AppState {
 
     // MARK: - Repo Management
 
-    func addRepo(_ config: RepoConfig) {
+    @discardableResult
+    func addRepo(_ config: RepoConfig) -> UUID {
         var config = config
         if config.gitHubAccountLogin?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false,
            config.authMethod == .gitHubPAT,
@@ -2638,9 +2654,20 @@ final class AppState {
            !activeGitHubAccountLogin.isEmpty {
             config.gitHubAccountLogin = activeGitHubAccountLogin
         }
+        let normalizedRemote = config.repoURL.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if let index = repos.firstIndex(where: {
+            $0.repoURL.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == normalizedRemote
+        }) {
+            repos[index].authMethod = config.authMethod
+            repos[index].authUsername = config.authUsername
+            repos[index].gitHubAccountLogin = config.gitHubAccountLogin
+            saveRepos()
+            return repos[index].id
+        }
         repos.append(config)
         saveRepos()
         resolveVaultBookmark(for: config.id)
+        return config.id
     }
 
     /// Add a repository that already exists on the local filesystem.

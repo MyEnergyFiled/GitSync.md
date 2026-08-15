@@ -120313,6 +120313,94 @@
           }
         }
       }
+    },
+    "Clone stopped to protect existing files at %@. Open that folder as an existing repository or choose another location.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clone stopped to protect existing files at %@. Open that folder as an existing repository or choose another location."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "为保护 %@ 中的现有文件，已停止克隆。请将该文件夹作为现有仓库打开，或选择其他位置。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "為保護 %@ 中的現有檔案，已停止複製。請將該資料夾作為現有儲存庫開啟，或選擇其他位置。"
+          }
+        }
+      }
+    },
+    "Clone completed without creating its destination directory.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clone completed without creating its destination directory."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "克隆完成但未创建目标目录。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "複製完成但未建立目標目錄。"
+          }
+        }
+      }
+    },
+    "Delete Stash?": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Stash?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除暂存？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刪除暫存？"
+          }
+        }
+      }
+    },
+    "This permanently deletes the selected stash. It cannot be recovered.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This permanently deletes the selected stash. It cannot be recovered."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这会永久删除所选暂存，且无法恢复。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這會永久刪除所選暫存，且無法復原。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

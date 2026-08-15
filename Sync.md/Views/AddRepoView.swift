@@ -864,11 +864,11 @@ struct AddRepoView: View {
             authUsername: credentials.username,
             gitHubAccountLogin: authMethod == .gitHubPAT ? state.activeGitHubAccountLogin : nil
         )
-        state.addRepo(config)
+        let repoID = state.addRepo(config)
         if authMethod == .httpsToken || authMethod == .sshKey {
-            state.saveRemoteCredentials(credentials, for: config.id)
+            state.saveRemoteCredentials(credentials, for: repoID)
         }
-        Task { await state.clone(repoID: config.id) }
+        Task { await state.clone(repoID: repoID) }
         dismiss()
     }
 
