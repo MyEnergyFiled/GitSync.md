@@ -30,6 +30,7 @@ struct FileBrowserView: View {
     @State private var showCreateFileAlert = false
     @State private var newFileName: String = ""
     @State private var showHugoCreator = false
+    @State private var newlyCreatedFile: FileEditorDestination?
 
     private var vaultURL: URL { state.vaultURL(for: repoID) }
     private var currentURL: URL {
@@ -90,6 +91,9 @@ struct FileBrowserView: View {
         .navigationDestination(for: FileEditorDestination.self) { dest in
             FileEditorView(repoID: dest.repoID, fileURL: dest.fileURL)
         }
+        .navigationDestination(item: $newlyCreatedFile) { dest in
+            FileEditorView(repoID: dest.repoID, fileURL: dest.fileURL)
+        }
         .alert("Rename", isPresented: $showRenameAlert, presenting: renameItem) { item in
             TextField("New name", text: $newName)
                 .autocorrectionDisabled()
@@ -115,7 +119,12 @@ struct FileBrowserView: View {
             HugoNewContentView(
                 repoID: repoID,
                 initialDirectory: relativePath.hasPrefix("content") ? relativePath : "",
-                onCreated: { _ in loadItems() }
+                onCreated: { url in
+                    loadItems()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                        newlyCreatedFile = FileEditorDestination(repoID: repoID, fileURL: url)
+                    }
+                }
             )
         }
         .onAppear { loadItems() }

@@ -1,4 +1,6 @@
 import SwiftUI
+import PhotosUI
+import UniformTypeIdentifiers
 
 // MARK: - Navigation Destination
 
@@ -34,6 +36,9 @@ struct FileEditorView: View {
     @State private var showSaveToast = false
     @State private var editorMode: MarkdownEditorMode = .source
     @State private var frontMatter = MarkdownFrontMatter(markdown: "")
+    @State private var selectedPhoto: PhotosPickerItem?
+    @State private var showImageImporter = false
+    @State private var imageMessage: String?
 
     init(repoID: UUID, fileURL: URL) {
         self.repoID = repoID
@@ -94,6 +99,11 @@ struct FileEditorView: View {
                 .transition(.opacity.combined(with: .scale(scale: 0.97)))
             }
         }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if isMarkdown && !isBinary && editorMode == .source {
+                markdownFormattingBar
+            }
+        }
         .overlay(alignment: .bottom) {
             Group {
                 if showSaveToast {
@@ -117,6 +127,22 @@ struct FileEditorView: View {
             }
             ToolbarItem(placement: .topBarTrailing) {
                 HStack(spacing: 16) {
+                    if isMarkdown && !isBinary {
+                        Menu {
+                            PhotosPicker(selection: $selectedPhoto, matching: .images) {
+                                Label("Choose from Photos", systemImage: "photo.on.rectangle")
+                            }
+                            Button {
+                                showImageImporter = true
+                            } label: {
+                                Label("Choose Image File", systemImage: "folder")
+                            }
+                        } label: {
+                            Image(systemName: "photo.badge.plus")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(Color.brutalText)
+                        }
+                    }
                     if !isBinary {
                         Button("Save") { performSave() }
                             .font(.system(size: 12, weight: .bold, design: .monospaced))
@@ -140,6 +166,22 @@ struct FileEditorView: View {
                     }
                 }
             }
+        }
+        .fileImporter(isPresented: $showImageImporter, allowedContentTypes: [.image]) { result in
+            guard case .success(let source) = result else { return }
+            importImageFile(source)
+        }
+        .onChange(of: selectedPhoto) { _, item in
+            guard let item else { return }
+            Task { await importPhoto(item) }
+        }
+        .alert("Image", isPresented: Binding(
+            get: { imageMessage != nil },
+            set: { if !$0 { imageMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) { imageMessage = nil }
+        } message: {
+            Text(imageMessage ?? "")
         }
         .onAppear { loadContent() }
         .onChange(of: editorMode) { oldMode, newMode in
@@ -200,6 +242,38 @@ struct FileEditorView: View {
         }
     }
 
+    private var markdownFormattingBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                formattingButton("H1", insertion: "\n# Heading\n")
+                formattingButton("B", insertion: "**bold**")
+                formattingButton("I", insertion: "*italic*")
+                formattingButton("LINK", insertion: "[text](https://)")
+                formattingButton("CODE", insertion: "`code`")
+                formattingButton("QUOTE", insertion: "\n> Quote\n")
+                formattingButton("LIST", insertion: "\n- Item\n")
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+        }
+        .background(Color.brutalSurface)
+        .overlay(alignment: .top) { Rectangle().fill(Color.brutalBorder).frame(height: 1) }
+    }
+
+    private func formattingButton(_ label: String, insertion: String) -> some View {
+        Button(label) { appendMarkdown(insertion) }
+            .font(.system(size: 11, weight: .bold, design: .monospaced))
+            .foregroundStyle(Color.brutalText)
+            .padding(.horizontal, 10)
+            .frame(height: 32)
+            .background(Color.brutalBg)
+            .overlay { Rectangle().stroke(Color.brutalBorder, lineWidth: 1) }
+    }
+
+    private func appendMarkdown(_ insertion: String) {
+        content += (content.isEmpty || content.hasSuffix("\n") ? "" : "\n") + insertion
+    }
+
     // MARK: - Binary Fallback
 
     private var binaryState: some View {
@@ -229,6 +303,58 @@ struct FileEditorView: View {
         content = text
         originalContent = text
         if isMarkdown { frontMatter = MarkdownFrontMatter(markdown: text) }
+    }
+
+    private func importPhoto(_ item: PhotosPickerItem) async {
+        guard let data = try? await item.loadTransferable(type: Data.self) else {
+            await MainActor.run { imageMessage = String(localized: "Could not read the selected image.") }
+            return
+        }
+        let ext = item.supportedContentTypes.first?.preferredFilenameExtension ?? "jpg"
+        await MainActor.run { storeImage(data: data, preferredName: "image.\(ext)") }
+    }
+
+    private func importImageFile(_ source: URL) {
+        let accessing = source.startAccessingSecurityScopedResource()
+        defer { if accessing { source.stopAccessingSecurityScopedResource() } }
+        guard let data = try? Data(contentsOf: source) else {
+            imageMessage = String(localized: "Could not read the selected image.")
+            return
+        }
+        storeImage(data: data, preferredName: source.lastPathComponent)
+    }
+
+    private func storeImage(data: Data, preferredName: String) {
+        let directory = liveURL.deletingLastPathComponent().appendingPathComponent("images", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let source = URL(fileURLWithPath: preferredName)
+            let stem = HugoContentService.slugify(source.deletingPathExtension().lastPathComponent)
+            let base = stem.isEmpty ? "image" : stem
+            let ext = source.pathExtension.isEmpty ? "jpg" : source.pathExtension.lowercased()
+            var destination = directory.appendingPathComponent("\(base).\(ext)")
+            var suffix = 2
+            while FileManager.default.fileExists(atPath: destination.path) {
+                destination = directory.appendingPathComponent("\(base)-\(suffix).\(ext)")
+                suffix += 1
+            }
+            try data.write(to: destination, options: .atomic)
+            insertMarkdownImage(named: destination.lastPathComponent)
+            state.detectChanges(repoID: repoID)
+            imageMessage = String(localized: "Image added to images/ and inserted into Markdown.")
+        } catch {
+            imageMessage = error.localizedDescription
+        }
+    }
+
+    private func insertMarkdownImage(named name: String) {
+        let markdown = "![\(URL(fileURLWithPath: name).deletingPathExtension().lastPathComponent)](images/\(name))"
+        if editorMode == .properties {
+            frontMatter.body += (frontMatter.body.isEmpty ? "" : "\n\n") + markdown
+        } else {
+            content += (content.hasSuffix("\n") || content.isEmpty ? "" : "\n") + "\n\(markdown)\n"
+            editorMode = .source
+        }
     }
 
     private func performSave() {
