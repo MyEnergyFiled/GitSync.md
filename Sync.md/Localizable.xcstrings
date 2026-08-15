@@ -120417,6 +120417,310 @@
           }
         }
       }
+    },
+    "File loaded": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件已载入"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檔案已載入"
+          }
+        }
+      }
+    },
+    "Unsaved draft found": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发现未保存的草稿"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "發現未儲存的草稿"
+          }
+        }
+      }
+    },
+    "Unsaved Draft Found": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发现未保存的草稿"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "發現未儲存的草稿"
+          }
+        }
+      }
+    },
+    "Recovered unsaved draft": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已恢复未保存的草稿"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已復原未儲存的草稿"
+          }
+        }
+      }
+    },
+    "Using saved file": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在使用已保存的文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在使用已儲存的檔案"
+          }
+        }
+      }
+    },
+    "Saving draft…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在保存草稿…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在儲存草稿…"
+          }
+        }
+      }
+    },
+    "Draft saved locally": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "草稿已保存在本地"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "草稿已儲存在本機"
+          }
+        }
+      }
+    },
+    "File saved · not committed": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件已保存 · 尚未提交"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檔案已儲存 · 尚未提交"
+          }
+        }
+      }
+    },
+    "Save failed · draft preserved": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存失败 · 草稿已保留"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "儲存失敗 · 草稿已保留"
+          }
+        }
+      }
+    },
+    "Saving file…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在保存文件…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在儲存檔案…"
+          }
+        }
+      }
+    },
+    "No article changes to commit": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有可提交的文章更改"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有可提交的文章變更"
+          }
+        }
+      }
+    },
+    "Article staged · pushing…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文章已暂存 · 正在推送…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文章已暫存 · 正在推送…"
+          }
+        }
+      }
+    },
+    "Pushed to GitHub": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已推送到 GitHub"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已推送到 GitHub"
+          }
+        }
+      }
+    },
+    "Push failed · file remains saved": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "推送失败 · 文件仍已保存"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "推送失敗 · 檔案仍已儲存"
+          }
+        }
+      }
+    },
+    "Save, Commit & Push": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存、提交并推送"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "儲存、提交並推送"
+          }
+        }
+      }
+    },
+    "Restore Draft": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "恢复草稿"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復原草稿"
+          }
+        }
+      }
+    },
+    "Use Saved File": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用已保存文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用已儲存檔案"
+          }
+        }
+      }
+    },
+    "GitSync.md preserved newer editor text. Restore it or use the version currently saved in the repository.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitSync.md 保留了较新的编辑内容。请选择恢复草稿，或使用仓库中当前保存的版本。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitSync.md 保留了較新的編輯內容。請選擇復原草稿，或使用儲存庫中目前儲存的版本。"
+          }
+        }
+      }
+    },
+    "This saves and stages the current article bundle. Any files already staged in Git will also be included.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这会保存并暂存当前文章目录。Git 中原本已经暂存的文件也会包含在本次提交中。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這會儲存並暫存目前文章目錄。Git 中原本已暫存的檔案也會包含在這次提交中。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

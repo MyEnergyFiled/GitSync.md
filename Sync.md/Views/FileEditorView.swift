@@ -48,6 +48,12 @@ struct FileEditorView: View {
     @State private var showDiscardConfirm = false
     @State private var draftSaveTask: Task<Void, Never>?
     @State private var isDiscardingEdits = false
+    @State private var pendingRecoveredDraft: String?
+    @State private var showDraftRecovery = false
+    @State private var showQuickPublish = false
+    @State private var quickCommitMessage = ""
+    @State private var isQuickPublishing = false
+    @State private var persistenceMessage = String(localized: "File loaded")
 
     private let draftStore = FileEditorDraftStore()
 
@@ -118,6 +124,25 @@ struct FileEditorView: View {
                 .transition(.opacity.combined(with: .scale(scale: 0.97)))
             }
 
+            if showDraftRecovery {
+                ArticleDraftRecoveryModal(
+                    onRestore: restorePendingDraft,
+                    onUseFile: discardPendingDraft
+                )
+                .zIndex(30)
+            }
+
+            if showQuickPublish {
+                ArticleQuickPublishModal(
+                    message: $quickCommitMessage,
+                    isPublishing: isQuickPublishing,
+                    progress: isQuickPublishing ? state.syncProgress : persistenceMessage,
+                    onPublish: { Task { await quickPublish() } },
+                    onCancel: { if !isQuickPublishing { showQuickPublish = false } }
+                )
+                .zIndex(30)
+            }
+
             if showRenameModal {
                 BRenameModal(
                     title: String(localized: "Rename File"),
@@ -129,8 +154,13 @@ struct FileEditorView: View {
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if isMarkdown && !isBinary && editorMode == .source {
-                markdownFormattingBar
+            if !isBinary {
+                VStack(spacing: 0) {
+                    persistenceBar
+                    if isMarkdown && editorMode == .source {
+                        markdownFormattingBar
+                    }
+                }
             }
         }
         .overlay(alignment: .bottom) {
@@ -188,7 +218,7 @@ struct FileEditorView: View {
                         }
                     }
                     if !isBinary {
-                        Button("Save") { performSave() }
+                        Button("Save") { _ = performSave() }
                             .font(.system(size: 12, weight: .bold, design: .monospaced))
                             .foregroundStyle(isDirty ? Color.brutalAccent : Color.brutalTextFaint)
                             .disabled(!isDirty)
@@ -332,6 +362,38 @@ struct FileEditorView: View {
         }
     }
 
+    private var persistenceBar: some View {
+        HStack(spacing: 10) {
+            if isQuickPublishing {
+                ProgressView()
+                    .controlSize(.small)
+            } else {
+                Image(systemName: isDirty ? "doc.badge.clock" : "checkmark.circle")
+                    .font(.system(size: 13, weight: .semibold))
+            }
+            Text((isQuickPublishing ? state.syncProgress : persistenceMessage).uppercased())
+                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                .foregroundStyle(Color.brutalTextMid)
+                .lineLimit(1)
+            Spacer()
+            if isMarkdown && fileName.lowercased() == "index.md" && state.repo(id: repoID)?.isCloned == true {
+                Button {
+                    showQuickPublish = true
+                } label: {
+                    Text(String(localized: "Save, Commit & Push").uppercased())
+                        .font(.system(size: 11, weight: .black, design: .monospaced))
+                        .foregroundStyle(Color.brutalAccent)
+                }
+                .buttonStyle(.plain)
+                .disabled(isQuickPublishing)
+            }
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 38)
+        .background(Color.brutalSurface)
+        .overlay(alignment: .top) { Rectangle().fill(Color.brutalBorder).frame(height: 1) }
+    }
+
     private var markdownFormattingBar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
@@ -410,11 +472,30 @@ struct FileEditorView: View {
         content = text
         originalContent = text
         if let draft = draftStore.draft(repoID: repoID, fileURL: liveURL), draft.content != text {
-            content = draft.content
+            pendingRecoveredDraft = draft.content
+            showDraftRecovery = true
+            persistenceMessage = String(localized: "Unsaved draft found")
         } else {
             try? draftStore.remove(repoID: repoID, fileURL: liveURL)
+            persistenceMessage = String(localized: "File loaded")
         }
         if isMarkdown { frontMatter = MarkdownFrontMatter(markdown: content) }
+    }
+
+    private func restorePendingDraft() {
+        guard let draft = pendingRecoveredDraft else { return }
+        content = draft
+        if isMarkdown { frontMatter = MarkdownFrontMatter(markdown: draft) }
+        pendingRecoveredDraft = nil
+        showDraftRecovery = false
+        persistenceMessage = String(localized: "Recovered unsaved draft")
+    }
+
+    private func discardPendingDraft() {
+        pendingRecoveredDraft = nil
+        showDraftRecovery = false
+        try? draftStore.remove(repoID: repoID, fileURL: liveURL)
+        persistenceMessage = String(localized: "Using saved file")
     }
 
     private func scheduleDraftSave(_ value: String) {
@@ -423,11 +504,13 @@ struct FileEditorView: View {
             try? draftStore.remove(repoID: repoID, fileURL: liveURL)
             return
         }
+        persistenceMessage = String(localized: "Saving draft…")
         let targetURL = liveURL
         draftSaveTask = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(700))
             guard !Task.isCancelled else { return }
             try? draftStore.save(content: value, repoID: repoID, fileURL: targetURL)
+            persistenceMessage = String(localized: "Draft saved locally")
         }
     }
 
@@ -558,25 +641,55 @@ struct FileEditorView: View {
         frontMatter.body = frontMatter.body.replacingOccurrences(of: "images/\(oldName)", with: "images/\(newName)")
     }
 
-    private func performSave() {
+    @discardableResult
+    private func performSave() -> Bool {
         content = pendingContent
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-        guard let data = content.data(using: .utf8) else { return }
+        guard let data = content.data(using: .utf8) else { return false }
         do {
             try data.write(to: liveURL, options: .atomic)
             originalContent = content
             draftSaveTask?.cancel()
             try? draftStore.remove(repoID: repoID, fileURL: liveURL)
             state.detectChanges(repoID: repoID)
+            persistenceMessage = String(localized: "File saved · not committed")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                 showSaveToast = true
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
                     showSaveToast = false
                 }
             }
+            return true
         } catch {
             imageMessage = error.localizedDescription
+            persistenceMessage = String(localized: "Save failed · draft preserved")
             saveDraftImmediately()
+            return false
+        }
+    }
+
+    private func quickPublish() async {
+        guard !isQuickPublishing else { return }
+        guard performSave() else { return }
+        isQuickPublishing = true
+        persistenceMessage = String(localized: "Saving file…")
+
+        let staged = await state.stageArticleBundle(repoID: repoID, fileURL: liveURL)
+        guard staged else {
+            isQuickPublishing = false
+            persistenceMessage = String(localized: "No article changes to commit")
+            return
+        }
+
+        persistenceMessage = String(localized: "Article staged · pushing…")
+        let pushed = await state.push(repoID: repoID, message: quickCommitMessage)
+        isQuickPublishing = false
+        if pushed {
+            quickCommitMessage = ""
+            showQuickPublish = false
+            persistenceMessage = String(localized: "Pushed to GitHub")
+        } else {
+            persistenceMessage = String(localized: "Push failed · file remains saved")
         }
     }
 
@@ -608,6 +721,94 @@ struct FileEditorView: View {
 }
 
 
+
+private struct ArticleDraftRecoveryModal: View {
+    let onRestore: () -> Void
+    let onUseFile: () -> Void
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.45).ignoresSafeArea()
+            VStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(String(localized: "Unsaved Draft Found").uppercased())
+                        .font(.system(size: 15, weight: .black, design: .monospaced))
+                        .tracking(2)
+                    Text(String(localized: "GitSync.md preserved newer editor text. Restore it or use the version currently saved in the repository."))
+                        .font(.system(size: 13, design: .monospaced))
+                        .foregroundStyle(Color.brutalTextMid)
+                }
+                .padding(20)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                BDivider()
+                VStack(spacing: 8) {
+                    BPrimaryButton(title: String(localized: "Restore Draft"), action: onRestore)
+                    BGhostButton(title: String(localized: "Use Saved File"), action: onUseFile)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                }
+                .padding(16)
+            }
+            .background(Color.brutalBg)
+            .overlay(Rectangle().strokeBorder(Color.brutalBorder, lineWidth: 2))
+            .padding(.horizontal, 28)
+        }
+    }
+}
+
+private struct ArticleQuickPublishModal: View {
+    @Binding var message: String
+    let isPublishing: Bool
+    let progress: String
+    let onPublish: () -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.45).ignoresSafeArea().onTapGesture { onCancel() }
+            VStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(String(localized: "Save, Commit & Push").uppercased())
+                        .font(.system(size: 15, weight: .black, design: .monospaced))
+                        .tracking(2)
+                    Text(String(localized: "This saves and stages the current article bundle. Any files already staged in Git will also be included."))
+                        .font(.system(size: 13, design: .monospaced))
+                        .foregroundStyle(Color.brutalTextMid)
+                }
+                .padding(20)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                BDivider()
+                TextField(String(localized: "Commit message…"), text: $message, axis: .vertical)
+                    .font(.system(size: 14, design: .monospaced))
+                    .lineLimit(1...3)
+                    .padding(14)
+                    .disabled(isPublishing)
+                if isPublishing {
+                    HStack(spacing: 10) {
+                        ProgressView().controlSize(.small)
+                        Text(progress)
+                            .font(.system(size: 12, design: .monospaced))
+                        Spacer()
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 10)
+                }
+                VStack(spacing: 8) {
+                    BPrimaryButton(title: String(localized: "Save, Commit & Push"), action: onPublish)
+                        .disabled(isPublishing)
+                    BGhostButton(title: String(localized: "Cancel"), action: onCancel)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                        .disabled(isPublishing)
+                }
+                .padding(16)
+            }
+            .background(Color.brutalBg)
+            .overlay(Rectangle().strokeBorder(Color.brutalBorder, lineWidth: 2))
+            .padding(.horizontal, 28)
+        }
+    }
+}
 
 private struct HugoMarkdownPreview: View {
     let markdownBody: String

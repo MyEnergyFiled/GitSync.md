@@ -1847,6 +1847,51 @@ final class AppState {
         }
     }
 
+    /// Stages only the current Hugo leaf bundle (`index.md` and its sibling
+    /// `images/` directory). Existing staged changes elsewhere are preserved.
+    @discardableResult
+    func stageArticleBundle(repoID: UUID, fileURL: URL) async -> Bool {
+        guard let repo = repo(id: repoID), repo.isCloned else { return false }
+        guard indexMutationRepoIDs.insert(repoID).inserted else { return false }
+        defer { indexMutationRepoIDs.remove(repoID) }
+
+        let vaultDir = vaultURL(for: repoID).standardizedFileURL
+        let articleDir = fileURL.deletingLastPathComponent().standardizedFileURL
+        let vaultPath = vaultDir.path.hasSuffix("/") ? vaultDir.path : vaultDir.path + "/"
+        guard articleDir.path.hasPrefix(vaultPath) else { return false }
+
+        let bundlePath = String(articleDir.path.dropFirst(vaultPath.count))
+        let prefix = bundlePath.isEmpty ? "" : bundlePath + "/"
+        let gitService = gitRepositoryFactory(vaultDir)
+        guard gitService.hasGitDirectory else {
+            showError(message: LocalGitError.notCloned.localizedDescription)
+            return false
+        }
+
+        do {
+            let info = try await gitService.repoInfo()
+            let bundleEntries = info.statusEntries.filter {
+                $0.path == bundlePath || $0.path.hasPrefix(prefix)
+                    || ($0.oldPath?.hasPrefix(prefix) == true)
+            }
+            let unstagedEntries = bundleEntries.filter { $0.workTreeStatus != nil }
+            for entry in unstagedEntries {
+                try await gitService.stage(path: entry.path, oldPath: entry.oldPath, lfsAutoTrack: false)
+            }
+            guard !bundleEntries.isEmpty else { return false }
+
+            markRepositoryMutated(repoID: repoID)
+            for entry in unstagedEntries {
+                optimisticallyStageStatusEntry(repoID: repoID, path: entry.path)
+            }
+            detectChanges(repoID: repoID)
+            return true
+        } catch {
+            showError(message: error.localizedDescription)
+            return false
+        }
+    }
+
     func stageAllChanges(repoID: UUID) async {
         await stageAllChanges(repoID: repoID, lfsAutoTrack: false, promptForLFS: true)
     }

@@ -895,6 +895,38 @@ final class SyncMDTests: XCTestCase {
     }
 
     @MainActor
+    func testStageArticleBundleStagesOnlyCurrentLeafBundle() async throws {
+        let fixture = try GitFixtureFactory.make(state: .clean)
+        defer { fixture.cleanup() }
+        fixture.repository.repoInfoResult = LocalRepoInfo(
+            branch: "main",
+            commitSHA: fixture.repoConfig.gitState.commitSHA,
+            changeCount: 3,
+            syncState: .unknown,
+            statusEntries: [
+                GitStatusEntry(path: "content/posts/one/index.md", indexStatus: nil, workTreeStatus: .modified),
+                GitStatusEntry(path: "content/posts/one/images/cover.jpg", indexStatus: nil, workTreeStatus: .untracked),
+                GitStatusEntry(path: "content/posts/two/index.md", indexStatus: nil, workTreeStatus: .modified)
+            ]
+        )
+        let appState = AppState(
+            gitRepositoryFactory: { _ in fixture.repository },
+            loadPersistedState: false
+        )
+        appState.repos = [fixture.repoConfig]
+        let articleURL = appState.vaultURL(for: fixture.repoConfig.id)
+            .appendingPathComponent("content/posts/one/index.md")
+
+        let staged = await appState.stageArticleBundle(repoID: fixture.repoConfig.id, fileURL: articleURL)
+
+        XCTAssertTrue(staged)
+        XCTAssertEqual(fixture.repository.stagedPaths, [
+            "content/posts/one/index.md",
+            "content/posts/one/images/cover.jpg"
+        ])
+    }
+
+    @MainActor
     func testAppStateLoadBranchesStoresInventoryByRepo() async throws {
         let fixture = try GitFixtureFactory.make(state: .clean)
         defer { fixture.cleanup() }
