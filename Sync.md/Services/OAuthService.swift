@@ -118,9 +118,42 @@ final class OAuthService {
             .joined(separator: "&")
             .data(using: .utf8)
 
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse,
-              (200..<300).contains(http.statusCode) else {
+        let startedAt = Date()
+        let endpoint = url == deviceCodeURL ? "/login/device/code" : "/login/oauth/access_token"
+        let data: Data
+        let http: HTTPURLResponse
+        do {
+            let (responseData, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw OAuthError.failed("GitHub authorization returned an invalid response.")
+            }
+            data = responseData
+            http = httpResponse
+        } catch {
+            await DebugLogger.logHTTP(
+                category: "oauth-network",
+                method: "POST",
+                endpoint: endpoint,
+                statusCode: nil,
+                duration: Date().timeIntervalSince(startedAt),
+                error: error
+            )
+            throw error
+        }
+
+        let duration = Date().timeIntervalSince(startedAt)
+        if url == deviceCodeURL || !(200..<300).contains(http.statusCode) || duration >= 2 {
+            await DebugLogger.logHTTP(
+                category: "oauth-network",
+                method: "POST",
+                endpoint: endpoint,
+                statusCode: http.statusCode,
+                duration: duration,
+                responseBytes: data.count,
+                requestID: http.value(forHTTPHeaderField: "x-github-request-id")
+            )
+        }
+        guard (200..<300).contains(http.statusCode) else {
             throw OAuthError.failed("GitHub authorization request failed.")
         }
         return data

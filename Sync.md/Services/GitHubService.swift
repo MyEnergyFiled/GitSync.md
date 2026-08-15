@@ -226,6 +226,59 @@ final class GitHubService: Sendable {
 
     // MARK: - Low-Level API
 
+    private static func diagnosedData(
+        for request: URLRequest,
+        session: URLSession,
+        endpoint: String
+    ) async throws -> (Data, HTTPURLResponse) {
+        let startedAt = Date()
+        do {
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                await DebugLogger.logHTTP(
+                    category: "github-network",
+                    method: request.httpMethod ?? "GET",
+                    endpoint: endpoint,
+                    statusCode: nil,
+                    duration: Date().timeIntervalSince(startedAt),
+                    responseBytes: data.count,
+                    error: GitHubError.apiError(0, String(localized: "Invalid response"))
+                )
+                throw GitHubError.apiError(0, String(localized: "Invalid response"))
+            }
+            await DebugLogger.logHTTP(
+                category: "github-network",
+                method: request.httpMethod ?? "GET",
+                endpoint: endpoint,
+                statusCode: http.statusCode,
+                duration: Date().timeIntervalSince(startedAt),
+                responseBytes: data.count,
+                requestID: http.value(forHTTPHeaderField: "x-github-request-id")
+            )
+            return (data, http)
+        } catch {
+            if error is GitHubError { throw error }
+            await DebugLogger.logHTTP(
+                category: "github-network",
+                method: request.httpMethod ?? "GET",
+                endpoint: endpoint,
+                statusCode: nil,
+                duration: Date().timeIntervalSince(startedAt),
+                error: error
+            )
+            throw error
+        }
+    }
+
+    private static func diagnosticEndpoint(for path: String) -> String {
+        let pathOnly = path.split(separator: "?", maxSplits: 1).first.map(String.init) ?? path
+        let components = pathOnly.split(separator: "/").map(String.init)
+        if components.count >= 4, components[0] == "repos" {
+            return "/repos/<owner>/<repo>/" + components.dropFirst(3).joined(separator: "/")
+        }
+        return pathOnly
+    }
+
     private func request(_ path: String, method: String = "GET", body: Data? = nil) async throws -> Data {
         guard let url = URL(string: "\(baseURL)\(path)") else {
             throw GitHubError.invalidURL
@@ -241,10 +294,11 @@ final class GitHubService: Sendable {
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
 
-        let (data, response) = try await session.data(for: req)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw GitHubError.apiError(0, String(localized: "Invalid response"))
-        }
+        let (data, httpResponse) = try await Self.diagnosedData(
+            for: req,
+            session: session,
+            endpoint: Self.diagnosticEndpoint(for: path)
+        )
 
         switch httpResponse.statusCode {
         case 200...299:
@@ -612,8 +666,8 @@ extension GitHubService {
         var req = URLRequest(url: URL(string: "https://api.github.com/user")!)
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        let (data, response) = try await URLSession.shared.data(for: req)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+        let (data, http) = try await diagnosedData(for: req, session: .shared, endpoint: "/user")
+        guard http.statusCode == 200 else {
             throw GitHubError.unauthorized
         }
         return try JSONDecoder().decode(GitHubUser.self, from: data)
@@ -632,8 +686,8 @@ extension GitHubService {
         var req = URLRequest(url: components.url!)
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        let (data, response) = try await URLSession.shared.data(for: req)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+        let (data, http) = try await diagnosedData(for: req, session: .shared, endpoint: "/user/repos")
+        guard http.statusCode == 200 else {
             throw GitHubError.unauthorized
         }
         return try JSONDecoder().decode([GitHubRepo].self, from: data)
@@ -644,8 +698,8 @@ extension GitHubService {
         var req = URLRequest(url: URL(string: "https://api.github.com/user/emails")!)
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        let (data, response) = try await URLSession.shared.data(for: req)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+        let (data, http) = try await diagnosedData(for: req, session: .shared, endpoint: "/user/emails")
+        guard http.statusCode == 200 else {
             return nil
         }
         struct Email: Codable {

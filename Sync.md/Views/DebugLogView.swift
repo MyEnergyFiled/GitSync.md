@@ -1,14 +1,32 @@
 import SwiftUI
 
 struct DebugLogView: View {
-    @State private var entries: [LogEntry] = DebugLogger.shared.entries
+    private let logger = DebugLogger.shared
     @State private var filterLevel: LogLevel? = nil
+    @State private var filterCategory: String? = nil
+    @State private var searchText = ""
     @State private var showShareSheet = false
     @State private var showClearConfirm = false
 
+    private var categories: [String] {
+        Array(Set(logger.entries.map(\.category))).sorted()
+    }
+
     private var filtered: [LogEntry] {
-        let base = filterLevel == nil ? entries : entries.filter { $0.level == filterLevel }
-        return base.reversed()  // newest first
+        Array(logger.entries.filter { entry in
+            let matchesLevel = filterLevel == nil || entry.level == filterLevel
+            let matchesCategory = filterCategory == nil || entry.category == filterCategory
+            let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+            let haystack = [
+                entry.category,
+                entry.message,
+                entry.detail ?? "",
+                entry.repoName ?? "",
+                entry.operationID ?? ""
+            ].joined(separator: " ")
+            let matchesSearch = query.isEmpty || haystack.localizedCaseInsensitiveContains(query)
+            return matchesLevel && matchesCategory && matchesSearch
+        }.reversed())
     }
 
     var body: some View {
@@ -64,6 +82,21 @@ struct DebugLogView: View {
                         }
                     }
 
+                    Section("Category") {
+                        Button {
+                            filterCategory = nil
+                        } label: {
+                            Label("All Categories", systemImage: filterCategory == nil ? "checkmark" : "")
+                        }
+                        ForEach(categories, id: \.self) { category in
+                            Button {
+                                filterCategory = category
+                            } label: {
+                                Label(category.uppercased(), systemImage: filterCategory == category ? "checkmark" : "")
+                            }
+                        }
+                    }
+
                     Section {
                         // Share
                         Button {
@@ -71,15 +104,15 @@ struct DebugLogView: View {
                         } label: {
                             Label("Share Logs", systemImage: "square.and.arrow.up")
                         }
-                        .disabled(entries.isEmpty)
+                        .disabled(logger.entries.isEmpty)
 
                         // Copy
                         Button {
-                            UIPasteboard.general.string = DebugLogger.shared.exportText(filter: filterLevel)
+                            UIPasteboard.general.string = logger.exportText(selectedEntries: Array(filtered.reversed()))
                         } label: {
                             Label("Copy to Clipboard", systemImage: "doc.on.doc")
                         }
-                        .disabled(entries.isEmpty)
+                        .disabled(logger.entries.isEmpty)
                     }
 
                     Section {
@@ -89,7 +122,7 @@ struct DebugLogView: View {
                         } label: {
                             Label("Clear Logs", systemImage: "trash")
                         }
-                        .disabled(entries.isEmpty)
+                        .disabled(logger.entries.isEmpty)
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")
@@ -99,21 +132,19 @@ struct DebugLogView: View {
             }
         }
         .sheet(isPresented: $showShareSheet) {
-            let text = DebugLogger.shared.exportText(filter: filterLevel)
+            let text = logger.exportText(selectedEntries: Array(filtered.reversed()))
             ShareSheet(items: [text])
         }
         .alert("Clear All Logs?", isPresented: $showClearConfirm) {
             Button("Cancel", role: .cancel) {}
             Button("Clear", role: .destructive) {
-                DebugLogger.shared.clear()
-                entries = []
+                logger.clear()
             }
         } message: {
             Text("All debug log entries will be permanently deleted.")
         }
-        .onAppear {
-            entries = DebugLogger.shared.entries
-        }
+        .searchable(text: $searchText, prompt: "Search logs, repositories, or operation IDs")
+        .animation(.easeOut(duration: 0.15), value: logger.entries.count)
     }
 
     // MARK: - Row
