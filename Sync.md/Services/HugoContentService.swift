@@ -57,12 +57,12 @@ enum HugoContentService {
             ?? available.first
     }
 
-    static func render(template: String, title: String, filename: String, section: String, date: Date = Date()) -> String {
+    static func render(template: String, title: String, filename: String, section: String, bundleName: String? = nil, date: Date = Date()) -> String {
         let formatter = ISO8601DateFormatter()
         let datetime = formatter.string(from: date)
         let day = Calendar.current.dateComponents([.year, .month, .day], from: date)
         let base = URL(fileURLWithPath: filename).deletingPathExtension().lastPathComponent
-        let slug = slugify(base.isEmpty ? title : base)
+        let slug = slugify(bundleName ?? (base.isEmpty ? title : base))
         var output = template
         let replacements = [
             "{{ title }}": title, "{{title}}": title,
@@ -84,7 +84,7 @@ enum HugoContentService {
         let pattern = #"\{\{\s*replace\s+\.File\.ContentBaseName\s+[`\"]-[`\"]\s+[`\"]\s*[`\"]\s*\|\s*title\s*\}\}"#
         if let regex = try? NSRegularExpression(pattern: pattern) {
             let range = NSRange(output.startIndex..., in: output)
-            let display = base.replacingOccurrences(of: "-", with: " ").capitalized
+            let display = title.isEmpty ? base.replacingOccurrences(of: "-", with: " ").capitalized : title
             output = regex.stringByReplacingMatches(in: output, range: range, withTemplate: display)
         }
         return output

@@ -7,8 +7,7 @@ struct HugoNewContentView: View {
     let initialDirectory: String
     let onCreated: (URL) -> Void
 
-    @State private var title = ""
-    @State private var filename = ""
+    @State private var bundleName = ""
     @State private var directory = ""
     @State private var archetype = ""
     @State private var directories: [String] = []
@@ -18,8 +17,7 @@ struct HugoNewContentView: View {
 
     private var root: URL { state.vaultURL(for: repoID) }
     private var canCreate: Bool {
-        !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        !filename.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !bundleName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
         !directory.isEmpty && !archetype.isEmpty
     }
 
@@ -31,7 +29,7 @@ struct HugoNewContentView: View {
                         Text("$")
                             .font(.system(size: 14, weight: .black, design: .monospaced))
                             .foregroundStyle(Color.brutalAccent)
-                        TextField("hugo new --kind moments content/moments/my-day.md", text: $terminalCommand)
+                        TextField("hugo new --kind moments content/moments/my-day/index.md", text: $terminalCommand)
                             .font(.system(size: 13, design: .monospaced))
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
@@ -45,24 +43,24 @@ struct HugoNewContentView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         commandHelpRow(
                             code: "hugo new",
-                            explanation: "Create a new content file from an archetype."
+                            explanation: "Create a new leaf bundle from an archetype."
                         )
                         commandHelpRow(
                             code: "--kind moments",
                             explanation: "Use archetypes/moments.md. Change moments to default for archetypes/default.md."
                         )
                         commandHelpRow(
-                            code: "content/moments/my-day.md",
-                            explanation: "The directory and filename that will be created."
+                            code: "content/moments/my-day/index.md",
+                            explanation: "Create my-day/index.md and a sibling my-day/images/ directory."
                         )
                         Divider()
                         Text("EXAMPLES")
                             .font(.system(size: 10, weight: .black, design: .monospaced))
                             .tracking(1.5)
-                        Text("hugo new --kind default content/posts/hello.md")
+                        Text("hugo new --kind default content/posts/hello/index.md")
                             .font(.system(size: 11, design: .monospaced))
                             .textSelection(.enabled)
-                        Text("hugo new --kind moments content/moments/today.md")
+                        Text("hugo new --kind moments content/moments/today/index.md")
                             .font(.system(size: 11, design: .monospaced))
                             .textSelection(.enabled)
                         Text("This is a safe simulation. GitSync.md parses the text and creates the file; no shell or Hugo binary is executed.")
@@ -71,16 +69,13 @@ struct HugoNewContentView: View {
                     }
                     .padding(.top, 4)
                 }
-                Section("Article") {
-                    TextField("Title", text: $title)
-                        .onChange(of: title) { _, value in
-                            if filename.isEmpty || filename == ".md" {
-                                filename = HugoContentService.slugify(value) + ".md"
-                            }
-                        }
-                    TextField("filename.md", text: $filename)
+                Section("Page bundle") {
+                    TextField("English folder name, e.g. my-first-post", text: $bundleName)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
+                    Text("The archetype generates index.md. An images directory is created beside it.")
+                        .font(.caption.monospaced())
+                        .foregroundStyle(Color.brutalTextFaint)
                 }
                 Section("Content directory") {
                     TextField("content/posts", text: $directory)
@@ -157,14 +152,14 @@ struct HugoNewContentView: View {
 
     private func suggestedCommand() -> String {
         let kind = URL(fileURLWithPath: archetype).deletingPathExtension().lastPathComponent
-        let path = directory.isEmpty ? "content/new-post.md" : "\(directory)/new-post.md"
+        let path = directory.isEmpty ? "content/new-post/index.md" : "\(directory)/new-post/index.md"
         return "hugo new --kind \(kind.isEmpty ? "default" : kind) \(path)"
     }
 
     private func applyTerminalCommandAndCreate() {
         let parts = terminalCommand.split(whereSeparator: { $0.isWhitespace }).map(String.init)
         guard parts.count >= 3, parts[0] == "hugo", parts[1] == "new" else {
-            errorMessage = String(localized: "Use: hugo new --kind <template> content/<directory>/<file>.md")
+            errorMessage = String(localized: "Use: hugo new --kind <template> content/<section>/<bundle>/index.md")
             return
         }
         var kind: String?
@@ -173,13 +168,14 @@ struct HugoNewContentView: View {
         } else if let value = parts.first(where: { $0.hasPrefix("--kind=") }) {
             kind = String(value.dropFirst("--kind=".count))
         }
-        guard let path = parts.last, path.hasPrefix("content/"), !path.contains("..") else {
-            errorMessage = String(localized: "The destination must be a safe path below content/.")
+        guard let path = parts.last, path.hasPrefix("content/"), !path.contains(".."),
+              (path as NSString).lastPathComponent == "index.md" else {
+            errorMessage = String(localized: "The destination must end in <bundle>/index.md below content/.")
             return
         }
-        let pathValue = path as NSString
-        directory = pathValue.deletingLastPathComponent
-        filename = pathValue.lastPathComponent
+        let bundlePath = (path as NSString).deletingLastPathComponent as NSString
+        bundleName = bundlePath.lastPathComponent
+        directory = bundlePath.deletingLastPathComponent
         if let kind {
             let candidate = "archetypes/\(kind).md"
             guard archetypes.contains(candidate) else {
@@ -190,18 +186,13 @@ struct HugoNewContentView: View {
         } else {
             selectSuggestedTemplate(for: directory)
         }
-        if title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            title = (filename as NSString).deletingPathExtension
-                .replacingOccurrences(of: "-", with: " ").capitalized
-        }
         create()
     }
 
     private func create() {
-        var safeName = filename.trimmingCharacters(in: .whitespacesAndNewlines)
-        if URL(fileURLWithPath: safeName).pathExtension.isEmpty { safeName += ".md" }
-        guard !safeName.contains("/"), !safeName.contains("..") else {
-            errorMessage = String(localized: "Filename cannot contain a path.")
+        let safeBundleName = bundleName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard safeBundleName.range(of: #"^[a-z0-9]+(?:-[a-z0-9]+)*$"#, options: .regularExpression) != nil else {
+            errorMessage = String(localized: "Use a lowercase English folder name containing letters, numbers, and hyphens only.")
             return
         }
         let safeDirectory = directory.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
@@ -212,20 +203,23 @@ struct HugoNewContentView: View {
         }
         directory = safeDirectory
         let templateURL = root.appendingPathComponent(archetype)
-        let destinationDirectory = root.appendingPathComponent(directory, isDirectory: true)
-        let destination = destinationDirectory.appendingPathComponent(safeName)
-        guard !FileManager.default.fileExists(atPath: destination.path) else {
-            errorMessage = String(localized: "A file with this name already exists.")
+        let contentDirectory = root.appendingPathComponent(directory, isDirectory: true)
+        let bundleDirectory = contentDirectory.appendingPathComponent(safeBundleName, isDirectory: true)
+        let destination = bundleDirectory.appendingPathComponent("index.md")
+        let imagesDirectory = bundleDirectory.appendingPathComponent("images", isDirectory: true)
+        guard !FileManager.default.fileExists(atPath: bundleDirectory.path) else {
+            errorMessage = String(localized: "A content bundle with this folder name already exists.")
             return
         }
         do {
             let template = try String(contentsOf: templateURL, encoding: .utf8)
             let section = URL(fileURLWithPath: directory).lastPathComponent
+            let generatedTitle = safeBundleName.replacingOccurrences(of: "-", with: " ").capitalized
             let rendered = HugoContentService.render(
-                template: template, title: title.trimmingCharacters(in: .whitespacesAndNewlines),
-                filename: safeName, section: section
+                template: template, title: generatedTitle,
+                filename: "index.md", section: section, bundleName: safeBundleName
             )
-            try FileManager.default.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: imagesDirectory, withIntermediateDirectories: true)
             try rendered.write(to: destination, atomically: true, encoding: .utf8)
             var config = HugoContentService.loadConfiguration(from: root)
             config.contentMappings.removeAll { $0.directory == directory }

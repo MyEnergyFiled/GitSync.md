@@ -42770,6 +42770,204 @@
           }
         }
       }
+    },
+    "Page bundle": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Page bundle"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "页面包"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "頁面包"
+          }
+        }
+      }
+    },
+    "English folder name, e.g. my-first-post": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "English folder name, e.g. my-first-post"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "英文目录名，例如 my-first-post"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "英文目錄名稱，例如 my-first-post"
+          }
+        }
+      }
+    },
+    "The archetype generates index.md. An images directory is created beside it.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The archetype generates index.md. An images directory is created beside it."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内容模板将生成 index.md，并在同级创建 images 目录。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "內容範本會產生 index.md，並在同層建立 images 目錄。"
+          }
+        }
+      }
+    },
+    "Create a new leaf bundle from an archetype.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create a new leaf bundle from an archetype."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用内容模板创建新的 Leaf Bundle。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用內容範本建立新的 Leaf Bundle。"
+          }
+        }
+      }
+    },
+    "Create my-day/index.md and a sibling my-day/images/ directory.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create my-day/index.md and a sibling my-day/images/ directory."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "创建 my-day/index.md，并创建同级的 my-day/images/ 目录。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "建立 my-day/index.md，並建立同層的 my-day/images/ 目錄。"
+          }
+        }
+      }
+    },
+    "Use: hugo new --kind <template> content/<section>/<bundle>/index.md": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use: hugo new --kind <template> content/<section>/<bundle>/index.md"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：hugo new --kind <模板> content/<栏目>/<英文目录>/index.md"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：hugo new --kind <範本> content/<區段>/<英文目錄>/index.md"
+          }
+        }
+      }
+    },
+    "The destination must end in <bundle>/index.md below content/.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The destination must end in <bundle>/index.md below content/."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目标路径必须位于 content/ 下，并以 <英文目录>/index.md 结尾。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目標路徑必須位於 content/ 下，並以 <英文目錄>/index.md 結尾。"
+          }
+        }
+      }
+    },
+    "Use a lowercase English folder name containing letters, numbers, and hyphens only.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use a lowercase English folder name containing letters, numbers, and hyphens only."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "英文目录名只能包含小写英文字母、数字和连字符。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "英文目錄名稱只能包含小寫英文字母、數字與連字號。"
+          }
+        }
+      }
+    },
+    "A content bundle with this folder name already exists.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A content bundle with this folder name already exists."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已存在同名的内容页面包。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已有同名的內容頁面包。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
