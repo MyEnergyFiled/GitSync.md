@@ -4329,6 +4329,66 @@ final class HugoContentServiceTests: XCTestCase {
         XCTAssertEqual(document.body, "Preview body.")
     }
 
+    func testPreviewParserRecognizesImagesCodeTablesAndShortcodes() {
+        let markdown = """
+        Intro with [link](../about.md).
+
+        ![Cover](images/cover.jpg)
+
+        ```swift
+        let answer = 42
+        ```
+
+        | Name | Value |
+        | --- | ---: |
+        | answer | 42 |
+
+        {{< figure src="images/photo.jpg" >}}
+        """
+
+        let blocks = HugoPreviewParser.blocks(from: markdown)
+
+        XCTAssertEqual(blocks, [
+            .markdown("Intro with [link](../about.md)."),
+            .image(alt: "Cover", path: "images/cover.jpg"),
+            .code(language: "swift", content: "let answer = 42"),
+            .table(headers: ["Name", "Value"], rows: [["answer", "42"]]),
+            .shortcode(#"{{< figure src="images/photo.jpg" >}}"#)
+        ])
+    }
+
+    func testPreviewAssetResolutionAllowsRepositoryRelativePathsAndRejectsEscapes() {
+        let root = URL(fileURLWithPath: "/repo", isDirectory: true)
+        let bundle = root.appendingPathComponent("content/posts/example", isDirectory: true)
+
+        XCTAssertEqual(
+            HugoContentService.localPreviewAssetURL(
+                for: "images/cover%20photo.jpg?size=large#hero",
+                bundleURL: bundle,
+                repositoryRoot: root
+            )?.path,
+            "/repo/content/posts/example/images/cover photo.jpg"
+        )
+        XCTAssertEqual(
+            HugoContentService.localPreviewAssetURL(
+                for: "../../../static/shared.jpg",
+                bundleURL: bundle,
+                repositoryRoot: root
+            )?.path,
+            "/repo/static/shared.jpg"
+        )
+        XCTAssertNil(HugoContentService.localPreviewAssetURL(
+            for: "../../../../outside.jpg",
+            bundleURL: bundle,
+            repositoryRoot: root
+        ))
+        XCTAssertNil(HugoContentService.localPreviewAssetURL(
+            for: "https://example.com/image.jpg",
+            bundleURL: bundle,
+            repositoryRoot: root
+        ))
+    }
+
     func testArticleSortSupportsPublicationModifiedTitleDirectoryAndDraftState() {
         let older = HugoArticle(
             fileURL: URL(fileURLWithPath: "/repo/content/z/index.md"),

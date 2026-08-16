@@ -121284,6 +121284,11 @@
         }
       }
     },
+    "Hugo shortcode": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Hugo shortcode" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "Hugo 短代码" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "Hugo 短代碼" } }
+    } },
     "Publication Date": { "localizations": {
       "en": { "stringUnit": { "state": "translated", "value": "Publication Date" } },
       "zh-Hans": { "stringUnit": { "state": "translated", "value": "发布日期" } },

@@ -132,6 +132,25 @@ enum HugoContentService {
         value.range(of: #"^-?(?:\d+(?:\.\d+)?|\.\d+)$"#, options: .regularExpression) != nil
     }
 
+    static func localPreviewAssetURL(
+        for reference: String,
+        bundleURL: URL,
+        repositoryRoot: URL
+    ) -> URL? {
+        guard !reference.hasPrefix("/"), !reference.hasPrefix("//"),
+              reference.range(
+                  of: #"^[A-Za-z][A-Za-z0-9+.-]*:"#,
+                  options: .regularExpression
+              ) == nil else { return nil }
+        let path = reference.split(separator: "#", maxSplits: 1).first.map(String.init) ?? reference
+        let pathWithoutQuery = path.split(separator: "?", maxSplits: 1).first.map(String.init) ?? path
+        guard !pathWithoutQuery.isEmpty else { return nil }
+        let decodedPath = pathWithoutQuery.removingPercentEncoding ?? pathWithoutQuery
+        let target = bundleURL.appendingPathComponent(decodedPath).standardizedFileURL
+        guard isURL(target, containedIn: repositoryRoot.standardizedFileURL) else { return nil }
+        return target
+    }
+
     static func moveArticleBundle(
         indexFileURL: URL,
         toContentDirectory destinationParentURL: URL,
@@ -650,5 +669,99 @@ struct HugoArticlePreviewDocument: Equatable {
         }.filter { !$0.isEmpty }
         cover = matter.cover
         body = matter.body
+    }
+}
+
+enum HugoPreviewBlock: Equatable {
+    case markdown(String)
+    case image(alt: String, path: String)
+    case code(language: String, content: String)
+    case table(headers: [String], rows: [[String]])
+    case shortcode(String)
+}
+
+enum HugoPreviewParser {
+    static func blocks(from markdown: String) -> [HugoPreviewBlock] {
+        let lines = markdown.components(separatedBy: .newlines)
+        var result: [HugoPreviewBlock] = []
+        var paragraph: [String] = []
+        var index = 0
+
+        func flushParagraph() {
+            guard !paragraph.isEmpty else { return }
+            result.append(.markdown(paragraph.joined(separator: "\n")))
+            paragraph.removeAll()
+        }
+
+        while index < lines.count {
+            let line = lines[index]
+            if line.hasPrefix("```") {
+                flushParagraph()
+                let language = String(line.dropFirst(3)).trimmingCharacters(in: .whitespaces)
+                var codeLines: [String] = []
+                index += 1
+                while index < lines.count, !lines[index].hasPrefix("```") {
+                    codeLines.append(lines[index])
+                    index += 1
+                }
+                result.append(.code(language: language, content: codeLines.joined(separator: "\n")))
+            } else if let image = image(from: line) {
+                flushParagraph()
+                result.append(.image(alt: image.alt, path: image.path))
+            } else if containsShortcode(line) {
+                flushParagraph()
+                result.append(.shortcode(line.trimmingCharacters(in: .whitespaces)))
+            } else if index + 1 < lines.count,
+                      line.contains("|"),
+                      isTableSeparator(lines[index + 1]) {
+                flushParagraph()
+                let headers = tableCells(line)
+                var rows: [[String]] = []
+                index += 2
+                while index < lines.count, lines[index].contains("|"), !lines[index].isEmpty {
+                    rows.append(tableCells(lines[index]))
+                    index += 1
+                }
+                result.append(.table(headers: headers, rows: rows))
+                continue
+            } else if line.isEmpty {
+                flushParagraph()
+            } else {
+                paragraph.append(line)
+            }
+            index += 1
+        }
+        flushParagraph()
+        return result
+    }
+
+    private static func image(from line: String) -> (alt: String, path: String)? {
+        let pattern = #"^\s*!\[([^]]*)\]\(\s*<?([^\s)>]+)>?(?:\s+[\"'][^)]*[\"'])?\s*\)\s*$"#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
+              let altRange = Range(match.range(at: 1), in: line),
+              let pathRange = Range(match.range(at: 2), in: line) else { return nil }
+        return (String(line[altRange]), String(line[pathRange]))
+    }
+
+    private static func containsShortcode(_ line: String) -> Bool {
+        (line.contains("{{<") && line.contains(">}}"))
+            || (line.contains("{{%") && line.contains("%}}"))
+    }
+
+    private static func isTableSeparator(_ line: String) -> Bool {
+        let cells = tableCells(line)
+        return !cells.isEmpty && cells.allSatisfy {
+            $0.range(of: #"^:?-{3,}:?$"#, options: .regularExpression) != nil
+        }
+    }
+
+    private static func tableCells(_ line: String) -> [String] {
+        var cells = line.split(separator: "|", omittingEmptySubsequences: false).map {
+            $0.trimmingCharacters(in: .whitespaces)
+        }
+        if cells.first?.isEmpty == true { cells.removeFirst() }
+        if cells.last?.isEmpty == true { cells.removeLast() }
+        return cells
     }
 }

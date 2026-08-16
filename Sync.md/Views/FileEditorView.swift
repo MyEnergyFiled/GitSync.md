@@ -542,6 +542,17 @@ struct FileEditorView: View {
                     .font(.system(size: 28, weight: .bold, design: .serif))
                     .foregroundStyle(Color.brutalText)
 
+                if let coverURL = HugoContentService.localPreviewAssetURL(
+                    for: document.cover,
+                    bundleURL: liveURL.deletingLastPathComponent(),
+                    repositoryRoot: state.vaultURL(for: repoID)
+                ), let coverImage = UIImage(contentsOfFile: coverURL.path) {
+                    Image(uiImage: coverImage)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 8) { previewMetadata(document) }
                     VStack(alignment: .leading, spacing: 8) { previewMetadata(document) }
@@ -563,7 +574,11 @@ struct FileEditorView: View {
                 }
 
                 Divider()
-                HugoMarkdownPreview(markdownBody: document.body, bundleURL: liveURL.deletingLastPathComponent())
+                HugoMarkdownPreview(
+                    markdownBody: document.body,
+                    bundleURL: liveURL.deletingLastPathComponent(),
+                    repositoryRoot: state.vaultURL(for: repoID)
+                )
             }
             .padding(24)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1284,53 +1299,124 @@ private struct ArticleQuickPublishModal: View {
 private struct HugoMarkdownPreview: View {
     let markdownBody: String
     let bundleURL: URL
+    let repositoryRoot: URL
 
-    var bodyView: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            ForEach(Array(markdownBody.components(separatedBy: .newlines).enumerated()), id: \.offset) { item in
-                let line = item.element
-                if let image = localImage(from: line) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Image(uiImage: image.value)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        if !image.alt.isEmpty {
-                            Text(image.alt)
-                                .font(.caption.monospaced())
-                                .foregroundStyle(Color.brutalTextFaint)
-                        }
+    private var blocks: [HugoPreviewBlock] {
+        HugoPreviewParser.blocks(from: markdownBody)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
+                previewBlock(block)
+            }
+        }
+        .environment(\.openURL, OpenURLAction(handler: openPreviewLink))
+    }
+
+    @ViewBuilder
+    private func previewBlock(_ block: HugoPreviewBlock) -> some View {
+        switch block {
+        case .markdown(let value):
+            if let attributed = try? AttributedString(markdown: value) {
+                Text(attributed)
+                    .font(.system(size: 17, design: .serif))
+                    .foregroundStyle(Color.brutalText)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                Text(value)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        case .image(let alt, let path):
+            if let url = HugoContentService.localPreviewAssetURL(
+                for: path,
+                bundleURL: bundleURL,
+                repositoryRoot: repositoryRoot
+            ), let image = UIImage(contentsOfFile: url.path) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    if !alt.isEmpty {
+                        Text(alt)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(Color.brutalTextFaint)
                     }
-                } else if line.isEmpty {
-                    Color.clear.frame(height: 6)
-                } else if let attributed = try? AttributedString(markdown: line) {
-                    Text(attributed)
-                        .font(.system(size: 17, design: .serif))
+                }
+            } else {
+                Label(path, systemImage: "photo.badge.exclamationmark")
+                    .font(.caption.monospaced())
+                    .foregroundStyle(Color.brutalError)
+            }
+        case .code(let language, let content):
+            VStack(alignment: .leading, spacing: 6) {
+                if !language.isEmpty {
+                    Text(language.uppercased())
+                        .font(.caption2.monospaced().bold())
+                        .foregroundStyle(Color.brutalTextFaint)
+                }
+                ScrollView(.horizontal, showsIndicators: true) {
+                    Text(content)
+                        .font(.system(size: 14, design: .monospaced))
                         .foregroundStyle(Color.brutalText)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    Text(line)
-                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.brutalSurface)
+            .overlay { Rectangle().stroke(Color.brutalBorder, lineWidth: 1) }
+        case .table(let headers, let rows):
+            ScrollView(.horizontal, showsIndicators: true) {
+                Grid(alignment: .leading, horizontalSpacing: 0, verticalSpacing: 0) {
+                    previewTableRow(headers, isHeader: true)
+                    ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                        previewTableRow(row, isHeader: false)
+                    }
+                }
+            }
+        case .shortcode(let source):
+            VStack(alignment: .leading, spacing: 6) {
+                Label("Hugo shortcode", systemImage: "curlybraces")
+                    .font(.caption.monospaced().bold())
+                Text(source)
+                    .font(.caption.monospaced())
+                    .textSelection(.enabled)
+            }
+            .foregroundStyle(Color.brutalTextMid)
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.brutalSurface)
+            .overlay { Rectangle().stroke(style: StrokeStyle(lineWidth: 1, dash: [5, 3])) }
+        }
+    }
+
+    private func previewTableRow(_ cells: [String], isHeader: Bool) -> some View {
+        GridRow {
+            ForEach(Array(cells.enumerated()), id: \.offset) { _, cell in
+                Text(cell)
+                    .font(.system(size: 14, weight: isHeader ? .bold : .regular, design: .serif))
+                    .foregroundStyle(Color.brutalText)
+                    .padding(8)
+                    .frame(minWidth: 120, alignment: .leading)
+                    .background(isHeader ? Color.brutalSurface : Color.brutalBg)
+                    .overlay { Rectangle().stroke(Color.brutalBorder, lineWidth: 0.5) }
             }
         }
     }
 
-    var body: some View { bodyView }
-
-    private func localImage(from line: String) -> (value: UIImage, alt: String)? {
-        let pattern = #"^!\[([^]]*)\]\((images/[^)]+)\)$"#
-        guard let regex = try? NSRegularExpression(pattern: pattern),
-              let match = regex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
-              match.range.location != NSNotFound,
-              let altRange = Range(match.range(at: 1), in: line),
-              let pathRange = Range(match.range(at: 2), in: line) else { return nil }
-        let path = String(line[pathRange]).removingPercentEncoding ?? String(line[pathRange])
-        guard !path.contains("..") else { return nil }
-        let url = bundleURL.appendingPathComponent(path)
-        guard let image = UIImage(contentsOfFile: url.path) else { return nil }
-        return (image, String(line[altRange]))
+    private func openPreviewLink(_ url: URL) -> OpenURLAction.Result {
+        guard url.scheme == nil else { return .systemAction }
+        guard let target = HugoContentService.localPreviewAssetURL(
+            for: url.relativeString,
+            bundleURL: bundleURL,
+            repositoryRoot: repositoryRoot
+        ), FileManager.default.fileExists(atPath: target.path) else { return .discarded }
+        UIApplication.shared.open(target)
+        return .handled
     }
 }
 
