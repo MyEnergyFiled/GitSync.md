@@ -64,6 +64,7 @@ struct HugoArticleListView: View {
     @State private var query = ""
     @State private var errorMessage: String?
     @State private var showFrontMatterFields = false
+    @State private var showSiteConfiguration = false
     @State private var articleToMove: HugoArticle?
 
     private var root: URL { state.vaultURL(for: repoID) }
@@ -157,6 +158,11 @@ struct HugoArticleListView: View {
                     } label: {
                         Label("Front Matter Fields", systemImage: "slider.horizontal.3")
                     }
+                    Button {
+                        showSiteConfiguration = true
+                    } label: {
+                        Label("Site Configuration", systemImage: "gearshape.2")
+                    }
                 } label: {
                     Image(systemName: "arrow.up.arrow.down")
                 }
@@ -170,6 +176,11 @@ struct HugoArticleListView: View {
             HugoFrontMatterFieldsView(root: root) {
                 state.detectChanges(repoID: repoID)
             }
+        }
+        .sheet(isPresented: $showSiteConfiguration) {
+            HugoSiteConfigurationView(
+                configuration: HugoSiteConfigurationService.discover(in: root)
+            )
         }
         .sheet(item: $articleToMove) { article in
             HugoArticleMoveView(root: root, article: article) { _ in

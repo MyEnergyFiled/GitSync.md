@@ -4586,6 +4586,93 @@ final class HugoContentServiceTests: XCTestCase {
         XCTAssertFalse(json.contains("\"id\""))
     }
 
+    func testHugoSiteConfigurationDiscoversTOMLSettings() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? fileManager.removeItem(at: root) }
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try """
+        theme = ["base", "paper"]
+        defaultContentLanguage = "zh-Hans"
+        assetDir = "frontend/assets"
+        staticDir = ["public-assets", "shared-static"]
+        resourceDir = "generated-resources"
+
+        [languages.en]
+        languageName = "English"
+
+        [languages.zh-Hans]
+        languageName = "简体中文"
+
+        [permalinks]
+        posts = "/articles/:slug/"
+        """.write(to: root.appendingPathComponent("hugo.toml"), atomically: true, encoding: .utf8)
+
+        let configuration = HugoSiteConfigurationService.discover(in: root)
+
+        XCTAssertEqual(configuration.configurationFiles, ["hugo.toml"])
+        XCTAssertEqual(configuration.themes, ["base", "paper"])
+        XCTAssertEqual(configuration.defaultContentLanguage, "zh-Hans")
+        XCTAssertEqual(configuration.languages, ["en", "zh-Hans"])
+        XCTAssertEqual(configuration.permalinks["posts"], "/articles/:slug/")
+        XCTAssertEqual(configuration.assetDirectories, ["frontend/assets"])
+        XCTAssertEqual(configuration.staticDirectories, ["public-assets", "shared-static"])
+        XCTAssertEqual(configuration.resourceDirectories, ["generated-resources"])
+    }
+
+    func testHugoSiteConfigurationMergesYAMLConfigFragments() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let config = root.appendingPathComponent("config/_default", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+        try fileManager.createDirectory(at: config, withIntermediateDirectories: true)
+        try """
+        theme: newsroom
+        defaultContentLanguage: en
+        staticDir:
+          - site-static
+          - shared
+        """.write(to: config.appendingPathComponent("hugo.yaml"), atomically: true, encoding: .utf8)
+        try """
+        en:
+          languageName: English
+        zh-Hant:
+          languageName: 繁體中文
+        """.write(to: config.appendingPathComponent("languages.yaml"), atomically: true, encoding: .utf8)
+        try """
+        posts: /news/:year/:slug/
+        pages: /:slug/
+        """.write(to: config.appendingPathComponent("permalinks.yaml"), atomically: true, encoding: .utf8)
+
+        let configuration = HugoSiteConfigurationService.discover(in: root)
+
+        XCTAssertEqual(configuration.themes, ["newsroom"])
+        XCTAssertEqual(configuration.defaultContentLanguage, "en")
+        XCTAssertEqual(configuration.languages, ["en", "zh-Hant"])
+        XCTAssertEqual(configuration.permalinks["posts"], "/news/:year/:slug/")
+        XCTAssertEqual(configuration.permalinks["pages"], "/:slug/")
+        XCTAssertEqual(configuration.assetDirectories, ["assets"])
+        XCTAssertEqual(configuration.staticDirectories, ["site-static", "shared"])
+        XCTAssertEqual(configuration.resourceDirectories, ["resources"])
+    }
+
+    func testHugoSiteConfigurationRejectsResourcesOutsideRepository() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? fileManager.removeItem(at: root) }
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try """
+        assetDir = "../outside"
+        staticDir = "/private/static"
+        resourceDir = "https://example.com/resources"
+        """.write(to: root.appendingPathComponent("hugo.toml"), atomically: true, encoding: .utf8)
+
+        let configuration = HugoSiteConfigurationService.discover(in: root)
+
+        XCTAssertTrue(configuration.isDetected)
+        XCTAssertTrue(configuration.previewResourceDirectories.isEmpty)
+    }
+
     func testFrontMatterFieldKeyValidationRejectsBuiltInAndUnsafeKeys() {
         XCTAssertTrue(HugoContentService.isValidFrontMatterFieldKey("description"))
         XCTAssertTrue(HugoContentService.isValidFrontMatterFieldKey("show_toc"))

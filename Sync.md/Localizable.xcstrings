@@ -121544,6 +121544,51 @@
       "zh-Hans": { "stringUnit": { "state": "translated", "value": "外部仓库文件夹不可用。请解锁设备后打开 GitSync.md，并重新授予文件夹访问权限。" } },
       "zh-Hant": { "stringUnit": { "state": "translated", "value": "外部儲存庫資料夾無法使用。請解鎖裝置後開啟 GitSync.md，並重新授予資料夾存取權限。" } }
     } },
+    "Configuration Files": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Configuration Files" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "配置文件" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "設定檔" } }
+    } },
+    "Themes": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Themes" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "主题" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "主題" } }
+    } },
+    "Languages": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Languages" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "语言" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "語言" } }
+    } },
+    "Default Language": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Default Language" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "默认语言" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "預設語言" } }
+    } },
+    "Permalinks": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Permalinks" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "永久链接" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "永久連結" } }
+    } },
+    "Resource Directories": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Resource Directories" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "资源目录" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "資源目錄" } }
+    } },
+    "No Hugo Configuration": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "No Hugo Configuration" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "没有 Hugo 配置" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "沒有 Hugo 設定" } }
+    } },
+    "No hugo.toml, hugo.yaml, or config directory was found.": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "No hugo.toml, hugo.yaml, or config directory was found." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "未找到 hugo.toml、hugo.yaml 或 config 目录。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "找不到 hugo.toml、hugo.yaml 或 config 目錄。" } }
+    } },
+    "Site Configuration": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Site Configuration" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "站点配置" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "網站設定" } }
+    } },
     "Search logs, repositories, or operation IDs": {
       "localizations": {
         "en": {
