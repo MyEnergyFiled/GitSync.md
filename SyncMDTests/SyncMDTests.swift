@@ -4370,6 +4370,25 @@ final class HugoContentServiceTests: XCTestCase {
         ])
     }
 
+    func testPreviewParserRecognizesPaperStyleHeadingsQuotesAndDividers() {
+        let markdown = """
+        # Main Heading
+
+        > A quoted thought
+
+        ---
+
+        ## Section
+        """
+
+        XCTAssertEqual(HugoPreviewParser.blocks(from: markdown), [
+            .heading(level: 1, text: "Main Heading"),
+            .quote("A quoted thought"),
+            .divider,
+            .heading(level: 2, text: "Section")
+        ])
+    }
+
     func testPreviewAssetResolutionAllowsRepositoryRelativePathsAndRejectsEscapes() {
         let root = URL(fileURLWithPath: "/repo", isDirectory: true)
         let bundle = root.appendingPathComponent("content/posts/example", isDirectory: true)

@@ -40,6 +40,8 @@ Choose an archetype such as `archetypes/default.md` or `archetypes/moments.md`, 
 
 The article manager displays covers, titles, dates, and draft state, with search, filtering, sorting by title, directory, publication date, modification time, or draft state, direct draft/published switching, and safe article directory moves or renames. Moving an article keeps bundle-local image links unchanged and recalculates relative image paths that point outside the bundle. Each repository can configure additional top-level text, boolean, and number Front Matter fields in `.gitsync-hugo.json`; unconfigured fields remain untouched. The editor keeps the current publication state visible and editable in every Markdown mode, provides publication-date selection that preserves common Hugo formats and time zones, and supports Markdown formatting, syntax highlighting, undo/redo, a live native preview of the title, publication metadata, tags, cover, relative images and links, code blocks, tables, shortcode placeholders, and body, image insertion and management, and recoverable local drafts. Split mode adapts between side-by-side iPad and stacked compact layouts and marks unsaved preview content explicitly. **Save, Commit & Push** stages only the current article bundle and presents one pre-publish summary for Front Matter, missing image references, unusually large images, and unsaved editor changes. Failed pushes keep the local content and publish selection and offer a retry that reuses either the staged files or the existing local commit.
 
+The native preview uses a readable paper-style canvas with serif headings, quotations, rules, code panels, and tables. Theme-aware Hugo rendering remains a separate longer-term roadmap item.
+
 ## How It Works
 
 1. **Sign in** with GitHub, or continue without an account for another Git remote or local repository
@@ -166,8 +168,8 @@ Tokens are stored in the iOS Keychain. Debug logs never intentionally include au
 
 The core Git workspace, Git LFS transport, authentication methods, file editor, automation entry points, and Hugo writing workflow described above are implemented. Current work is focused on:
 
-- Richer article management and a more complete in-app preview
 - More detailed progress, cancellation, retry guidance, and a broader Git transport regression matrix
+- Background synchronization and automation within iOS execution and data-protection limits
 - Longer-term Hugo theme-aware previewing
 
 The detailed, prioritized checklist remains in [TODO.md](TODO.md). Keeping the full task list there avoids duplicating fast-changing implementation details in the project overview.

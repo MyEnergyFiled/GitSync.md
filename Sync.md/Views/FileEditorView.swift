@@ -572,7 +572,7 @@ struct FileEditorView: View {
                      ? liveURL.deletingPathExtension().lastPathComponent
                      : document.title)
                     .font(.system(size: 28, weight: .bold, design: .serif))
-                    .foregroundStyle(Color.brutalText)
+                    .foregroundStyle(Color.hugoInk)
 
                 if let coverURL = HugoContentService.localPreviewAssetURL(
                     for: document.cover,
@@ -596,10 +596,11 @@ struct FileEditorView: View {
                             ForEach(document.tags, id: \.self) { tag in
                                 Text("#\(tag)")
                                     .font(.caption.monospaced().bold())
+                                    .foregroundStyle(Color.hugoInkMuted)
                                     .padding(.horizontal, 8)
                                     .frame(height: 26)
-                                    .background(Color.brutalSurface)
-                                    .overlay { Rectangle().stroke(Color.brutalBorder, lineWidth: 1) }
+                                    .background(Color.hugoPaperShadow)
+                                    .overlay { Rectangle().stroke(Color.hugoRule, lineWidth: 1) }
                             }
                         }
                     }
@@ -612,9 +613,16 @@ struct FileEditorView: View {
                     repositoryRoot: state.vaultURL(for: repoID)
                 )
             }
-            .padding(24)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 30)
+            .padding(.vertical, 36)
+            .frame(maxWidth: 760, alignment: .leading)
+            .background(Color.hugoPaper)
+            .overlay { Rectangle().stroke(Color.hugoRule, lineWidth: 1) }
+            .shadow(color: Color.black.opacity(0.12), radius: 8, y: 3)
+            .padding(16)
+            .frame(maxWidth: .infinity)
         }
+        .background(Color.hugoCanvas)
     }
 
     @ViewBuilder
@@ -634,10 +642,10 @@ struct FileEditorView: View {
     private func previewMetadataChip(icon: String, text: String) -> some View {
         Label(text, systemImage: icon)
             .font(.caption.monospaced())
-            .foregroundStyle(Color.brutalTextMid)
+            .foregroundStyle(Color.hugoInkMuted)
             .padding(.horizontal, 8)
             .frame(height: 28)
-            .overlay { Rectangle().stroke(Color.brutalBorder, lineWidth: 1) }
+            .overlay { Rectangle().stroke(Color.hugoRule, lineWidth: 1) }
     }
 
     private var persistenceBar: some View {
@@ -1328,6 +1336,15 @@ private struct ArticleQuickPublishModal: View {
     }
 }
 
+private extension Color {
+    static let hugoCanvas = Color(red: 0.88, green: 0.86, blue: 0.81)
+    static let hugoPaper = Color(red: 0.985, green: 0.973, blue: 0.935)
+    static let hugoPaperShadow = Color(red: 0.94, green: 0.92, blue: 0.86)
+    static let hugoInk = Color(red: 0.12, green: 0.11, blue: 0.09)
+    static let hugoInkMuted = Color(red: 0.34, green: 0.31, blue: 0.26)
+    static let hugoRule = Color(red: 0.67, green: 0.62, blue: 0.52)
+}
+
 private struct HugoMarkdownPreview: View {
     let markdownBody: String
     let bundleURL: URL
@@ -1353,13 +1370,41 @@ private struct HugoMarkdownPreview: View {
             if let attributed = try? AttributedString(markdown: value) {
                 Text(attributed)
                     .font(.system(size: 17, design: .serif))
-                    .foregroundStyle(Color.brutalText)
+                    .foregroundStyle(Color.hugoInk)
+                    .lineSpacing(6)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 Text(value)
+                    .foregroundStyle(Color.hugoInk)
+                    .lineSpacing(6)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
+        case .heading(let level, let text):
+            Text(text)
+                .font(.system(
+                    size: headingSize(level),
+                    weight: level <= 2 ? .bold : .semibold,
+                    design: .serif
+                ))
+                .foregroundStyle(Color.hugoInk)
+                .padding(.top, level == 1 ? 12 : 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        case .quote(let value):
+            Text(value)
+                .font(.system(size: 17, design: .serif).italic())
+                .foregroundStyle(Color.hugoInkMuted)
+                .lineSpacing(5)
+                .padding(.leading, 14)
+                .overlay(alignment: .leading) {
+                    Rectangle().fill(Color.hugoRule).frame(width: 3)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+        case .divider:
+            Rectangle()
+                .fill(Color.hugoRule)
+                .frame(height: 1)
+                .padding(.vertical, 8)
         case .image(let alt, let path):
             if let url = HugoContentService.localPreviewAssetURL(
                 for: path,
@@ -1374,7 +1419,7 @@ private struct HugoMarkdownPreview: View {
                     if !alt.isEmpty {
                         Text(alt)
                             .font(.caption.monospaced())
-                            .foregroundStyle(Color.brutalTextFaint)
+                            .foregroundStyle(Color.hugoInkMuted)
                     }
                 }
             } else {
@@ -1387,20 +1432,20 @@ private struct HugoMarkdownPreview: View {
                 if !language.isEmpty {
                     Text(language.uppercased())
                         .font(.caption2.monospaced().bold())
-                        .foregroundStyle(Color.brutalTextFaint)
+                        .foregroundStyle(Color.hugoInkMuted)
                 }
                 ScrollView(.horizontal, showsIndicators: true) {
                     Text(content)
                         .font(.system(size: 14, design: .monospaced))
-                        .foregroundStyle(Color.brutalText)
+                        .foregroundStyle(Color.hugoInk)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.brutalSurface)
-            .overlay { Rectangle().stroke(Color.brutalBorder, lineWidth: 1) }
+            .background(Color.hugoPaperShadow)
+            .overlay { Rectangle().stroke(Color.hugoRule, lineWidth: 1) }
         case .table(let headers, let rows):
             ScrollView(.horizontal, showsIndicators: true) {
                 Grid(alignment: .leading, horizontalSpacing: 0, verticalSpacing: 0) {
@@ -1418,11 +1463,20 @@ private struct HugoMarkdownPreview: View {
                     .font(.caption.monospaced())
                     .textSelection(.enabled)
             }
-            .foregroundStyle(Color.brutalTextMid)
+            .foregroundStyle(Color.hugoInkMuted)
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.brutalSurface)
+            .background(Color.hugoPaperShadow)
             .overlay { Rectangle().stroke(style: StrokeStyle(lineWidth: 1, dash: [5, 3])) }
+        }
+    }
+
+    private func headingSize(_ level: Int) -> CGFloat {
+        switch level {
+        case 1: return 30
+        case 2: return 25
+        case 3: return 21
+        default: return 18
         }
     }
 
@@ -1431,11 +1485,11 @@ private struct HugoMarkdownPreview: View {
             ForEach(Array(cells.enumerated()), id: \.offset) { _, cell in
                 Text(cell)
                     .font(.system(size: 14, weight: isHeader ? .bold : .regular, design: .serif))
-                    .foregroundStyle(Color.brutalText)
+                    .foregroundStyle(Color.hugoInk)
                     .padding(8)
                     .frame(minWidth: 120, alignment: .leading)
-                    .background(isHeader ? Color.brutalSurface : Color.brutalBg)
-                    .overlay { Rectangle().stroke(Color.brutalBorder, lineWidth: 0.5) }
+                    .background(isHeader ? Color.hugoPaperShadow : Color.hugoPaper)
+                    .overlay { Rectangle().stroke(Color.hugoRule, lineWidth: 0.5) }
             }
         }
     }

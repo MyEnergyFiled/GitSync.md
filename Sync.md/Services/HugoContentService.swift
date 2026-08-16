@@ -684,6 +684,9 @@ struct HugoArticlePreviewSnapshot: Equatable {
 
 enum HugoPreviewBlock: Equatable {
     case markdown(String)
+    case heading(level: Int, text: String)
+    case quote(String)
+    case divider
     case image(alt: String, path: String)
     case code(language: String, content: String)
     case table(headers: [String], rows: [[String]])
@@ -715,6 +718,15 @@ enum HugoPreviewParser {
                     index += 1
                 }
                 result.append(.code(language: language, content: codeLines.joined(separator: "\n")))
+            } else if let heading = heading(from: line) {
+                flushParagraph()
+                result.append(.heading(level: heading.level, text: heading.text))
+            } else if let quote = quote(from: line) {
+                flushParagraph()
+                result.append(.quote(quote))
+            } else if ["---", "***", "___"].contains(line.trimmingCharacters(in: .whitespaces)) {
+                flushParagraph()
+                result.append(.divider)
             } else if let image = image(from: line) {
                 flushParagraph()
                 result.append(.image(alt: image.alt, path: image.path))
@@ -752,6 +764,21 @@ enum HugoPreviewParser {
               let altRange = Range(match.range(at: 1), in: line),
               let pathRange = Range(match.range(at: 2), in: line) else { return nil }
         return (String(line[altRange]), String(line[pathRange]))
+    }
+
+    private static func heading(from line: String) -> (level: Int, text: String)? {
+        let pattern = #"^\s*(#{1,6})\s+(.+?)\s*$"#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
+              let markerRange = Range(match.range(at: 1), in: line),
+              let textRange = Range(match.range(at: 2), in: line) else { return nil }
+        return (line[markerRange].count, String(line[textRange]))
+    }
+
+    private static func quote(from line: String) -> String? {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard trimmed.hasPrefix(">") else { return nil }
+        return String(trimmed.dropFirst()).trimmingCharacters(in: .whitespaces)
     }
 
     private static func containsShortcode(_ line: String) -> Bool {
