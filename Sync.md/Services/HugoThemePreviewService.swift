@@ -51,6 +51,12 @@ enum HugoThemePreviewService {
     static let resourceScheme = "gitsync-resource"
     private static let maximumStylesheets = 32
     private static let maximumStylesheetSize = 1_048_576
+    private static let maximumResourceSize = 20_971_520
+    private static let allowedResourceExtensions: Set<String> = [
+        "css", "woff", "woff2", "ttf", "otf", "eot",
+        "png", "jpg", "jpeg", "gif", "webp", "svg", "avif", "heic", "heif", "ico",
+        "mp3", "m4a", "wav", "ogg", "mp4", "m4v", "webm"
+    ]
 
     static func render(
         markdown: String,
@@ -163,7 +169,10 @@ enum HugoThemePreviewService {
             stylesheetPaths: relativePaths,
             layoutPath: layout?.relativePath,
             compatibilityIssues: renderedBlocks.issues + (renderedLayout?.issues ?? []),
-            resourceSignature: resourceSignature(for: stylesheets)
+            resourceSignature: siteResourceSignature(
+                repositoryRoot: repositoryRoot,
+                configuration: configuration
+            )
         )
     }
 
@@ -175,9 +184,13 @@ enum HugoThemePreviewService {
         let root = repositoryRoot.resolvingSymlinksInPath().standardizedFileURL
         let fileURL = root.appendingPathComponent(relative).resolvingSymlinksInPath().standardizedFileURL
         guard fileURL.path.hasPrefix(root.path + "/"),
-              let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey]),
+              allowedResourceExtensions.contains(fileURL.pathExtension.lowercased()),
+              let values = try? fileURL.resourceValues(
+                  forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]
+              ),
               values.isRegularFile == true,
-              values.isSymbolicLink != true else { return nil }
+              values.isSymbolicLink != true,
+              (values.fileSize ?? 0) <= maximumResourceSize else { return nil }
         return fileURL
     }
 
@@ -189,6 +202,40 @@ enum HugoThemePreviewService {
 
     static func mimeType(for fileURL: URL) -> String {
         UTType(filenameExtension: fileURL.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
+    }
+
+    static func siteResourceSignature(
+        repositoryRoot: URL,
+        configuration: HugoSiteConfiguration
+    ) -> String {
+        let root = repositoryRoot.standardizedFileURL
+        var searchRoots = [root.appendingPathComponent("layouts", isDirectory: true)]
+        searchRoots.append(contentsOf: configuration.themes.map {
+            root.appendingPathComponent("themes/\($0)", isDirectory: true)
+        })
+        searchRoots.append(contentsOf: configuration.previewResourceDirectories.map {
+            root.appendingPathComponent($0, isDirectory: true)
+        })
+        var entries: [String] = []
+        for relative in configuration.configurationFiles {
+            let fileURL = root.appendingPathComponent(relative)
+            if let signature = fileSignature(fileURL, repositoryRoot: root) { entries.append(signature) }
+        }
+        for searchRoot in searchRoots {
+            guard let enumerator = FileManager.default.enumerator(
+                at: searchRoot,
+                includingPropertiesForKeys: [
+                    .isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey, .fileSizeKey
+                ],
+                options: [.skipsHiddenFiles, .skipsPackageDescendants]
+            ) else { continue }
+            for case let fileURL as URL in enumerator {
+                if entries.count >= 2_048 { break }
+                guard let signature = fileSignature(fileURL, repositoryRoot: root) else { continue }
+                entries.append(signature)
+            }
+        }
+        return entries.sorted().joined(separator: "|")
     }
 
     static func discoverChoices(
@@ -452,10 +499,12 @@ enum HugoThemePreviewService {
         return String(file.path.dropFirst(root.path.count + 1))
     }
 
-    private static func resourceSignature(for files: [URL]) -> String {
-        files.map { fileURL in
-            let values = try? fileURL.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
-            return "\(fileURL.path):\(values?.contentModificationDate?.timeIntervalSince1970 ?? 0):\(values?.fileSize ?? 0)"
-        }.joined(separator: "|")
+    private static func fileSignature(_ fileURL: URL, repositoryRoot: URL) -> String? {
+        guard let relative = relativePath(for: fileURL, repositoryRoot: repositoryRoot),
+              let values = try? fileURL.resourceValues(
+                  forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey, .fileSizeKey]
+              ), values.isRegularFile == true,
+              values.isSymbolicLink != true else { return nil }
+        return "\(relative):\(values.contentModificationDate?.timeIntervalSince1970 ?? 0):\(values.fileSize ?? 0)"
     }
 }

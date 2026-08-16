@@ -50,7 +50,11 @@ enum HugoTemplateCompatibilityService {
             }
             output.replaceSubrange(fullRange, with: replacement)
         }
-        return HugoCompatibilityRenderResult(html: output, issues: Array(issues.reversed()))
+        let sanitized = sanitizeThemeHTML(output)
+        if sanitized.removedUnsafeMarkup {
+            issues.append(String(localized: "Unsafe theme markup was removed from the preview."))
+        }
+        return HugoCompatibilityRenderResult(html: sanitized.html, issues: Array(issues.reversed()))
     }
 
     static func renderShortcode(
@@ -167,6 +171,25 @@ enum HugoTemplateCompatibilityService {
 
     private static func placeholder(_ message: String, source: String) -> String {
         #"<div class="gitsync-placeholder"><strong>\#(escapeHTML(message))</strong><br><code>\#(escapeHTML(source))</code></div>"#
+    }
+
+    private static func sanitizeThemeHTML(_ html: String) -> (html: String, removedUnsafeMarkup: Bool) {
+        var output = html
+        let original = html
+        for pattern in [
+            #"(?is)<script\b[^>]*>.*?</script\s*>"#,
+            #"(?is)<(?:iframe|object|embed)\b[^>]*>.*?</(?:iframe|object|embed)\s*>"#,
+            #"(?is)<(?:iframe|object|embed)\b[^>]*/?>"#,
+            #"(?i)\s+on[a-z]+\s*=\s*(?:\"[^\"]*\"|'[^']*'|[^\s>]+)"#
+        ] {
+            output = output.replacingOccurrences(of: pattern, with: "", options: .regularExpression)
+        }
+        output = output.replacingOccurrences(
+            of: #"(?i)javascript\s*:"#,
+            with: "blocked:",
+            options: .regularExpression
+        )
+        return (output, output != original)
     }
 
     private static func escapeHTML(_ value: String) -> String {

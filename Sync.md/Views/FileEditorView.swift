@@ -65,6 +65,7 @@ struct FileEditorView: View {
     @State private var siteConfiguration = HugoSiteConfiguration()
     @State private var themePreviewOptions = HugoThemePreviewOptions()
     @State private var themePreviewChoices = HugoThemePreviewChoices()
+    @State private var themeResourceRevision = 0
 
     private let draftStore = FileEditorDraftStore()
 
@@ -362,6 +363,10 @@ struct FileEditorView: View {
             }
             if newMode == .properties { frontMatter = MarkdownFrontMatter(markdown: content) }
         }
+        .task(id: previewStyle) {
+            guard previewStyle == .theme else { return }
+            await monitorThemeResources()
+        }
     }
 
     private var articlePublicationBar: some View {
@@ -584,6 +589,7 @@ struct FileEditorView: View {
     }
 
     private var themeWebPreview: some View {
+        let _ = themeResourceRevision
         let root = state.vaultURL(for: repoID)
         let selectedMarkdown: String = {
             guard let variantURL = themePreviewChoices.languageVariantURLs[themePreviewOptions.language],
@@ -696,6 +702,31 @@ struct FileEditorView: View {
             : (siteConfiguration.defaultContentLanguage ?? themePreviewChoices.languages.first ?? "en")
         if themePreviewChoices.languages.contains(requestedLanguage) {
             themePreviewOptions.language = requestedLanguage
+        }
+    }
+
+    private func monitorThemeResources() async {
+        let root = state.vaultURL(for: repoID)
+        var signature = HugoThemePreviewService.siteResourceSignature(
+            repositoryRoot: root,
+            configuration: siteConfiguration
+        )
+        while !Task.isCancelled {
+            do {
+                try await Task.sleep(nanoseconds: 2_000_000_000)
+            } catch {
+                return
+            }
+            let latestConfiguration = HugoSiteConfigurationService.discover(in: root)
+            let latestSignature = HugoThemePreviewService.siteResourceSignature(
+                repositoryRoot: root,
+                configuration: latestConfiguration
+            )
+            guard latestSignature != signature else { continue }
+            signature = latestSignature
+            siteConfiguration = latestConfiguration
+            loadThemePreviewChoices()
+            themeResourceRevision += 1
         }
     }
 

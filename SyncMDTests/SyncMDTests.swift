@@ -4723,6 +4723,64 @@ final class HugoContentServiceTests: XCTestCase {
         XCTAssertEqual(HugoPreviewDevice.desktop.width, 1200)
     }
 
+    func testThemeTemplateSanitizerRemovesScriptsEventsAndFrames() {
+        let context = HugoTemplatePreviewContext(
+            title: "Safe",
+            date: "",
+            draft: false,
+            contentHTML: "<p>Body</p>",
+            siteTitle: "Site",
+            language: "en",
+            contentType: "page",
+            section: "",
+            layout: "single",
+            permalink: "/safe/",
+            params: [:]
+        )
+        let result = HugoTemplateCompatibilityService.renderTemplate(
+            #"<main onclick="steal()">{{ .Content }}<script>steal()</script><iframe src="https://example.com"></iframe><a href="javascript:steal()">bad</a></main>"#,
+            context: context
+        )
+
+        XCTAssertTrue(result.html.contains("<p>Body</p>"))
+        XCTAssertFalse(result.html.lowercased().contains("<script"))
+        XCTAssertFalse(result.html.lowercased().contains("onclick"))
+        XCTAssertFalse(result.html.lowercased().contains("<iframe"))
+        XCTAssertFalse(result.html.lowercased().contains("javascript:"))
+        XCTAssertTrue(result.html.contains("blocked:"))
+        XCTAssertTrue(result.issues.contains(String(localized: "Unsafe theme markup was removed from the preview.")))
+    }
+
+    func testThemeResourceSignatureChangesAndSchemeRejectsScripts() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let theme = root.appendingPathComponent("themes/paper", isDirectory: true)
+        let css = theme.appendingPathComponent("assets/main.css")
+        let script = theme.appendingPathComponent("assets/main.js")
+        defer { try? fileManager.removeItem(at: root) }
+        try fileManager.createDirectory(at: css.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "body {}".write(to: css, atomically: true, encoding: .utf8)
+        try "alert(1)".write(to: script, atomically: true, encoding: .utf8)
+        let configuration = HugoSiteConfiguration(
+            configurationFiles: ["hugo.toml"],
+            themes: ["paper"]
+        )
+
+        let original = HugoThemePreviewService.siteResourceSignature(
+            repositoryRoot: root,
+            configuration: configuration
+        )
+        try "body { color: rebeccapurple; }".write(to: css, atomically: true, encoding: .utf8)
+        let updated = HugoThemePreviewService.siteResourceSignature(
+            repositoryRoot: root,
+            configuration: configuration
+        )
+        let scriptURL = try XCTUnwrap(URL(string: "gitsync-resource://local/themes/paper/assets/main.js"))
+
+        XCTAssertNotEqual(original, updated)
+        XCTAssertNil(HugoThemePreviewService.resourceFileURL(from: scriptURL, repositoryRoot: root))
+    }
+
     func testArticleSortSupportsPublicationModifiedTitleDirectoryAndDraftState() {
         let older = HugoArticle(
             fileURL: URL(fileURLWithPath: "/repo/content/z/index.md"),

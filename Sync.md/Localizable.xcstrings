@@ -121544,6 +121544,11 @@
       "zh-Hans": { "stringUnit": { "state": "translated", "value": "外部仓库文件夹不可用。请解锁设备后打开 GitSync.md，并重新授予文件夹访问权限。" } },
       "zh-Hant": { "stringUnit": { "state": "translated", "value": "外部儲存庫資料夾無法使用。請解鎖裝置後開啟 GitSync.md，並重新授予資料夾存取權限。" } }
     } },
+    "Unsafe theme markup was removed from the preview.": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Unsafe theme markup was removed from the preview." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "已从预览中移除不安全的主题标记。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "已從預覽中移除不安全的主題標記。" } }
+    } },
     "Layout": { "localizations": {
       "en": { "stringUnit": { "state": "translated", "value": "Layout" } },
       "zh-Hans": { "stringUnit": { "state": "translated", "value": "布局" } },

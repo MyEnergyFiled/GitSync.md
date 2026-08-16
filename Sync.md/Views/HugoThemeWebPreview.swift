@@ -24,8 +24,9 @@ struct HugoThemeWebPreview: UIViewRepresentable {
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
-        guard context.coordinator.loadedHTML != page.html else { return }
-        context.coordinator.loadedHTML = page.html
+        let loadKey = page.html + "\u{0}" + page.resourceSignature
+        guard context.coordinator.loadedHTML != loadKey else { return }
+        context.coordinator.loadedHTML = loadKey
         webView.loadHTMLString(page.html, baseURL: nil)
     }
 
