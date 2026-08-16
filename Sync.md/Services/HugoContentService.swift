@@ -6,8 +6,74 @@ struct HugoContentMapping: Codable, Identifiable, Hashable {
     var id: String { directory }
 }
 
+enum HugoFrontMatterFieldType: String, Codable, CaseIterable, Identifiable {
+    case text
+    case boolean
+    case number
+
+    var id: String { rawValue }
+}
+
+struct HugoFrontMatterFieldConfiguration: Codable, Identifiable, Hashable {
+    let id: UUID
+    var key: String
+    var label: String
+    var type: HugoFrontMatterFieldType
+
+    init(key: String, label: String, type: HugoFrontMatterFieldType) {
+        id = UUID()
+        self.key = key
+        self.label = label
+        self.type = type
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case key
+        case label
+        case type
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = UUID()
+        key = try container.decode(String.self, forKey: .key)
+        label = try container.decode(String.self, forKey: .label)
+        type = try container.decode(HugoFrontMatterFieldType.self, forKey: .type)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(key, forKey: .key)
+        try container.encode(label, forKey: .label)
+        try container.encode(type, forKey: .type)
+    }
+}
+
 struct HugoRepositoryConfiguration: Codable {
     var contentMappings: [HugoContentMapping] = []
+    var frontMatterFields: [HugoFrontMatterFieldConfiguration] = []
+
+    init(
+        contentMappings: [HugoContentMapping] = [],
+        frontMatterFields: [HugoFrontMatterFieldConfiguration] = []
+    ) {
+        self.contentMappings = contentMappings
+        self.frontMatterFields = frontMatterFields
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case contentMappings
+        case frontMatterFields
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        contentMappings = try container.decodeIfPresent([HugoContentMapping].self, forKey: .contentMappings) ?? []
+        frontMatterFields = try container.decodeIfPresent(
+            [HugoFrontMatterFieldConfiguration].self,
+            forKey: .frontMatterFields
+        ) ?? []
+    }
 }
 
 enum HugoFrontMatterIssue: Hashable {
@@ -29,9 +95,19 @@ enum HugoContentService {
     static let supportedArticleImageExtensions: Set<String> = [
         "jpg", "jpeg", "png", "gif", "webp", "heic", "heif", "avif", "bmp", "tif", "tiff"
     ]
+    static let builtInFrontMatterKeys: Set<String> = ["title", "date", "draft", "tags", "cover"]
 
     static func isSupportedArticleImage(_ url: URL) -> Bool {
         supportedArticleImageExtensions.contains(url.pathExtension.lowercased())
+    }
+
+    static func isValidFrontMatterFieldKey(_ value: String) -> Bool {
+        value.range(of: #"^[A-Za-z_][A-Za-z0-9_-]*$"#, options: .regularExpression) != nil
+            && !builtInFrontMatterKeys.contains(value.lowercased())
+    }
+
+    static func isValidFrontMatterNumber(_ value: String) -> Bool {
+        value.range(of: #"^-?(?:\d+(?:\.\d+)?|\.\d+)$"#, options: .regularExpression) != nil
     }
 
     static func loadConfiguration(from root: URL) -> HugoRepositoryConfiguration {
@@ -283,6 +359,8 @@ struct MarkdownFrontMatter {
     var body = ""
     var delimiter = "---"
     var hasFrontMatter = false
+    var customValues: [String: String] = [:]
+    private var originalCustomValues: [String: String] = [:]
 
     init(markdown: String) {
         body = markdown
@@ -306,15 +384,30 @@ struct MarkdownFrontMatter {
             case "draft": draft = ["true", "yes", "1"].contains(value.lowercased())
             case "tags": tags = value.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
             case "cover": cover = value
-            default: break
+            default:
+                customValues[key] = value
+                originalCustomValues[key] = value
             }
         }
     }
 
-    func applying(to original: String) -> String {
+    func applying(
+        to original: String,
+        customFields: [HugoFrontMatterFieldConfiguration] = []
+    ) -> String {
         let lines = original.components(separatedBy: .newlines)
         var extra: [String] = []
         var originalDateValue: String?
+        let modifiedConfiguredKeys = Set(customFields.compactMap { field -> String? in
+            guard customValues[field.key] != originalCustomValues[field.key] else { return nil }
+            if field.type == .number,
+               let value = customValues[field.key],
+               !value.isEmpty,
+               !HugoContentService.isValidFrontMatterNumber(value) {
+                return nil
+            }
+            return field.key
+        })
         if let first = lines.first, first == "---" || first == "+++",
            let end = lines.dropFirst().firstIndex(of: first) {
             let header = lines[1..<end]
@@ -331,7 +424,8 @@ struct MarkdownFrontMatter {
             extra = header.filter {
                 let separator: Character = delimiter == "+++" ? "=" : ":"
                 let key = $0.split(separator: separator, maxSplits: 1).first?.trimmingCharacters(in: .whitespaces) ?? ""
-                return !["title", "date", "draft", "tags", "cover"].contains(key)
+                return !HugoContentService.builtInFrontMatterKeys.contains(key)
+                    && !modifiedConfiguredKeys.contains(key)
             }
         }
         let assignment = delimiter == "+++" ? " = " : ": "
@@ -348,6 +442,22 @@ struct MarkdownFrontMatter {
         header.append("draft\(assignment)\(draft ? "true" : "false")")
         if !tags.isEmpty { header.append("tags\(assignment)[\(tags)]") }
         if !cover.isEmpty { header.append("cover\(assignment)\"\(cover)\"") }
+        for field in customFields {
+            guard modifiedConfiguredKeys.contains(field.key) else { continue }
+            guard let rawValue = customValues[field.key] else { continue }
+            let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !value.isEmpty || field.type == .boolean else { continue }
+            switch field.type {
+            case .text:
+                let escaped = value.replacingOccurrences(of: "\"", with: "\\\"")
+                header.append("\(field.key)\(assignment)\"\(escaped)\"")
+            case .boolean:
+                let enabled = ["true", "yes", "1"].contains(value.lowercased())
+                header.append("\(field.key)\(assignment)\(enabled ? "true" : "false")")
+            case .number:
+                header.append("\(field.key)\(assignment)\(value)")
+            }
+        }
         header.append(contentsOf: extra)
         return ([delimiter] + header + [delimiter, "", body]).joined(separator: "\n")
     }

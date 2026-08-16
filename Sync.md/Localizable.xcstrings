@@ -118818,6 +118818,90 @@
         }
       }
     },
+    "Add Field": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Add Field" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "添加字段" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "新增欄位" } }
+      }
+    },
+    "Boolean": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Boolean" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "布尔值" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "布林值" } }
+      }
+    },
+    "Choose the additional top-level Front Matter fields shown in the article editor. Unconfigured fields remain unchanged.": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Choose the additional top-level Front Matter fields shown in the article editor. Unconfigured fields remain unchanged." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "选择要在文章编辑器中显示的额外顶层 Front Matter 字段。未配置的字段保持不变。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "選擇要在文章編輯器中顯示的額外頂層 Front Matter 欄位。未設定的欄位保持不變。" } }
+      }
+    },
+    "Custom field keys must be unique.": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Custom field keys must be unique." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "自定义字段键名不能重复。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "自訂欄位鍵名不能重複。" } }
+      }
+    },
+    "Display Name": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Display Name" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "显示名称" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "顯示名稱" } }
+      }
+    },
+    "Field Key": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Field Key" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "字段键名" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "欄位鍵名" } }
+      }
+    },
+    "Field Type": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Field Type" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "字段类型" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "欄位類型" } }
+      }
+    },
+    "Front Matter Fields": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Front Matter Fields" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "Front Matter 字段" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "Front Matter 欄位" } }
+      }
+    },
+    "Number": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Number" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "数字" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "數字" } }
+      }
+    },
+    "Remove Field": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Remove Field" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "移除字段" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "移除欄位" } }
+      }
+    },
+    "Text": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Text" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "文本" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "文字" } }
+      }
+    },
+    "Use a valid custom field key that does not replace a built-in field.": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Use a valid custom field key that does not replace a built-in field." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "请输入有效且不覆盖内置字段的自定义键名。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "請輸入有效且不覆蓋內建欄位的自訂鍵名。" } }
+      }
+    },
     "A local commit is waiting to be pushed.": {
       "localizations": {
         "en": {

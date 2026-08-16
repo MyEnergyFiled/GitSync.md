@@ -59,6 +59,7 @@ struct FileEditorView: View {
     @State private var publishFailureMessage: String?
     @State private var showPublicationDateEditor = false
     @State private var publicationDateDraft = Date()
+    @State private var customFrontMatterFields: [HugoFrontMatterFieldConfiguration] = []
     @State private var persistenceMessage = String(localized: "File loaded")
 
     private let draftStore = FileEditorDraftStore()
@@ -72,7 +73,9 @@ struct FileEditorView: View {
     private var fileName: String { liveURL.lastPathComponent }
     private var logRepoName: String? { state.repo(id: repoID)?.displayName }
     private var pendingContent: String {
-        isMarkdown && editorMode == .properties ? frontMatter.applying(to: content) : content
+        isMarkdown && editorMode == .properties
+            ? frontMatter.applying(to: content, customFields: customFrontMatterFields)
+            : content
     }
     private var isDirty: Bool { pendingContent != originalContent }
     private var canQuickPublish: Bool {
@@ -324,6 +327,9 @@ struct FileEditorView: View {
             Text(imageMessage ?? "")
         }
         .onAppear {
+            customFrontMatterFields = HugoContentService.loadConfiguration(
+                from: state.vaultURL(for: repoID)
+            ).frontMatterFields
             loadContent()
             loadImages()
             state.detectChanges(repoID: repoID)
@@ -343,7 +349,9 @@ struct FileEditorView: View {
             if !isDiscardingEdits { saveDraftImmediately() }
         }
         .onChange(of: editorMode) { oldMode, newMode in
-            if oldMode == .properties { content = frontMatter.applying(to: content) }
+            if oldMode == .properties {
+                content = frontMatter.applying(to: content, customFields: customFrontMatterFields)
+            }
             if newMode == .properties { frontMatter = MarkdownFrontMatter(markdown: content) }
         }
     }
@@ -457,6 +465,9 @@ struct FileEditorView: View {
                             }
                         }
                     }
+                    ForEach(customFrontMatterFields) { field in
+                        customFrontMatterField(field)
+                    }
                 }
                 Section("Body") {
                     TextEditor(text: $frontMatter.body)
@@ -472,6 +483,53 @@ struct FileEditorView: View {
             .scrollContentBackground(.hidden)
             .background(Color.brutalBg)
         }
+    }
+
+    @ViewBuilder
+    private func customFrontMatterField(_ field: HugoFrontMatterFieldConfiguration) -> some View {
+        let label = field.label.isEmpty ? field.key : field.label
+        switch field.type {
+        case .text:
+            TextField(text: customFrontMatterTextBinding(for: field.key)) {
+                Text(label)
+            }
+        case .boolean:
+            Toggle(label, isOn: Binding(
+                get: {
+                    ["true", "yes", "1"].contains(
+                        frontMatter.customValues[field.key]?.lowercased() ?? ""
+                    )
+                },
+                set: { frontMatter.customValues[field.key] = $0 ? "true" : "false" }
+            ))
+        case .number:
+            TextField(text: customFrontMatterNumberBinding(for: field.key)) {
+                Text(label)
+            }
+            .keyboardType(.decimalPad)
+        }
+    }
+
+    private func customFrontMatterTextBinding(for key: String) -> Binding<String> {
+        Binding(
+            get: { frontMatter.customValues[key] ?? "" },
+            set: { frontMatter.customValues[key] = $0 }
+        )
+    }
+
+    private func customFrontMatterNumberBinding(for key: String) -> Binding<String> {
+        Binding(
+            get: { frontMatter.customValues[key] ?? "" },
+            set: { value in
+                let isEditableNumber = value.range(
+                    of: #"^-?\d*(?:\.\d*)?$"#,
+                    options: .regularExpression
+                ) != nil
+                if isEditableNumber {
+                    frontMatter.customValues[key] = value
+                }
+            }
+        )
     }
 
     private var markdownPreview: some View {

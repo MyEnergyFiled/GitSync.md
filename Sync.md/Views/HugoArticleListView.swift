@@ -39,6 +39,7 @@ struct HugoArticleListView: View {
     @State private var sort: HugoArticleSort = .newest
     @State private var query = ""
     @State private var errorMessage: String?
+    @State private var showFrontMatterFields = false
 
     private var root: URL { state.vaultURL(for: repoID) }
     private var visibleArticles: [HugoArticle] {
@@ -115,6 +116,12 @@ struct HugoArticleListView: View {
                             Text(option.label).tag(option)
                         }
                     }
+                    Divider()
+                    Button {
+                        showFrontMatterFields = true
+                    } label: {
+                        Label("Front Matter Fields", systemImage: "slider.horizontal.3")
+                    }
                 } label: {
                     Image(systemName: "arrow.up.arrow.down")
                 }
@@ -124,6 +131,11 @@ struct HugoArticleListView: View {
             FileEditorView(repoID: destination.repoID, fileURL: destination.fileURL)
         }
         .onAppear(perform: loadArticles)
+        .sheet(isPresented: $showFrontMatterFields) {
+            HugoFrontMatterFieldsView(root: root) {
+                state.detectChanges(repoID: repoID)
+            }
+        }
         .alert("Error", isPresented: Binding(
             get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } }

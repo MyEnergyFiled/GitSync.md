@@ -4306,6 +4306,42 @@ private final class FakeGitRepository: GitRepositoryProtocol, @unchecked Sendabl
 }
 
 final class HugoContentServiceTests: XCTestCase {
+    func testLegacyHugoConfigurationDefaultsCustomFieldsToEmpty() throws {
+        let data = try XCTUnwrap(#"{"contentMappings":[{"directory":"content/posts","archetype":"archetypes/default.md"}]}"#.data(using: .utf8))
+
+        let configuration = try JSONDecoder().decode(HugoRepositoryConfiguration.self, from: data)
+
+        XCTAssertEqual(configuration.contentMappings.count, 1)
+        XCTAssertTrue(configuration.frontMatterFields.isEmpty)
+    }
+
+    func testHugoConfigurationRoundTripsCustomFieldsWithoutRuntimeID() throws {
+        let configuration = HugoRepositoryConfiguration(
+            frontMatterFields: [
+                HugoFrontMatterFieldConfiguration(key: "featured", label: "Featured", type: .boolean)
+            ]
+        )
+
+        let data = try JSONEncoder().encode(configuration)
+        let decoded = try JSONDecoder().decode(HugoRepositoryConfiguration.self, from: data)
+        let json = try XCTUnwrap(String(data: data, encoding: .utf8))
+
+        XCTAssertEqual(decoded.frontMatterFields.first?.key, "featured")
+        XCTAssertEqual(decoded.frontMatterFields.first?.type, .boolean)
+        XCTAssertFalse(json.contains("\"id\""))
+    }
+
+    func testFrontMatterFieldKeyValidationRejectsBuiltInAndUnsafeKeys() {
+        XCTAssertTrue(HugoContentService.isValidFrontMatterFieldKey("description"))
+        XCTAssertTrue(HugoContentService.isValidFrontMatterFieldKey("show_toc"))
+        XCTAssertFalse(HugoContentService.isValidFrontMatterFieldKey("draft"))
+        XCTAssertFalse(HugoContentService.isValidFrontMatterFieldKey("Title"))
+        XCTAssertFalse(HugoContentService.isValidFrontMatterFieldKey("bad key"))
+        XCTAssertFalse(HugoContentService.isValidFrontMatterFieldKey("../layout"))
+        XCTAssertTrue(HugoContentService.isValidFrontMatterNumber("-12.5"))
+        XCTAssertFalse(HugoContentService.isValidFrontMatterNumber("12px"))
+    }
+
     func testRendersLeafBundleArchetype() {
         let template = """
         ---
@@ -4338,6 +4374,64 @@ final class HugoContentServiceTests: XCTestCase {
         let output = matter.applying(to: original)
         XCTAssertTrue(output.contains("draft = false"))
         XCTAssertTrue(output.contains("layout = \"post\""))
+    }
+
+    func testConfiguredYAMLTextFieldUpdatesWithoutDroppingOtherFields() {
+        let original = "---\ntitle: \"Post\"\nsummary: \"Old\"\nlayout: special\nnested:\n  child: true\n---\n\nBody"
+        let fields = [
+            HugoFrontMatterFieldConfiguration(key: "summary", label: "Summary", type: .text)
+        ]
+        var matter = MarkdownFrontMatter(markdown: original)
+        matter.customValues["summary"] = "New summary"
+
+        let output = matter.applying(to: original, customFields: fields)
+
+        XCTAssertTrue(output.contains("summary: \"New summary\""))
+        XCTAssertTrue(output.contains("layout: special"))
+        XCTAssertTrue(output.contains("nested:\n  child: true"))
+        XCTAssertTrue(output.hasSuffix("Body"))
+    }
+
+    func testConfiguredTOMLBooleanAndNumberFieldsUseNativeValues() {
+        let original = "+++\ntitle = \"Post\"\nfeatured = false\nrating = 3\n+++\n\nBody"
+        let fields = [
+            HugoFrontMatterFieldConfiguration(key: "featured", label: "Featured", type: .boolean),
+            HugoFrontMatterFieldConfiguration(key: "rating", label: "Rating", type: .number)
+        ]
+        var matter = MarkdownFrontMatter(markdown: original)
+        matter.customValues["featured"] = "true"
+        matter.customValues["rating"] = "4.5"
+
+        let output = matter.applying(to: original, customFields: fields)
+
+        XCTAssertTrue(output.contains("featured = true"))
+        XCTAssertTrue(output.contains("rating = 4.5"))
+    }
+
+    func testInvalidConfiguredNumberKeepsOriginalValue() {
+        let original = "---\ntitle: \"Post\"\nrating: 3\n---\n\nBody"
+        let fields = [
+            HugoFrontMatterFieldConfiguration(key: "rating", label: "Rating", type: .number)
+        ]
+        var matter = MarkdownFrontMatter(markdown: original)
+        matter.customValues["rating"] = "not-a-number"
+
+        let output = matter.applying(to: original, customFields: fields)
+
+        XCTAssertTrue(output.contains("rating: 3"))
+        XCTAssertFalse(output.contains("not-a-number"))
+    }
+
+    func testUnchangedConfiguredNestedFieldRemainsVerbatim() {
+        let original = "---\ntitle: \"Post\"\nparams:\n  color: blue\n---\n\nBody"
+        let fields = [
+            HugoFrontMatterFieldConfiguration(key: "params", label: "Params", type: .text)
+        ]
+        let matter = MarkdownFrontMatter(markdown: original)
+
+        let output = matter.applying(to: original, customFields: fields)
+
+        XCTAssertTrue(output.contains("params:\n  color: blue"))
     }
 
     func testUpdatingYAMLDraftStatusPreservesBodyAndUnknownFields() {
