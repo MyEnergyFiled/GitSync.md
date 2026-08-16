@@ -24,7 +24,7 @@ GitSync.md clones Git repositories directly to your iPhone or iPad using [libgit
 - **Obsidian and iPad support** — Use repositories as Obsidian vaults and work with layouts optimized for iPad.
 - **Hugo article workflow** — Create leaf bundles from `archetypes`, search and filter articles, edit Front Matter, and manage each article's `images/` directory.
 - **Safer publishing** — Draft recovery, article-scoped staging, pre-push validation, and protection against losing local content when Git or authentication fails.
-- **Built-in diagnostics** — Searchable live logs with GitHub/OAuth timing and status details, automatic rotation, export, and credential redaction.
+- **Built-in diagnostics** — Searchable, redacted logs plus user-facing classification of authentication, network, remote rejection, and repository-corruption failures with safe recovery guidance.
 
 ## Hugo Writing Workflow
 

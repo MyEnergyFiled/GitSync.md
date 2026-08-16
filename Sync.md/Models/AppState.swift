@@ -177,6 +177,7 @@ final class AppState {
     // MARK: - Errors & Confirmations
 
     var lastError: String? = nil
+    var lastErrorGuidance: GitFailureGuidance? = nil
     var showError: Bool = false
     var pendingLFSAutoTrackingConfirmation: LFSAutoTrackingConfirmationRequest? = nil
     var pendingSSHHostKeyTrustRequest: SSHHostKeyTrustRequest? = nil
@@ -3324,6 +3325,7 @@ final class AppState {
         operationID: String? = nil
     ) {
         lastError = message
+        lastErrorGuidance = GitFailureGuidance.classify(message: message)
         showError = true
         DebugLogger.shared.error(
             category,
@@ -3332,6 +3334,16 @@ final class AppState {
             repoName: repoID.flatMap { repo(id: $0)?.displayName },
             operationID: operationID
         )
+    }
+
+    var lastErrorTitle: String {
+        lastErrorGuidance?.title ?? String(localized: "Error")
+    }
+
+    var lastErrorPresentation: String {
+        lastErrorGuidance?.presentationMessage
+            ?? lastError
+            ?? String(localized: "Unknown error")
     }
 
 }

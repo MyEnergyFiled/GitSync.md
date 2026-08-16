@@ -43,6 +43,38 @@ final class SyncMDTests: XCTestCase {
         XCTAssertFalse(state.isSyncCancellationRequested)
     }
 
+    func testGitFailureGuidanceClassifiesAuthenticationAndRemoteRejection() {
+        let authentication = GitFailureGuidance.classify(
+            error: GitHubError.apiError(403, "Resource not accessible by token")
+        )
+        XCTAssertEqual(authentication.category, .authentication)
+        XCTAssertTrue(authentication.presentationMessage.contains("Suggested action"))
+
+        let rejected = GitFailureGuidance.classify(
+            message: "Push failed: protected branch hook declined"
+        )
+        XCTAssertEqual(rejected.category, .remoteRejected)
+    }
+
+    func testGitFailureGuidanceClassifiesNetworkAndRepositoryCorruption() {
+        let network = GitFailureGuidance.classify(
+            error: URLError(.networkConnectionLost)
+        )
+        XCTAssertEqual(network.category, .network)
+
+        let corrupted = GitFailureGuidance.classify(
+            error: LocalGitError.repositoryCorrupted("object database is corrupt")
+        )
+        XCTAssertEqual(corrupted.category, .repositoryCorrupted)
+    }
+
+    func testGitFailureGuidanceFallsBackToGeneralAdvice() {
+        let guidance = GitFailureGuidance.classify(message: "Unexpected Git state")
+
+        XCTAssertEqual(guidance.category, .general)
+        XCTAssertFalse(guidance.recoverySuggestion.isEmpty)
+    }
+
     func testLegacyLogEntryDecodesWithoutRepositoryContext() throws {
         let id = UUID()
         let payload: [String: Any] = [

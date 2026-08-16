@@ -193,10 +193,10 @@ struct RepoListView: View {
             .animation(.spring(duration: 0.35, bounce: 0.12), value: showGhostRemovedToast)
             .animation(.easeInOut(duration: 0.16), value: showSignOutConfirm)
             .animation(.easeInOut(duration: 0.16), value: showGhostRemovalConfirm)
-            .alert("Error", isPresented: $state.showError) {
+            .alert(state.lastErrorTitle, isPresented: $state.showError) {
                 Button("OK", role: .cancel) {}
             } message: {
-                Text(state.lastError ?? String(localized: "Unknown error"))
+                Text(state.lastErrorPresentation)
             }
             .onAppear {
                 let count = state.consumeDuplicateReposCleanedCount()

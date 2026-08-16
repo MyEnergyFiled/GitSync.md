@@ -121374,6 +121374,61 @@
       "zh-Hans": { "stringUnit": { "state": "translated", "value": "正在等待安全停止点" } },
       "zh-Hant": { "stringUnit": { "state": "translated", "value": "正在等待安全停止點" } }
     } },
+    "Authentication Failed": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Authentication Failed" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "身份验证失败" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "身分驗證失敗" } }
+    } },
+    "Network Interrupted": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Network Interrupted" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "网络连接中断" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "網路連線中斷" } }
+    } },
+    "Remote Rejected the Operation": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Remote Rejected the Operation" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "远程仓库拒绝了操作" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "遠端儲存庫拒絕了操作" } }
+    } },
+    "Repository May Be Corrupted": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Repository May Be Corrupted" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "仓库可能已损坏" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "儲存庫可能已損壞" } }
+    } },
+    "Git Operation Failed": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Git Operation Failed" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "Git 操作失败" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "Git 操作失敗" } }
+    } },
+    "Suggested action": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Suggested action" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "建议操作" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "建議操作" } }
+    } },
+    "Check the repository credentials and sign in again if needed. For GitHub tokens, confirm access to this repository and Contents read/write permission.": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Check the repository credentials and sign in again if needed. For GitHub tokens, confirm access to this repository and Contents read/write permission." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "检查仓库凭据，必要时重新登录。对于 GitHub 令牌，请确认它能访问此仓库并具有 Contents 读写权限。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "檢查儲存庫憑證，必要時重新登入。對於 GitHub 權杖，請確認它能存取此儲存庫並具有 Contents 讀寫權限。" } }
+    } },
+    "Check the network and VPN, then retry. Your local files and commits are unchanged.": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Check the network and VPN, then retry. Your local files and commits are unchanged." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "检查网络和 VPN 后重试。本地文件和提交不会改变。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "檢查網路和 VPN 後重試。本機檔案和提交不會改變。" } }
+    } },
+    "Pull the latest remote changes and check branch protection or repository permissions before retrying. Local commits are retained.": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Pull the latest remote changes and check branch protection or repository permissions before retrying. Local commits are retained." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "拉取最新远程更改，并检查分支保护或仓库权限后再重试。本地提交会保留。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "拉取最新遠端變更，並檢查分支保護或儲存庫權限後再重試。本機提交會保留。" } }
+    } },
+    "Stop writing to this repository, back up working files, and clone into a new folder. Keep the original folder until recovery is complete.": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Stop writing to this repository, back up working files, and clone into a new folder. Keep the original folder until recovery is complete." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "停止写入此仓库，备份工作文件，并克隆到新文件夹。在恢复完成前保留原文件夹。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "停止寫入此儲存庫，備份工作檔案，並複製到新資料夾。在復原完成前保留原資料夾。" } }
+    } },
+    "Review the error details and debug log. Retry only after confirming the repository is in a safe state.": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Review the error details and debug log. Retry only after confirming the repository is in a safe state." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "查看错误详情和调试日志。确认仓库处于安全状态后再重试。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "查看錯誤詳情和偵錯日誌。確認儲存庫處於安全狀態後再重試。" } }
+    } },
     "Editor": { "localizations": {
       "en": { "stringUnit": { "state": "translated", "value": "Editor" } },
       "zh-Hans": { "stringUnit": { "state": "translated", "value": "编辑器" } },
