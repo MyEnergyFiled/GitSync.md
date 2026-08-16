@@ -1,23 +1,28 @@
 # GitSync.md
 
-**通过 Git 同步 Markdown 笔记**——一款原生 iOS 与 iPadOS 应用，可将任意 GitHub 仓库变成同步的 Markdown 知识库。
+**通过 Git 同步 Markdown 笔记**——一款原生 iOS 与 iPadOS 应用，可将 Git 仓库变成同步的 Markdown 知识库与 Hugo 写作空间。
 
 [English](README.md) | [简体中文](README_ZH.md)
 
+> [!NOTE]
+> 这是 [CodyBontecou/GitSync.md](https://github.com/CodyBontecou/GitSync.md) 的独立维护分支，由 [MyEnergyFiled](https://github.com/MyEnergyFiled) 维护，并在上游项目基础上增加了高级 Git 操作、Git LFS 与 SSH 支持以及 Hugo 写作工作流。本项目不是上游官方发行版。
+
 ## 功能简介
 
-GitSync.md 使用 [libgit2](https://libgit2.org) 将 GitHub 仓库直接克隆到 iPhone 或 iPad，并在设备文件系统中保留真正的 `.git` 目录。你可以使用 [Obsidian](https://obsidian.md)、iA Writer、系统“文件”应用或其他编辑器修改 Markdown 文件，再从 GitHub 拉取更新或将更改推送回去。
+GitSync.md 使用 [libgit2](https://libgit2.org) 将 Git 仓库直接克隆到 iPhone 或 iPad，并在设备文件系统中保留真正的 `.git` 目录。你可以在应用内编辑 Markdown，也可以使用 [Obsidian](https://obsidian.md)、iA Writer 或系统“文件”应用，再从 GitHub 或其他 Git 服务器拉取更新并推送更改。
 
 **主要功能：**
 
-- **真正的 Git**——通过 libgit2 完成克隆、拉取、变基、暂存、提交、推送、分支切换、储藏与标签管理以及冲突解决。
-- **多个仓库**——同时管理多个 GitHub 仓库。
+- **完整的 Git 工作区**——通过 libgit2 完成克隆、获取、快进或变基、差异查看、选择性暂存或丢弃、提交与推送。
+- **分支与恢复工具**——创建、切换、合并和删除分支，解决冲突，浏览历史并还原提交，以及管理储藏与标签。
+- **Git LFS**——下载和上传 LFS 对象、检测大文件、提示自动跟踪，并支持通过 HTTPS 和 SSH 使用 LFS。
+- **灵活的身份验证**——支持 GitHub OAuth 多账户或 PAT、通用 HTTPS 凭据、带主机密钥验证的 SSH 私钥、公开远程仓库和本地仓库。
+- **多个仓库**——在同一应用中管理来自 GitHub、自托管 Git 服务和本地位置的仓库。
 - **自定义存储位置**——将仓库存放在“文件”应用可访问的任意位置。
-- **Obsidian 集成**——通过 `x-callback-url` 与 Obsidian 知识库配合，实现自动同步。
-- **GitHub OAuth 与 PAT**——使用 GitHub OAuth 登录或粘贴个人访问令牌。
-- **私有仓库支持**——同时支持公开和私有仓库。
-- **iPad 支持**——针对 iPad 优化的界面布局。
-- **Hugo 文章工作流**——从 `archetypes` 创建叶子包、编辑 Front Matter，并在应用中管理每篇文章的 `images/` 目录。
+- **内置文件编辑**——浏览和重命名文件、新建 Markdown 文档、使用语法高亮与 Front Matter 控件编辑，并预览本地图片。
+- **自动化**——通过 `x-callback-url` 触发同步，或使用“快捷指令”拉取单个或全部仓库。
+- **Obsidian 与 iPad 支持**——将仓库用作 Obsidian 知识库，并使用针对 iPad 优化的布局。
+- **Hugo 文章工作流**——从 `archetypes` 创建叶子包、搜索和筛选文章、编辑 Front Matter，并管理每篇文章的 `images/` 目录。
 - **更安全的发布**——支持草稿恢复、仅暂存当前文章、推送前校验，并在 Git 或身份验证失败时保护本地内容。
 - **内置诊断工具**——可搜索的实时日志，包含 GitHub/OAuth 耗时和状态详情，并支持自动轮转、导出与凭据脱敏。
 
@@ -33,15 +38,15 @@ content/posts/my-article/
 
 选择 `archetypes/default.md`、`archetypes/moments.md` 等原型，指定目标内容目录，并输入英文目录名。文章标题会写入生成的 `index.md` Front Matter，无需与目录名相同。
 
-文章管理器会显示标题、日期、草稿状态和封面字段。编辑器支持 Markdown 格式化、撤销/重做、本地图片预览、图片插入与管理，以及可恢复的本地草稿。**保存、提交并推送**只会暂存当前文章包，并在发布前检查缺失的图片引用和异常大的图片。
+文章管理器会显示封面、标题、日期和草稿状态，并支持搜索、筛选与排序。编辑器支持 Front Matter 字段、Markdown 格式化、语法高亮、撤销/重做、本地预览、图片插入与管理，以及可恢复的本地草稿。**保存、提交并推送**只会暂存当前文章包，并在发布前检查缺失的图片引用和异常大的图片。
 
 ## 工作原理
 
-1. 使用 GitHub 登录（OAuth 或个人访问令牌）。
-2. 从 GitHub 账户中选择仓库，也可手动添加。
+1. 使用 GitHub 登录；使用其他 Git 远程或本地仓库时，也可跳过账户登录。
+2. 从 GitHub 账户中选择仓库，或手动添加仓库 URL。
 3. 将仓库克隆到设备，文件会出现在 iOS“文件”应用中。
 4. 使用任意 Markdown 编辑器进行编辑。
-5. 通过**拉取**获取远程更改，通过**推送**提交并上传本地更改。
+5. 通过**拉取**获取远程更改，再选择性暂存、提交并**推送**本地更改。
 
 默认情况下，文件位于“我的 iPhone › GitSync.md”中，也可以存放到你选择的自定义位置。
 
@@ -52,9 +57,10 @@ GitSync.md/
 ├── Sync.md/                    # iOS 应用源码
 │   ├── Sync_mdApp.swift        # 应用入口
 │   ├── ContentView.swift       # 根视图路由
-│   ├── Models/                 # 仓库、身份验证与同步状态
-│   ├── Views/                  # SwiftUI 页面与编辑器
-│   └── Services/               # Git、GitHub、OAuth、Hugo 与钥匙串服务
+│   ├── Models/                 # 应用、仓库、Git 操作与界面状态
+│   ├── Views/                  # 仓库、Git、文件、Hugo 与诊断界面
+│   ├── Services/               # libgit2、Git LFS、GitHub、OAuth、Hugo 与钥匙串
+│   └── Shortcuts/              # 用于拉取仓库的 App Intents
 ├── Packages/
 │   └── Clibgit2/               # libgit2 C 库的 Swift Package 封装
 └── libgit2.xcframework/        # 预编译的 iOS libgit2 二进制文件
@@ -64,12 +70,13 @@ GitSync.md/
 
 所有 Git 操作均通过 C 互操作直接使用 **libgit2**，不会调用 shell，也不会通过 REST API 操作文件树。`LocalGitService` 封装了以下能力：
 
-- **克隆**——使用带 HTTPS 凭据回调的 `git_clone`。
-- **拉取**——支持快进或变基流程的 Fetch。
-- **暂存、提交与推送**——可按文件、全部文件或 Hugo 文章包暂存。
-- **分支与冲突**——创建、切换、合并分支并解决冲突文件。
-- **历史、储藏与标签**——检查并管理本地仓库历史。
-- **状态与 Git LFS**——跟踪工作区/索引变化并处理大型资源。
+- **远程访问**——通过 HTTPS、SSH、公开或本地传输克隆和获取仓库。
+- **拉取**——先分析分歧状态，再执行快进或变基。
+- **更改管理**——显示状态与统一差异，并可暂存、取消暂存或丢弃单个文件及全部更改。
+- **提交与推送**——推送当前分支、所选更改或仅当前 Hugo 文章包。
+- **分支与冲突**——创建、切换、合并和删除分支，继续或中止合并/变基，并在应用内解决冲突文件。
+- **历史、储藏与标签**——浏览提交详情、还原提交，并按需创建、应用、弹出、删除或推送 Git 对象。
+- **Git LFS**——转换、下载、缓存、校验并上传 LFS 对象。
 
 生成的是标准 `.git` 目录，因此仓库也兼容 [Obsidian Git](https://github.com/Vinzent03/obsidian-git) 等其他 Git 工具。
 
@@ -87,6 +94,10 @@ syncmd://x-callback-url/<action>?repo=<folder-name>&x-success=<url>&x-error=<url
 | `push` | 暂存全部文件、提交并推送 |
 | `sync` | 先拉取再推送 |
 | `status` | 返回分支、SHA 和更改数量 |
+
+### 快捷指令
+
+GitSync.md 提供**拉取仓库**和**拉取所有仓库**两个 App Intent，可在“快捷指令”应用中使用，也可以加入“打开 GitSync.md 时运行”的个人自动化。
 
 ## 构建
 
@@ -153,21 +164,21 @@ GitHub 登录使用原生 Device Flow 并直接与 GitHub 通信，无需 OAuth 
 
 令牌保存在 iOS 钥匙串中。调试日志不会有意记录授权标头、请求正文、令牌或文章内容；导出的日志还会再次执行脱敏。
 
-## 当前开发状态
+## 开发状态与路线图
 
-克隆、拉取、编辑、暂存、提交和推送等核心流程以及上述 Hugo 写作工作流均已实现。目前重点是通过 SideStore 进行真机回归测试，尤其是草稿恢复和失败处理。计划中的工作记录在 [TODO.md](TODO.md) 中。
+上述 Git 工作区、Git LFS 传输、身份验证方式、文件编辑器、自动化入口与 Hugo 写作流程均已实现。当前工作重点包括：
+
+- 通过 SideStore 进行真机回归测试，覆盖升级、草稿恢复、文章范围发布、失败处理、诊断日志和并行 XCTest 稳定性
+- 提供更明确的草稿/发布状态与发布日期控制
+- 支持可配置 Front Matter、更丰富的文章管理和更完整的应用内预览
+- 改进长任务进度、取消与重试提示，并扩大 Git 传输回归矩阵
+- 后期实现感知 Hugo 主题的预览
+
+详细且按优先级排列的清单继续保存在 [TODO.md](TODO.md) 中。这样可以避免在项目概览中重复容易快速变化的实现细节。
 
 ## 参与贡献
 
-欢迎贡献！你可以提交 Issue 或 Pull Request。
-
-特别欢迎协助以下方向：
-
-- 冲突解决界面（目前仅支持快进合并）
-- 分支切换
-- 选择性文件暂存
-- 后台同步/定时拉取
-- macOS 支持
+欢迎贡献！你可以提交 Issue 或 Pull Request。[TODO.md](TODO.md) 中的未完成任务是了解当前优先事项的最佳入口。
 
 ### 编辑器配置
 
@@ -182,4 +193,4 @@ xcode-build-server config -project Sync.md.xcodeproj -scheme Sync.md
 
 ## 许可证
 
-[MIT](LICENSE) — Cody Bontecou
+[MIT](LICENSE)。原项目版权 © 2025–2026 Cody Bontecou；本分支修改版权 © 2026 [MyEnergyFiled](https://github.com/MyEnergyFiled)。来源与署名见 [NOTICE.md](NOTICE.md)，随附依赖的许可证信息见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

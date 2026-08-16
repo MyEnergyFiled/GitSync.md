@@ -1,24 +1,28 @@
 # GitSync.md
 
-**Markdown notes synced with Git** — a native iOS & iPadOS app that turns any GitHub repository into a synced markdown vault.
+**Markdown notes synced with Git** — a native iOS & iPadOS app that turns a Git repository into a synced markdown vault and Hugo writing workspace.
 
 [English](README.md) | [简体中文](README_ZH.md)
 
+> [!NOTE]
+> This is an independently maintained fork of [CodyBontecou/GitSync.md](https://github.com/CodyBontecou/GitSync.md), maintained by [MyEnergyFiled](https://github.com/MyEnergyFiled). It extends the upstream project with advanced Git operations, Git LFS and SSH support, and a Hugo writing workflow. It is not an official upstream release.
 
 ## What It Does
 
-GitSync.md clones GitHub repos directly to your iPhone or iPad using [libgit2](https://libgit2.org), giving you a real `.git` directory on the device filesystem. Edit markdown files with any app — [Obsidian](https://obsidian.md), ia Writer, or the built-in Files app — then pull and push changes back to GitHub.
+GitSync.md clones Git repositories directly to your iPhone or iPad using [libgit2](https://libgit2.org), giving you a real `.git` directory on the device filesystem. Edit Markdown in the app or with tools such as [Obsidian](https://obsidian.md), iA Writer, and Files, then pull and push changes to GitHub or another Git server.
 
 **Key features:**
 
-- **Real git** — Clone, pull, rebase, stage, commit, push, switch branches, manage stashes and tags, and resolve conflicts via libgit2.
-- **Multiple repos** — Manage several GitHub repositories at once.
+- **Real Git workspace** — Clone, fetch, fast-forward or rebase, inspect diffs, selectively stage or discard files, commit, and push through libgit2.
+- **Branches and recovery tools** — Create, switch, merge, and delete branches; resolve conflicts; browse history; revert commits; and manage stashes and tags.
+- **Git LFS** — Hydrate and upload LFS objects, detect large files, offer automatic tracking, and support LFS over HTTPS and SSH.
+- **Flexible authentication** — Use GitHub OAuth accounts or PATs, generic HTTPS credentials, SSH private keys with host-key verification, public remotes, and local repositories.
+- **Multiple repos** — Manage repositories from GitHub, self-hosted Git services, and local locations in one app.
 - **Custom save locations** — Store repos anywhere accessible via the Files app.
-- **Obsidian integration** — Works with Obsidian vaults via `x-callback-url` for automated sync.
-- **GitHub OAuth & PAT** — Sign in with GitHub OAuth or paste a Personal Access Token.
-- **Private repo support** — Works with both public and private repositories.
-- **iPad support** — Optimized layouts for iPad.
-- **Hugo article workflow** — Create leaf bundles from `archetypes`, edit Front Matter, and manage each article's `images/` directory in the app.
+- **Built-in file editing** — Browse and rename files, create Markdown documents, edit with syntax highlighting and Front Matter controls, and preview local images.
+- **Automation** — Trigger sync through `x-callback-url`, or use Shortcuts actions to pull one repository or all repositories.
+- **Obsidian and iPad support** — Use repositories as Obsidian vaults and work with layouts optimized for iPad.
+- **Hugo article workflow** — Create leaf bundles from `archetypes`, search and filter articles, edit Front Matter, and manage each article's `images/` directory.
 - **Safer publishing** — Draft recovery, article-scoped staging, pre-push validation, and protection against losing local content when Git or authentication fails.
 - **Built-in diagnostics** — Searchable live logs with GitHub/OAuth timing and status details, automatic rotation, export, and credential redaction.
 
@@ -34,15 +38,15 @@ content/posts/my-article/
 
 Choose an archetype such as `archetypes/default.md` or `archetypes/moments.md`, select the target content directory, and enter an English directory name. The article title is stored in the generated `index.md` Front Matter and does not need to match the directory name.
 
-The article manager displays titles, dates, draft state, and cover fields. The editor supports Markdown formatting, undo/redo, local image preview, image insertion and management, and recoverable local drafts. **Save, Commit & Push** stages only the current article bundle and validates missing image references and unusually large images before publishing.
+The article manager displays covers, titles, dates, and draft state, with search, filtering, and sorting. The editor supports Front Matter fields, Markdown formatting, syntax highlighting, undo/redo, local preview, image insertion and management, and recoverable local drafts. **Save, Commit & Push** stages only the current article bundle and validates missing image references and unusually large images before publishing.
 
 ## How It Works
 
-1. **Sign in** with GitHub (OAuth or Personal Access Token)
-2. **Pick a repository** from your GitHub account (or add one manually)
+1. **Sign in** with GitHub, or continue without an account for another Git remote or local repository
+2. **Pick a repository** from a GitHub account or add its URL manually
 3. **Clone** it to your device — files appear in the iOS Files app
 4. **Edit** with any markdown editor
-5. **Pull** to fetch remote changes, **Push** to commit and upload yours
+5. **Pull** to fetch remote changes, then selectively stage, commit, and **Push** yours
 
 Files live under `On My iPhone › GitSync.md` by default, or in a custom location you choose.
 
@@ -53,31 +57,10 @@ GitSync.md/
 ├── Sync.md/                    # iOS app source
 │   ├── Sync_mdApp.swift        # App entry point
 │   ├── ContentView.swift       # Root view router
-│   ├── Models/
-│   │   ├── AppState.swift      # Observable app state (repos, auth, sync)
-│   │   ├── RepoConfig.swift    # Repository configuration model
-│   │   └── GitState.swift      # Git state persistence
-│   ├── Views/
-│   │   ├── SetupView.swift     # Onboarding & sign-in
-│   │   ├── RepoListView.swift  # Home screen — repo cards
-│   │   ├── VaultView.swift     # Single repo — pull/push/status
-│   │   ├── AddRepoView.swift   # Add new repository flow
-│   │   ├── RepoPickerView.swift # GitHub repo browser
-│   │   ├── SettingsView.swift  # Per-repo settings
-│   │   ├── GitControlSheet.swift  # Staging, commit, and push workflow
-│   │   ├── FileEditorView.swift    # Markdown and Front Matter editor
-│   │   ├── HugoArticleListView.swift # Hugo article browser
-│   │   ├── HugoNewContentView.swift  # Archetype-based article creation
-│   │   └── DebugLogView.swift      # Searchable diagnostic log
-│   └── Services/
-│       ├── LocalGitService.swift    # libgit2 Git operations
-│       ├── GitHubService.swift      # GitHub REST API client
-│       ├── OAuthService.swift       # GitHub Device Flow
-│       ├── HugoContentService.swift # Hugo bundles and Front Matter
-│       ├── FileEditorDraftStore.swift # Recoverable local drafts
-│       ├── DebugLogger.swift        # Redacted rotating diagnostics
-│       ├── KeychainService.swift    # Secure token storage
-│       └── CallbackURLHandler.swift # x-callback-url integration
+│   ├── Models/                  # App, repository, Git operation, and UI state
+│   ├── Views/                   # Repository, Git, file, Hugo, and diagnostic UI
+│   ├── Services/                # libgit2, Git LFS, GitHub, OAuth, Hugo, and Keychain
+│   └── Shortcuts/               # App Intents for repository pulls
 ├── Packages/
 │   └── Clibgit2/               # Swift package wrapping the libgit2 C library
 └── libgit2.xcframework/        # Pre-built libgit2 binary for iOS
@@ -87,12 +70,13 @@ GitSync.md/
 
 All git operations use **libgit2** directly via C interop — no shelling out, no REST API tree manipulation. The `LocalGitService` wraps libgit2 to provide:
 
-- **Clone** — `git_clone` with HTTPS credential callback
-- **Pull** — Fetch with fast-forward or rebase workflows
-- **Stage, Commit & Push** — Per-file, all-file, or Hugo article-bundle staging
-- **Branches & conflicts** — Create, switch, merge, and resolve conflicted files
-- **History, stashes & tags** — Inspect and manage local repository history
-- **Status & Git LFS** — Track worktree/index changes and handle large assets
+- **Remotes** — Clone and fetch over HTTPS, SSH, public, or local transports
+- **Pull** — Plan divergence handling, then fast-forward or rebase
+- **Changes** — Show status and unified diffs; stage, unstage, or discard individual files or all changes
+- **Commit & Push** — Push the current branch, selected changes, or only a Hugo article bundle
+- **Branches & conflicts** — Create, switch, merge, and delete branches; continue or abort merges and rebases; resolve conflicted files in the app
+- **History, stashes & tags** — Browse commit details, revert commits, and create, apply, pop, drop, or push Git objects as appropriate
+- **Git LFS** — Clean, hydrate, cache, validate, download, and upload LFS objects
 
 This produces a standard `.git` directory, making repos compatible with other git tools like the [Obsidian Git](https://github.com/Vinzent03/obsidian-git) plugin.
 
@@ -110,6 +94,10 @@ syncmd://x-callback-url/<action>?repo=<folder-name>&x-success=<url>&x-error=<url
 | `push`   | Stage all, commit, and push |
 | `sync`   | Pull then push |
 | `status` | Return branch, SHA, and change count |
+
+### Shortcuts
+
+GitSync.md provides App Intents for **Pull Repository** and **Pull All Repositories**. They can be used from the Shortcuts app, including in a personal automation that runs when GitSync.md opens.
 
 ## Building
 
@@ -174,21 +162,21 @@ GitHub sign-in uses the native Device Flow and talks directly to GitHub. No OAut
 
 Tokens are stored in the iOS Keychain. Debug logs never intentionally include authorization headers, request bodies, tokens, or article contents; exported logs apply an additional redaction pass.
 
-## Current Development Status
+## Development Status and Roadmap
 
-Core clone, pull, edit, stage, commit, and push flows are implemented, together with the Hugo writing workflow described above. The current priority is real-device regression testing through SideStore, especially draft recovery and failure handling. Planned work is tracked in [TODO.md](TODO.md).
+The core Git workspace, Git LFS transport, authentication methods, file editor, automation entry points, and Hugo writing workflow described above are implemented. Current work is focused on:
+
+- SideStore real-device regression testing, including upgrades, draft recovery, article-scoped publishing, failure handling, diagnostics, and parallel XCTest stability
+- Clearer draft/published state and publication-date controls
+- Configurable Front Matter, richer article management, and a more complete in-app preview
+- More detailed progress, cancellation, retry guidance, and a broader Git transport regression matrix
+- Longer-term Hugo theme-aware previewing
+
+The detailed, prioritized checklist remains in [TODO.md](TODO.md). Keeping the full task list there avoids duplicating fast-changing implementation details in the project overview.
 
 ## Contributing
 
-Contributions are welcome! Feel free to open issues or submit pull requests.
-
-Some areas where help would be appreciated:
-
-- Conflict resolution UI (currently only fast-forward merges)
-- Branch switching
-- Selective file staging
-- Background sync / scheduled pulls
-- macOS support
+Contributions are welcome! Feel free to open issues or submit pull requests. The open work in [TODO.md](TODO.md) is the best place to find current priorities.
 
 ### Editor Setup
 
@@ -203,4 +191,4 @@ The generated `buildServer.json` is gitignored. Build in Xcode once afterwards s
 
 ## License
 
-[MIT](LICENSE) — Cody Bontecou
+[MIT](LICENSE). Original project copyright © 2025–2026 Cody Bontecou; fork modifications copyright © 2026 [MyEnergyFiled](https://github.com/MyEnergyFiled). See [NOTICE.md](NOTICE.md) for attribution and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for bundled dependencies.
