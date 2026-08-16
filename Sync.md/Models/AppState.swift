@@ -1858,6 +1858,17 @@ final class AppState {
 
     /// Stages only the current Hugo leaf bundle (`index.md` and its sibling
     /// `images/` directory). Existing staged changes elsewhere are preserved.
+    static func articleBundleEntries(
+        in entries: [GitStatusEntry],
+        bundlePath: String
+    ) -> [GitStatusEntry] {
+        let prefix = bundlePath.isEmpty ? "" : bundlePath + "/"
+        return entries.filter {
+            $0.path == bundlePath || $0.path.hasPrefix(prefix)
+                || ($0.oldPath?.hasPrefix(prefix) == true)
+        }
+    }
+
     func hasArticleBundleChanges(repoID: UUID, fileURL: URL) -> Bool {
         guard let repo = repo(id: repoID), repo.isCloned,
               let entries = statusEntriesByRepo[repoID]
@@ -1869,11 +1880,7 @@ final class AppState {
         guard articleDir.path.hasPrefix(vaultPath) else { return false }
 
         let bundlePath = String(articleDir.path.dropFirst(vaultPath.count))
-        let prefix = bundlePath.isEmpty ? "" : bundlePath + "/"
-        return entries.contains {
-            $0.path == bundlePath || $0.path.hasPrefix(prefix)
-                || ($0.oldPath?.hasPrefix(prefix) == true)
-        }
+        return !Self.articleBundleEntries(in: entries, bundlePath: bundlePath).isEmpty
     }
 
     @discardableResult
@@ -1888,7 +1895,6 @@ final class AppState {
         guard articleDir.path.hasPrefix(vaultPath) else { return false }
 
         let bundlePath = String(articleDir.path.dropFirst(vaultPath.count))
-        let prefix = bundlePath.isEmpty ? "" : bundlePath + "/"
         let gitService = gitRepositoryFactory(vaultDir)
         guard gitService.hasGitDirectory else {
             showError(message: LocalGitError.notCloned.localizedDescription)
@@ -1897,10 +1903,7 @@ final class AppState {
 
         do {
             let info = try await gitService.repoInfo()
-            let bundleEntries = info.statusEntries.filter {
-                $0.path == bundlePath || $0.path.hasPrefix(prefix)
-                    || ($0.oldPath?.hasPrefix(prefix) == true)
-            }
+            let bundleEntries = Self.articleBundleEntries(in: info.statusEntries, bundlePath: bundlePath)
             let unstagedEntries = bundleEntries.filter { $0.workTreeStatus != nil }
             DebugLogger.shared.info(
                 "publish",

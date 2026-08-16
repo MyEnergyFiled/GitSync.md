@@ -994,27 +994,21 @@ final class SyncMDTests: XCTestCase {
         ])
     }
 
-    @MainActor
-    func testArticleBundleChangeDetectionIgnoresOtherArticles() throws {
-        let fixture = try GitFixtureFactory.make(state: .clean)
-        defer { fixture.cleanup() }
-        let appState = AppState(
-            gitRepositoryFactory: { _ in fixture.repository },
-            loadPersistedState: false
-        )
-        appState.repos = [fixture.repoConfig]
-        appState.statusEntriesByRepo[fixture.repoConfig.id] = [
+    func testArticleBundleChangeDetectionIgnoresOtherArticles() {
+        let entries = [
             GitStatusEntry(path: "content/posts/one/images/cover.jpg", indexStatus: .added, workTreeStatus: nil),
             GitStatusEntry(path: "content/posts/two/index.md", indexStatus: nil, workTreeStatus: .modified)
         ]
-        let vaultURL = appState.vaultURL(for: fixture.repoConfig.id)
-        let firstArticle = vaultURL.appendingPathComponent("content/posts/one/index.md")
-        let secondArticle = vaultURL.appendingPathComponent("content/posts/two/index.md")
-        let cleanArticle = vaultURL.appendingPathComponent("content/posts/three/index.md")
 
-        XCTAssertTrue(appState.hasArticleBundleChanges(repoID: fixture.repoConfig.id, fileURL: firstArticle))
-        XCTAssertTrue(appState.hasArticleBundleChanges(repoID: fixture.repoConfig.id, fileURL: secondArticle))
-        XCTAssertFalse(appState.hasArticleBundleChanges(repoID: fixture.repoConfig.id, fileURL: cleanArticle))
+        XCTAssertEqual(
+            AppState.articleBundleEntries(in: entries, bundlePath: "content/posts/one").map(\.path),
+            ["content/posts/one/images/cover.jpg"]
+        )
+        XCTAssertEqual(
+            AppState.articleBundleEntries(in: entries, bundlePath: "content/posts/two").map(\.path),
+            ["content/posts/two/index.md"]
+        )
+        XCTAssertTrue(AppState.articleBundleEntries(in: entries, bundlePath: "content/posts/three").isEmpty)
     }
 
     @MainActor
