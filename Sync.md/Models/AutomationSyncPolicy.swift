@@ -24,6 +24,13 @@ enum AutomatedPullBlockReason: Equatable, Sendable {
 }
 
 enum AutomatedPullPolicy {
+    static func shouldValidateCloneDirectory(
+        requiresExternalStorage: Bool,
+        hasExternalStorageAccess: Bool
+    ) -> Bool {
+        !requiresExternalStorage || hasExternalStorageAccess
+    }
+
     static func blockReason(
         isProtectedDataAvailable: Bool,
         isCloned: Bool,

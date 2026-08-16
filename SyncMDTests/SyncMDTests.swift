@@ -29,19 +29,16 @@ final class SyncMDTests: XCTestCase {
         XCTAssertEqual(progress.fraction, 0.86)
     }
 
-    @MainActor
-    func testAppStateRecordsCancellationRequestOnlyAtSafeStage() {
-        let state = AppState(loadPersistedState: false)
-        state.gitLongOperationProgress = GitLongOperationProgress(kind: .clone, stage: .transferring)
+    func testCancellationRequestChangesOnlySafeOperationStage() {
+        var progress = GitLongOperationProgress(kind: .clone, stage: .transferring)
 
-        state.requestSyncCancellation()
+        XCTAssertTrue(progress.requestCancellationIfSafe())
+        XCTAssertTrue(progress.cancellationRequested)
+        XCTAssertFalse(progress.canCancel)
 
-        XCTAssertTrue(state.isSyncCancellationRequested)
-        XCTAssertFalse(state.canCancelSyncOperation)
-
-        state.gitLongOperationProgress = GitLongOperationProgress(kind: .push, stage: .uploading)
-        state.requestSyncCancellation()
-        XCTAssertFalse(state.isSyncCancellationRequested)
+        progress = GitLongOperationProgress(kind: .push, stage: .uploading)
+        XCTAssertFalse(progress.requestCancellationIfSafe())
+        XCTAssertFalse(progress.cancellationRequested)
     }
 
     func testGitFailureGuidanceClassifiesAuthenticationAndRemoteRejection() {
@@ -109,29 +106,25 @@ final class SyncMDTests: XCTestCase {
         XCTAssertNil(reason)
     }
 
-    @MainActor
-    func testValidationPreservesCloneStateWhenExternalFolderIsTemporarilyUnavailable() {
-        let state = AppState(loadPersistedState: false)
-        let repo = RepoConfig(
-            repoURL: "https://github.com/example/notes.git",
-            branch: "main",
-            authorName: "",
-            authorEmail: "",
-            vaultFolderName: "notes",
-            customVaultBookmarkData: Data([0x01]),
-            gitState: GitState(
-                commitSHA: "abc123",
-                treeSHA: "tree123",
-                branch: "main",
-                blobSHAs: [:],
-                lastSyncDate: .now
+    func testCloneValidationSkipsTemporarilyUnavailableExternalFolder() {
+        XCTAssertFalse(
+            AutomatedPullPolicy.shouldValidateCloneDirectory(
+                requiresExternalStorage: true,
+                hasExternalStorageAccess: false
             )
         )
-        state.repos = [repo]
-
-        state.validateClonedRepos()
-
-        XCTAssertTrue(state.repo(id: repo.id)?.isCloned == true)
+        XCTAssertTrue(
+            AutomatedPullPolicy.shouldValidateCloneDirectory(
+                requiresExternalStorage: true,
+                hasExternalStorageAccess: true
+            )
+        )
+        XCTAssertTrue(
+            AutomatedPullPolicy.shouldValidateCloneDirectory(
+                requiresExternalStorage: false,
+                hasExternalStorageAccess: false
+            )
+        )
     }
 
     func testLegacyLogEntryDecodesWithoutRepositoryContext() throws {

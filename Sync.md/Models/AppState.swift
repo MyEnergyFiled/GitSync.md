@@ -783,7 +783,10 @@ final class AppState {
             // A security-scoped provider can be temporarily unavailable while
             // the device is locked or while the provider is offline. Preserve
             // the last known clone state instead of treating that as deletion.
-            if repo.customVaultBookmarkData != nil && resolvedCustomURLs[repo.id] == nil {
+            if !AutomatedPullPolicy.shouldValidateCloneDirectory(
+                requiresExternalStorage: repo.customVaultBookmarkData != nil,
+                hasExternalStorageAccess: resolvedCustomURLs[repo.id] != nil
+            ) {
                 continue
             }
 
@@ -2176,8 +2179,8 @@ final class AppState {
     }
 
     func requestSyncCancellation() {
-        guard var progress = gitLongOperationProgress, progress.canCancel else { return }
-        progress.cancellationRequested = true
+        guard var progress = gitLongOperationProgress else { return }
+        guard progress.requestCancellationIfSafe() else { return }
         gitLongOperationProgress = progress
         syncProgress = progress.message
         DebugLogger.shared.info("git", "Cancellation requested", detail: progress.kind.rawValue)

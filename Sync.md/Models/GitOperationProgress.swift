@@ -65,6 +65,13 @@ struct GitLongOperationProgress: Equatable {
     var message: String {
         cancellationRequested ? String(localized: "Cancellation requested; waiting for a safe stopping point…") : stage.title
     }
+
+    @discardableResult
+    mutating func requestCancellationIfSafe() -> Bool {
+        guard canCancel else { return false }
+        cancellationRequested = true
+        return true
+    }
 }
 
 struct GitOperationCancelled: LocalizedError, Equatable {
