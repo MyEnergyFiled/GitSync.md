@@ -121284,6 +121284,26 @@
         }
       }
     },
+    "Publication Date": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Publication Date" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "发布日期" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "發佈日期" } }
+    } },
+    "Modified Time": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Modified Time" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "修改时间" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "修改時間" } }
+    } },
+    "Directory": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Directory" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "目录" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "目錄" } }
+    } },
+    "Draft Status": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Draft Status" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "草稿状态" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "草稿狀態" } }
+    } },
     "Article actions": { "localizations": {
       "en": { "stringUnit": { "state": "translated", "value": "Article actions" } },
       "zh-Hans": { "stringUnit": { "state": "translated", "value": "文章操作" } },

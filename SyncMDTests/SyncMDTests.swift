@@ -4306,6 +4306,34 @@ private final class FakeGitRepository: GitRepositoryProtocol, @unchecked Sendabl
 }
 
 final class HugoContentServiceTests: XCTestCase {
+    func testArticleSortSupportsPublicationModifiedTitleDirectoryAndDraftState() {
+        let older = HugoArticle(
+            fileURL: URL(fileURLWithPath: "/repo/content/z/index.md"),
+            relativePath: "content/z/index.md",
+            title: "Beta",
+            date: "2026-01-01",
+            draft: false,
+            coverURL: nil,
+            modifiedAt: Date(timeIntervalSince1970: 10)
+        )
+        let newerDraft = HugoArticle(
+            fileURL: URL(fileURLWithPath: "/repo/content/a/index.md"),
+            relativePath: "content/a/index.md",
+            title: "Alpha",
+            date: "2026-02-01",
+            draft: true,
+            coverURL: nil,
+            modifiedAt: Date(timeIntervalSince1970: 20)
+        )
+        let values = [older, newerDraft]
+
+        XCTAssertEqual(values.sorted(by: HugoArticleSort.publicationDate.areInIncreasingOrder).first?.title, "Alpha")
+        XCTAssertEqual(values.sorted(by: HugoArticleSort.modified.areInIncreasingOrder).first?.title, "Alpha")
+        XCTAssertEqual(values.sorted(by: HugoArticleSort.title.areInIncreasingOrder).first?.title, "Alpha")
+        XCTAssertEqual(values.sorted(by: HugoArticleSort.directory.areInIncreasingOrder).first?.title, "Alpha")
+        XCTAssertTrue(values.sorted(by: HugoArticleSort.draftStatus.areInIncreasingOrder).first?.draft == true)
+    }
+
     func testLegacyHugoConfigurationDefaultsCustomFieldsToEmpty() throws {
         let data = try XCTUnwrap(#"{"contentMappings":[{"directory":"content/posts","archetype":"archetypes/default.md"}]}"#.data(using: .utf8))
 

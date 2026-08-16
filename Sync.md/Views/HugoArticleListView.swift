@@ -5,13 +5,14 @@ struct HugoArticleListDestination: Hashable {
     let repoID: UUID
 }
 
-private struct HugoArticle: Identifiable {
+struct HugoArticle: Identifiable {
     let fileURL: URL
     let relativePath: String
     let title: String
     let date: String
     let draft: Bool
     let coverURL: URL?
+    let modifiedAt: Date
     var id: String { fileURL.path }
 }
 
@@ -23,11 +24,34 @@ private enum HugoArticleFilter: String, CaseIterable, Identifiable {
     var title: String { String(localized: String.LocalizationValue(rawValue)) }
 }
 
-private enum HugoArticleSort: String, CaseIterable, Identifiable {
-    case newest = "Newest"
+enum HugoArticleSort: String, CaseIterable, Identifiable {
+    case publicationDate = "Publication Date"
+    case modified = "Modified Time"
     case title = "Title"
+    case directory = "Directory"
+    case draftStatus = "Draft Status"
     var id: String { rawValue }
     var label: String { String(localized: String.LocalizationValue(rawValue)) }
+
+    func areInIncreasingOrder(_ lhs: HugoArticle, _ rhs: HugoArticle) -> Bool {
+        switch self {
+        case .publicationDate:
+            let left = HugoContentService.publicationDate(from: lhs.date) ?? .distantPast
+            let right = HugoContentService.publicationDate(from: rhs.date) ?? .distantPast
+            if left != right { return left > right }
+        case .modified:
+            if lhs.modifiedAt != rhs.modifiedAt { return lhs.modifiedAt > rhs.modifiedAt }
+        case .title:
+            let comparison = lhs.title.localizedStandardCompare(rhs.title)
+            if comparison != .orderedSame { return comparison == .orderedAscending }
+        case .directory:
+            let comparison = lhs.relativePath.localizedStandardCompare(rhs.relativePath)
+            if comparison != .orderedSame { return comparison == .orderedAscending }
+        case .draftStatus:
+            if lhs.draft != rhs.draft { return lhs.draft && !rhs.draft }
+        }
+        return lhs.relativePath.localizedStandardCompare(rhs.relativePath) == .orderedAscending
+    }
 }
 
 struct HugoArticleListView: View {
@@ -36,7 +60,7 @@ struct HugoArticleListView: View {
 
     @State private var articles: [HugoArticle] = []
     @State private var filter: HugoArticleFilter = .all
-    @State private var sort: HugoArticleSort = .newest
+    @State private var sort: HugoArticleSort = .publicationDate
     @State private var query = ""
     @State private var errorMessage: String?
     @State private var showFrontMatterFields = false
@@ -49,12 +73,11 @@ struct HugoArticleListView: View {
             let matchesQuery = query.isEmpty
                 || article.title.localizedCaseInsensitiveContains(query)
                 || article.relativePath.localizedCaseInsensitiveContains(query)
+                || article.date.localizedCaseInsensitiveContains(query)
+                || (article.draft ? String(localized: "Draft") : String(localized: "Published"))
+                    .localizedCaseInsensitiveContains(query)
             return matchesFilter && matchesQuery
-        }.sorted {
-            sort == .title
-                ? $0.title.localizedStandardCompare($1.title) == .orderedAscending
-                : $0.date > $1.date
-        }
+        }.sorted(by: sort.areInIncreasingOrder)
     }
 
     var body: some View {
@@ -207,7 +230,7 @@ struct HugoArticleListView: View {
         let contentURL = root.appendingPathComponent("content", isDirectory: true)
         guard let enumerator = FileManager.default.enumerator(
             at: contentURL,
-            includingPropertiesForKeys: [.isRegularFileKey],
+            includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey],
             options: [.skipsHiddenFiles]
         ) else {
             articles = []
@@ -219,6 +242,9 @@ struct HugoArticleListView: View {
                   url.lastPathComponent == "index.md",
                   let markdown = try? String(contentsOf: url, encoding: .utf8) else { return nil }
             let matter = MarkdownFrontMatter(markdown: markdown)
+            let modifiedAt = (try? url.resourceValues(
+                forKeys: [.contentModificationDateKey]
+            ).contentModificationDate) ?? .distantPast
             let relativePath = url.path.replacingOccurrences(of: root.path + "/", with: "")
             let coverURL = matter.cover.isEmpty
                 ? nil
@@ -229,7 +255,8 @@ struct HugoArticleListView: View {
                 title: matter.title,
                 date: matter.date,
                 draft: matter.draft,
-                coverURL: coverURL
+                coverURL: coverURL,
+                modifiedAt: modifiedAt
             )
         }
     }
