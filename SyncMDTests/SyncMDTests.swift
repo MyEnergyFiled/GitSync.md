@@ -4533,6 +4533,68 @@ final class HugoContentServiceTests: XCTestCase {
         ))
     }
 
+    func testThemePreviewLoadsRepositoryStylesheetsAndImagesThroughIsolatedScheme() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let themeCSS = root.appendingPathComponent("themes/paper/assets/css/main.css")
+        let bundle = root.appendingPathComponent("content/posts/example", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+        try fileManager.createDirectory(at: themeCSS.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: bundle.appendingPathComponent("images"), withIntermediateDirectories: true)
+        try "article { color: maroon; }".write(to: themeCSS, atomically: true, encoding: .utf8)
+        try Data([0x01, 0x02]).write(to: bundle.appendingPathComponent("images/cover.png"))
+        let markdown = """
+        ---
+        title: "Theme <Preview>"
+        cover: images/cover.png
+        ---
+
+        # Hello
+
+        ![Cover](images/cover.png)
+        """
+
+        let page = HugoThemePreviewService.render(
+            markdown: markdown,
+            articleURL: bundle.appendingPathComponent("index.md"),
+            repositoryRoot: root,
+            configuration: HugoSiteConfiguration(
+                configurationFiles: ["hugo.toml"],
+                themes: ["paper"],
+                assetDirectories: ["assets"],
+                staticDirectories: ["static"],
+                resourceDirectories: ["resources"]
+            )
+        )
+
+        XCTAssertEqual(page.stylesheetPaths, ["themes/paper/assets/css/main.css"])
+        XCTAssertTrue(page.html.contains("gitsync-resource://local/themes/paper/assets/css/main.css"))
+        XCTAssertTrue(page.html.contains("gitsync-resource://local/content/posts/example/images/cover.png"))
+        XCTAssertTrue(page.html.contains("Theme &lt;Preview&gt;"))
+        XCTAssertTrue(page.html.contains("script-src 'none'"))
+        XCTAssertFalse(page.html.contains("file://"))
+    }
+
+    func testThemePreviewResourceSchemeRejectsEscapes() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? fileManager.removeItem(at: root) }
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        let css = root.appendingPathComponent("static/site.css")
+        try fileManager.createDirectory(at: css.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "body {}".write(to: css, atomically: true, encoding: .utf8)
+
+        let safeURL = try XCTUnwrap(URL(string: "gitsync-resource://local/static/site.css"))
+        let escapeURL = try XCTUnwrap(URL(string: "gitsync-resource://local/../outside.css"))
+
+        XCTAssertEqual(
+            HugoThemePreviewService.resourceFileURL(from: safeURL, repositoryRoot: root)?.path,
+            css.path
+        )
+        XCTAssertNil(HugoThemePreviewService.resourceFileURL(from: escapeURL, repositoryRoot: root))
+        XCTAssertEqual(HugoThemePreviewService.mimeType(for: css), "text/css")
+    }
+
     func testArticleSortSupportsPublicationModifiedTitleDirectoryAndDraftState() {
         let older = HugoArticle(
             fileURL: URL(fileURLWithPath: "/repo/content/z/index.md"),

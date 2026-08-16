@@ -121544,6 +121544,21 @@
       "zh-Hans": { "stringUnit": { "state": "translated", "value": "外部仓库文件夹不可用。请解锁设备后打开 GitSync.md，并重新授予文件夹访问权限。" } },
       "zh-Hant": { "stringUnit": { "state": "translated", "value": "外部儲存庫資料夾無法使用。請解鎖裝置後開啟 GitSync.md，並重新授予資料夾存取權限。" } }
     } },
+    "Preview Style": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Preview Style" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "预览样式" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "預覽樣式" } }
+    } },
+    "Native": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Native" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "原生" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "原生" } }
+    } },
+    "Theme": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Theme" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "主题" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "主題" } }
+    } },
     "Configuration Files": { "localizations": {
       "en": { "stringUnit": { "state": "translated", "value": "Configuration Files" } },
       "zh-Hans": { "stringUnit": { "state": "translated", "value": "配置文件" } },

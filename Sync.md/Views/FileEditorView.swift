@@ -61,6 +61,8 @@ struct FileEditorView: View {
     @State private var publicationDateDraft = Date()
     @State private var customFrontMatterFields: [HugoFrontMatterFieldConfiguration] = []
     @State private var persistenceMessage = String(localized: "File loaded")
+    @State private var previewStyle: HugoPreviewStyle = .native
+    @State private var siteConfiguration = HugoSiteConfiguration()
 
     private let draftStore = FileEditorDraftStore()
 
@@ -327,6 +329,9 @@ struct FileEditorView: View {
             Text(imageMessage ?? "")
         }
         .onAppear {
+            siteConfiguration = HugoSiteConfigurationService.discover(
+                in: state.vaultURL(for: repoID)
+            )
             customFrontMatterFields = HugoContentService.loadConfiguration(
                 from: state.vaultURL(for: repoID)
             ).frontMatterFields
@@ -556,6 +561,35 @@ struct FileEditorView: View {
     }
 
     private var markdownPreview: some View {
+        VStack(spacing: 0) {
+            Picker("Preview Style", selection: $previewStyle) {
+                ForEach(HugoPreviewStyle.allCases) { style in
+                    Text(style.title).tag(style)
+                }
+            }
+            .pickerStyle(.segmented)
+            .frame(maxWidth: 280)
+            .padding(8)
+            .background(Color.brutalSurface)
+
+            if previewStyle == .theme {
+                let page = HugoThemePreviewService.render(
+                    markdown: pendingContent,
+                    articleURL: liveURL,
+                    repositoryRoot: state.vaultURL(for: repoID),
+                    configuration: siteConfiguration
+                )
+                HugoThemeWebPreview(
+                    page: page,
+                    repositoryRoot: state.vaultURL(for: repoID)
+                )
+            } else {
+                nativeMarkdownPreview
+            }
+        }
+    }
+
+    private var nativeMarkdownPreview: some View {
         let snapshot = HugoArticlePreviewSnapshot(markdown: pendingContent, savedMarkdown: originalContent)
         let document = snapshot.document
         return ScrollView {
