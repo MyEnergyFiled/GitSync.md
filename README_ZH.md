@@ -160,6 +160,8 @@ xcodebuild test \
 
 同一单元测试门禁会通过 `.github/workflows/xctest.yml` 在拉取请求和推送到 `main` 时运行。
 
+候选版本的实机测试遵循 [REAL_DEVICE_REGRESSION.md](REAL_DEVICE_REGRESSION.md)。该矩阵会区分适合模拟器 XCTest 的覆盖，以及必须使用真机和一次性远程仓库验证的凭据、传输、LFS、取消与数据保护场景。
+
 ### GitHub 身份验证
 
 GitHub 登录使用原生 Device Flow 并直接与 GitHub 通信，无需 OAuth 代理或客户端密钥。

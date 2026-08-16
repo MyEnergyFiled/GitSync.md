@@ -158,6 +158,8 @@ The local git tests create isolated, UUID-named temporary repositories via `File
 
 The same unit gate runs in GitHub Actions via `.github/workflows/xctest.yml` on pull requests and pushes to `main`.
 
+Release-candidate device testing follows [REAL_DEVICE_REGRESSION.md](REAL_DEVICE_REGRESSION.md), which separates simulator-safe XCTest coverage from credential, transport, LFS, cancellation, and data-protection checks that require a physical device and disposable remotes.
+
 ### GitHub authentication
 
 GitHub sign-in uses the native Device Flow and talks directly to GitHub. No OAuth proxy or client secret is required.
