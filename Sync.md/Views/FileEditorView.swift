@@ -40,6 +40,7 @@ struct FileEditorView: View {
     @State private var editorMode: MarkdownEditorMode = .source
     @State private var frontMatter = MarkdownFrontMatter(markdown: "")
     @State private var selectedPhoto: PhotosPickerItem?
+    @State private var showPhotoPicker = false
     @State private var showImageImporter = false
     @State private var imageMessage: String?
     @State private var editorSelection = NSRange(location: 0, length: 0)
@@ -72,6 +73,9 @@ struct FileEditorView: View {
         isMarkdown && editorMode == .properties ? frontMatter.applying(to: content) : content
     }
     private var isDirty: Bool { pendingContent != originalContent }
+    private var canQuickPublish: Bool {
+        isDirty || state.hasArticleBundleChanges(repoID: repoID, fileURL: liveURL)
+    }
     private var language: SyntaxLanguage { SyntaxLanguage.detect(fileExtension: liveURL.pathExtension) }
     private var isMarkdown: Bool { ["md", "markdown"].contains(liveURL.pathExtension.lowercased()) }
 
@@ -222,7 +226,9 @@ struct FileEditorView: View {
                 HStack(spacing: 16) {
                     if isMarkdown && !isBinary {
                         Menu {
-                            PhotosPicker(selection: $selectedPhoto, matching: .images) {
+                            Button {
+                                showPhotoPicker = true
+                            } label: {
                                 Label("Choose from Photos", systemImage: "photo.on.rectangle")
                             }
                             Button {
@@ -276,6 +282,7 @@ struct FileEditorView: View {
                 onDelete: deleteImage
             )
         }
+        .photosPicker(isPresented: $showPhotoPicker, selection: $selectedPhoto, matching: .images)
         .fileImporter(isPresented: $showImageImporter, allowedContentTypes: [.image]) { result in
             guard case .success(let source) = result else { return }
             importImageFile(source)
@@ -292,7 +299,11 @@ struct FileEditorView: View {
         } message: {
             Text(imageMessage ?? "")
         }
-        .onAppear { loadContent(); loadImages() }
+        .onAppear {
+            loadContent()
+            loadImages()
+            state.detectChanges(repoID: repoID)
+        }
         .onChange(of: pendingContent) { _, newValue in
             scheduleDraftSave(newValue)
         }
@@ -407,10 +418,10 @@ struct FileEditorView: View {
                 } label: {
                     Text(String(localized: "Save, Commit & Push").uppercased())
                         .font(.system(size: 11, weight: .black, design: .monospaced))
-                        .foregroundStyle(Color.brutalAccent)
+                        .foregroundStyle(canQuickPublish ? Color.brutalAccent : Color.brutalTextFaint)
                 }
                 .buttonStyle(.plain)
-                .disabled(isQuickPublishing)
+                .disabled(isQuickPublishing || !canQuickPublish)
             }
         }
         .padding(.horizontal, 12)
@@ -570,11 +581,17 @@ struct FileEditorView: View {
 
     private func importPhoto(_ item: PhotosPickerItem) async {
         guard let data = try? await item.loadTransferable(type: Data.self) else {
-            await MainActor.run { imageMessage = String(localized: "Could not read the selected image.") }
+            await MainActor.run {
+                selectedPhoto = nil
+                imageMessage = String(localized: "Could not read the selected image.")
+            }
             return
         }
         let ext = item.supportedContentTypes.first?.preferredFilenameExtension ?? "jpg"
-        await MainActor.run { storeImage(data: data, preferredName: "image.\(ext)") }
+        await MainActor.run {
+            selectedPhoto = nil
+            storeImage(data: data, preferredName: "image.\(ext)")
+        }
     }
 
     private func importImageFile(_ source: URL) {
@@ -630,12 +647,11 @@ struct FileEditorView: View {
     }
 
     private func loadImages() {
-        let supported = Set(["jpg", "jpeg", "png", "gif", "webp", "heic", "heif", "avif"])
         images = ((try? FileManager.default.contentsOfDirectory(
             at: imageDirectory,
             includingPropertiesForKeys: nil,
             options: .skipsHiddenFiles
-        )) ?? []).filter { supported.contains($0.pathExtension.lowercased()) }
+        )) ?? []).filter(HugoContentService.isSupportedArticleImage)
             .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
     }
 

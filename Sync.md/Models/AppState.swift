@@ -1858,6 +1858,24 @@ final class AppState {
 
     /// Stages only the current Hugo leaf bundle (`index.md` and its sibling
     /// `images/` directory). Existing staged changes elsewhere are preserved.
+    func hasArticleBundleChanges(repoID: UUID, fileURL: URL) -> Bool {
+        guard let repo = repo(id: repoID), repo.isCloned,
+              let entries = statusEntriesByRepo[repoID]
+        else { return false }
+
+        let vaultDir = vaultURL(for: repoID).standardizedFileURL
+        let articleDir = fileURL.deletingLastPathComponent().standardizedFileURL
+        let vaultPath = vaultDir.path.hasSuffix("/") ? vaultDir.path : vaultDir.path + "/"
+        guard articleDir.path.hasPrefix(vaultPath) else { return false }
+
+        let bundlePath = String(articleDir.path.dropFirst(vaultPath.count))
+        let prefix = bundlePath.isEmpty ? "" : bundlePath + "/"
+        return entries.contains {
+            $0.path == bundlePath || $0.path.hasPrefix(prefix)
+                || ($0.oldPath?.hasPrefix(prefix) == true)
+        }
+    }
+
     @discardableResult
     func stageArticleBundle(repoID: UUID, fileURL: URL, operationID: String? = nil) async -> Bool {
         guard let repo = repo(id: repoID), repo.isCloned else { return false }

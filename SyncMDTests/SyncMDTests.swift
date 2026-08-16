@@ -90,6 +90,13 @@ final class SyncMDTests: XCTestCase {
         XCTAssertFalse(result.isValid)
     }
 
+    func testArticleImageFormatsIncludeBitmapFiles() {
+        for name in ["photo.jpg", "photo.HEIC", "photo.bmp", "photo.tif", "photo.tiff"] {
+            XCTAssertTrue(HugoContentService.isSupportedArticleImage(URL(fileURLWithPath: name)), name)
+        }
+        XCTAssertFalse(HugoContentService.isSupportedArticleImage(URL(fileURLWithPath: "notes.txt")))
+    }
+
     func testRepositoryDeduplicationPrefersClonedRecord() {
         let failed = RepoConfig(
             repoURL: "https://github.com/Owner/Notes.git",
@@ -985,6 +992,29 @@ final class SyncMDTests: XCTestCase {
             "content/posts/one/index.md",
             "content/posts/one/images/cover.jpg"
         ])
+    }
+
+    @MainActor
+    func testArticleBundleChangeDetectionIgnoresOtherArticles() throws {
+        let fixture = try GitFixtureFactory.make(state: .clean)
+        defer { fixture.cleanup() }
+        let appState = AppState(
+            gitRepositoryFactory: { _ in fixture.repository },
+            loadPersistedState: false
+        )
+        appState.repos = [fixture.repoConfig]
+        appState.statusEntriesByRepo[fixture.repoConfig.id] = [
+            GitStatusEntry(path: "content/posts/one/images/cover.jpg", indexStatus: .added, workTreeStatus: nil),
+            GitStatusEntry(path: "content/posts/two/index.md", indexStatus: nil, workTreeStatus: .modified)
+        ]
+        let vaultURL = appState.vaultURL(for: fixture.repoConfig.id)
+        let firstArticle = vaultURL.appendingPathComponent("content/posts/one/index.md")
+        let secondArticle = vaultURL.appendingPathComponent("content/posts/two/index.md")
+        let cleanArticle = vaultURL.appendingPathComponent("content/posts/three/index.md")
+
+        XCTAssertTrue(appState.hasArticleBundleChanges(repoID: fixture.repoConfig.id, fileURL: firstArticle))
+        XCTAssertTrue(appState.hasArticleBundleChanges(repoID: fixture.repoConfig.id, fileURL: secondArticle))
+        XCTAssertFalse(appState.hasArticleBundleChanges(repoID: fixture.repoConfig.id, fileURL: cleanArticle))
     }
 
     @MainActor

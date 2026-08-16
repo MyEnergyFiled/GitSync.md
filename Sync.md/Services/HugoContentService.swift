@@ -19,6 +19,13 @@ struct HugoArticleValidation: Equatable {
 
 enum HugoContentService {
     static let configurationFile = ".gitsync-hugo.json"
+    static let supportedArticleImageExtensions: Set<String> = [
+        "jpg", "jpeg", "png", "gif", "webp", "heic", "heif", "avif", "bmp", "tif", "tiff"
+    ]
+
+    static func isSupportedArticleImage(_ url: URL) -> Bool {
+        supportedArticleImageExtensions.contains(url.pathExtension.lowercased())
+    }
 
     static func loadConfiguration(from root: URL) -> HugoRepositoryConfiguration {
         let url = root.appendingPathComponent(configurationFile)
