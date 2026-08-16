@@ -29,8 +29,9 @@ final class SyncMDTests: XCTestCase {
         XCTAssertEqual(progress.fraction, 0.86)
     }
 
+    @MainActor
     func testAppStateRecordsCancellationRequestOnlyAtSafeStage() {
-        let state = AppState()
+        let state = AppState(loadPersistedState: false)
         state.gitLongOperationProgress = GitLongOperationProgress(kind: .clone, stage: .transferring)
 
         state.requestSyncCancellation()
@@ -108,6 +109,7 @@ final class SyncMDTests: XCTestCase {
         XCTAssertNil(reason)
     }
 
+    @MainActor
     func testValidationPreservesCloneStateWhenExternalFolderIsTemporarilyUnavailable() {
         let state = AppState(loadPersistedState: false)
         let repo = RepoConfig(
