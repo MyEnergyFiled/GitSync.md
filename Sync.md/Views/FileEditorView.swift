@@ -571,23 +571,7 @@ struct FileEditorView: View {
     }
 
     private var markdownPreview: some View {
-        VStack(spacing: 0) {
-            Picker("Preview Style", selection: $previewStyle) {
-                ForEach(HugoPreviewStyle.allCases) { style in
-                    Text(style.title).tag(style)
-                }
-            }
-            .pickerStyle(.segmented)
-            .frame(maxWidth: 280)
-            .padding(8)
-            .background(Color.brutalSurface)
-
-            if previewStyle == .theme {
-                themeWebPreview
-            } else {
-                nativeMarkdownPreview
-            }
-        }
+        nativeMarkdownPreview
     }
 
     private var themeWebPreview: some View {
