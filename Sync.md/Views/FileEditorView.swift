@@ -54,9 +54,9 @@ struct FileEditorView: View {
     @State private var showQuickPublish = false
     @State private var quickCommitMessage = ""
     @State private var isQuickPublishing = false
-    @State private var oversizedImageNames: [String] = []
-    @State private var showLargeImageConfirm = false
-    @State private var pendingPublishOperationID: String?
+    @State private var publishValidation = HugoArticleValidation()
+    @State private var showPublicationDateEditor = false
+    @State private var publicationDateDraft = Date()
     @State private var persistenceMessage = String(localized: "File loaded")
 
     private let draftStore = FileEditorDraftStore()
@@ -78,6 +78,17 @@ struct FileEditorView: View {
     }
     private var language: SyntaxLanguage { SyntaxLanguage.detect(fileExtension: liveURL.pathExtension) }
     private var isMarkdown: Bool { ["md", "markdown"].contains(liveURL.pathExtension.lowercased()) }
+    private var isArticleBundle: Bool { isMarkdown && fileName.lowercased() == "index.md" }
+    private var isArticleDraft: Bool {
+        editorMode == .properties
+            ? frontMatter.draft
+            : MarkdownFrontMatter(markdown: content).draft
+    }
+    private var articleDateValue: String {
+        editorMode == .properties
+            ? frontMatter.date
+            : MarkdownFrontMatter(markdown: content).date
+    }
 
     var body: some View {
         ZStack {
@@ -97,6 +108,9 @@ struct FileEditorView: View {
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
                         .background(Color.brutalSurface)
+                    }
+                    if isArticleBundle {
+                        articlePublicationBar
                     }
                     editorContent
                 }
@@ -143,33 +157,14 @@ struct FileEditorView: View {
             if showQuickPublish {
                 ArticleQuickPublishModal(
                     message: $quickCommitMessage,
+                    validation: publishValidation,
+                    hasUnsavedChanges: isDirty,
                     isPublishing: isQuickPublishing,
                     progress: isQuickPublishing ? state.syncProgress : persistenceMessage,
                     onPublish: { Task { await quickPublish() } },
                     onCancel: { if !isQuickPublishing { showQuickPublish = false } }
                 )
                 .zIndex(30)
-            }
-
-            if showLargeImageConfirm {
-                BConfirmModal(
-                    title: String(localized: "Large Images Found"),
-                    message: String(localized: "These images exceed 10 MB and may take longer to push:")
-                        + "\n\n" + oversizedImageNames.joined(separator: "\n"),
-                    confirmLabel: String(localized: "Push Anyway"),
-                    isDestructive: false,
-                    onConfirm: {
-                        showLargeImageConfirm = false
-                        let operationID = pendingPublishOperationID
-                        pendingPublishOperationID = nil
-                        Task { await quickPublish(skipLargeImageWarning: true, operationID: operationID) }
-                    },
-                    onCancel: {
-                        showLargeImageConfirm = false
-                        pendingPublishOperationID = nil
-                    }
-                )
-                .zIndex(40)
             }
 
             if showRenameModal {
@@ -282,6 +277,21 @@ struct FileEditorView: View {
                 onDelete: deleteImage
             )
         }
+        .sheet(isPresented: $showPublicationDateEditor) {
+            ArticlePublicationDateSheet(
+                date: $publicationDateDraft,
+                hasDate: !articleDateValue.isEmpty,
+                onSave: {
+                    updateArticlePublicationDate(publicationDateDraft)
+                    showPublicationDateEditor = false
+                },
+                onClear: {
+                    updateArticlePublicationDate(nil)
+                    showPublicationDateEditor = false
+                },
+                onCancel: { showPublicationDateEditor = false }
+            )
+        }
         .photosPicker(isPresented: $showPhotoPicker, selection: $selectedPhoto, matching: .images)
         .fileImporter(isPresented: $showImageImporter, allowedContentTypes: [.image]) { result in
             guard case .success(let source) = result else { return }
@@ -318,6 +328,69 @@ struct FileEditorView: View {
             if oldMode == .properties { content = frontMatter.applying(to: content) }
             if newMode == .properties { frontMatter = MarkdownFrontMatter(markdown: content) }
         }
+    }
+
+    private var articlePublicationBar: some View {
+        HStack(spacing: 10) {
+            Circle()
+                .fill(isArticleDraft ? Color.orange : Color.green)
+                .frame(width: 8, height: 8)
+            Text(isArticleDraft ? String(localized: "Draft") : String(localized: "Published"))
+                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                .foregroundStyle(Color.brutalText)
+            Spacer()
+            Button {
+                publicationDateDraft = HugoContentService.publicationDate(from: articleDateValue) ?? Date()
+                showPublicationDateEditor = true
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: articleDateValue.isEmpty ? "calendar.badge.plus" : "calendar")
+                    if !articleDateValue.isEmpty {
+                        Text(articleDateValue)
+                            .lineLimit(1)
+                    }
+                }
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .foregroundStyle(Color.brutalTextMid)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Date")
+            Picker("", selection: Binding(
+                get: { isArticleDraft },
+                set: updateArticleDraft
+            )) {
+                Text("Draft").tag(true)
+                Text("Published").tag(false)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(maxWidth: 220)
+            .accessibilityLabel(Text(isArticleDraft ? String(localized: "Draft") : String(localized: "Published")))
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 36)
+        .background(Color.brutalSurface)
+        .overlay(alignment: .top) { Rectangle().fill(Color.brutalBorder).frame(height: 1) }
+    }
+
+    private func updateArticleDraft(_ isDraft: Bool) {
+        if editorMode == .properties {
+            frontMatter.draft = isDraft
+        } else {
+            content = HugoContentService.updatingDraftStatus(in: content, isDraft: isDraft)
+        }
+        persistenceMessage = isDraft ? String(localized: "Draft") : String(localized: "Published")
+    }
+
+    private func updateArticlePublicationDate(_ date: Date?) {
+        if editorMode == .properties {
+            frontMatter.date = date.map {
+                HugoContentService.publicationDateValue(for: $0, preserving: frontMatter.date)
+            } ?? ""
+        } else {
+            content = HugoContentService.updatingPublicationDate(in: content, date: date)
+        }
+        persistenceMessage = String(localized: "Date")
     }
 
     @ViewBuilder
@@ -414,7 +487,7 @@ struct FileEditorView: View {
             Spacer()
             if isMarkdown && fileName.lowercased() == "index.md" && state.repo(id: repoID)?.isCloned == true {
                 Button {
-                    showQuickPublish = true
+                    prepareQuickPublish()
                 } label: {
                     Text(String(localized: "Save, Commit & Push").uppercased())
                         .font(.system(size: 11, weight: .black, design: .monospaced))
@@ -741,9 +814,17 @@ struct FileEditorView: View {
         }
     }
 
-    private func quickPublish(skipLargeImageWarning: Bool = false, operationID suppliedOperationID: String? = nil) async {
+    private func prepareQuickPublish() {
+        publishValidation = HugoContentService.validateArticleBundle(
+            markdown: pendingContent,
+            fileURL: liveURL
+        )
+        showQuickPublish = true
+    }
+
+    private func quickPublish() async {
         guard !isQuickPublishing else { return }
-        let operationID = suppliedOperationID ?? String(UUID().uuidString.prefix(8)).lowercased()
+        let operationID = String(UUID().uuidString.prefix(8)).lowercased()
         DebugLogger.shared.info(
             "publish", "Starting article publish", detail: fileName,
             repoID: repoID, repoName: logRepoName, operationID: operationID
@@ -752,24 +833,12 @@ struct FileEditorView: View {
             markdown: pendingContent,
             fileURL: liveURL
         )
+        publishValidation = validation
         guard validation.isValid else {
-            imageMessage = String(localized: "Missing image files:")
-                + "\n\n" + validation.missingImagePaths.joined(separator: "\n")
-            persistenceMessage = String(localized: "Publish blocked · missing images")
+            persistenceMessage = String(localized: "Publish blocked · check article")
             DebugLogger.shared.warning(
-                "publish", "Publish blocked by missing images",
-                detail: validation.missingImagePaths.joined(separator: ", "),
-                repoID: repoID, repoName: logRepoName, operationID: operationID
-            )
-            return
-        }
-        if !skipLargeImageWarning && !validation.oversizedImageNames.isEmpty {
-            oversizedImageNames = validation.oversizedImageNames
-            pendingPublishOperationID = operationID
-            showLargeImageConfirm = true
-            DebugLogger.shared.warning(
-                "publish", "Large images require confirmation",
-                detail: validation.oversizedImageNames.joined(separator: ", "),
+                "publish", "Publish blocked by article validation",
+                detail: "\(validation.frontMatterIssues.count) Front Matter issues, \(validation.missingImagePaths.count) missing images",
                 repoID: repoID, repoName: logRepoName, operationID: operationID
             )
             return
@@ -826,6 +895,42 @@ struct FileEditorView: View {
 
 
 
+private struct ArticlePublicationDateSheet: View {
+    @Binding var date: Date
+    let hasDate: Bool
+    let onSave: () -> Void
+    let onClear: () -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                DatePicker(
+                    "Date",
+                    selection: $date,
+                    displayedComponents: [.date, .hourAndMinute]
+                )
+                .datePickerStyle(.graphical)
+
+                if hasDate {
+                    Button("Clear Date", role: .destructive, action: onClear)
+                }
+            }
+            .navigationTitle("Date")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", action: onCancel)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save", action: onSave)
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+}
+
 private struct ArticleDraftRecoveryModal: View {
     let onRestore: () -> Void
     let onUseFile: () -> Void
@@ -862,6 +967,8 @@ private struct ArticleDraftRecoveryModal: View {
 
 private struct ArticleQuickPublishModal: View {
     @Binding var message: String
+    let validation: HugoArticleValidation
+    let hasUnsavedChanges: Bool
     let isPublishing: Bool
     let progress: String
     let onPublish: () -> Void
@@ -882,6 +989,41 @@ private struct ArticleQuickPublishModal: View {
                 .padding(20)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 BDivider()
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 10) {
+                        validationRow(
+                            title: String(localized: "Front Matter"),
+                            items: validation.frontMatterIssues.map(frontMatterIssueText),
+                            color: validation.frontMatterIssues.isEmpty ? .green : Color.brutalError,
+                            isPassed: validation.frontMatterIssues.isEmpty
+                        )
+                        validationRow(
+                            title: String(localized: "Missing image files:"),
+                            items: validation.missingImagePaths,
+                            color: validation.missingImagePaths.isEmpty ? .green : Color.brutalError,
+                            isPassed: validation.missingImagePaths.isEmpty
+                        )
+                        if !validation.oversizedImageNames.isEmpty {
+                            validationRow(
+                                title: String(localized: "These images exceed 10 MB and may take longer to push:"),
+                                items: validation.oversizedImageNames,
+                                color: .orange,
+                                isPassed: false
+                            )
+                        }
+                        if hasUnsavedChanges {
+                            validationRow(
+                                title: String(localized: "Unsaved editor changes will be saved before publishing."),
+                                items: [],
+                                color: .orange,
+                                isPassed: false
+                            )
+                        }
+                    }
+                    .padding(14)
+                }
+                .frame(maxHeight: 260)
+                BDivider()
                 TextField(String(localized: "Commit message…"), text: $message, axis: .vertical)
                     .font(.system(size: 14, design: .monospaced))
                     .lineLimit(1...3)
@@ -899,7 +1041,7 @@ private struct ArticleQuickPublishModal: View {
                 }
                 VStack(spacing: 8) {
                     BPrimaryButton(title: String(localized: "Save, Commit & Push"), action: onPublish)
-                        .disabled(isPublishing)
+                        .disabled(isPublishing || !validation.isValid)
                     BGhostButton(title: String(localized: "Cancel"), action: onCancel)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 6)
@@ -911,6 +1053,35 @@ private struct ArticleQuickPublishModal: View {
             .overlay(Rectangle().strokeBorder(Color.brutalBorder, lineWidth: 2))
             .padding(.horizontal, 28)
         }
+    }
+
+    private func frontMatterIssueText(_ issue: HugoFrontMatterIssue) -> String {
+        switch issue {
+        case .missingOrIncomplete:
+            return String(localized: "Front Matter is missing or incomplete.")
+        case .missingTitle:
+            return String(localized: "Title is missing.")
+        case .invalidDate:
+            return String(localized: "Publication date format is not recognized.")
+        }
+    }
+
+    private func validationRow(title: String, items: [String], color: Color, isPassed: Bool) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: isPassed ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                .foregroundStyle(color)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                    .foregroundStyle(Color.brutalText)
+                ForEach(items, id: \.self) { item in
+                    Text(item)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(Color.brutalTextMid)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

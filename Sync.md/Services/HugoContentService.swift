@@ -10,11 +10,18 @@ struct HugoRepositoryConfiguration: Codable {
     var contentMappings: [HugoContentMapping] = []
 }
 
-struct HugoArticleValidation: Equatable {
-    var missingImagePaths: [String]
-    var oversizedImageNames: [String]
+enum HugoFrontMatterIssue: Hashable {
+    case missingOrIncomplete
+    case missingTitle
+    case invalidDate
+}
 
-    var isValid: Bool { missingImagePaths.isEmpty }
+struct HugoArticleValidation: Equatable {
+    var frontMatterIssues: [HugoFrontMatterIssue] = []
+    var missingImagePaths: [String] = []
+    var oversizedImageNames: [String] = []
+
+    var isValid: Bool { frontMatterIssues.isEmpty && missingImagePaths.isEmpty }
 }
 
 enum HugoContentService {
@@ -109,6 +116,19 @@ enum HugoContentService {
         fileURL: URL,
         oversizedThreshold: Int64 = 10 * 1024 * 1024
     ) -> HugoArticleValidation {
+        let matter = MarkdownFrontMatter(markdown: markdown)
+        var frontMatterIssues: [HugoFrontMatterIssue] = []
+        if !matter.hasFrontMatter {
+            frontMatterIssues.append(.missingOrIncomplete)
+        } else {
+            if matter.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                frontMatterIssues.append(.missingTitle)
+            }
+            if !matter.date.isEmpty, publicationDate(from: matter.date) == nil {
+                frontMatterIssues.append(.invalidDate)
+            }
+        }
+
         let bundleURL = fileURL.deletingLastPathComponent()
         let pattern = #"images/[^\s)\]\}"']+"#
         let regex = try? NSRegularExpression(pattern: pattern)
@@ -135,7 +155,111 @@ enum HugoContentService {
             return url.lastPathComponent
         }.sorted()
 
-        return HugoArticleValidation(missingImagePaths: missing, oversizedImageNames: oversized)
+        return HugoArticleValidation(
+            frontMatterIssues: frontMatterIssues,
+            missingImagePaths: missing,
+            oversizedImageNames: oversized
+        )
+    }
+
+    static func updatingDraftStatus(in markdown: String, isDraft: Bool) -> String {
+        var matter = MarkdownFrontMatter(markdown: markdown)
+        matter.draft = isDraft
+        return matter.applying(to: markdown)
+    }
+
+    static func publicationDate(from value: String) -> Date? {
+        let value = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+        guard !value.isEmpty else { return nil }
+
+        for fractional in [true, false] {
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = fractional
+                ? [.withInternetDateTime, .withFractionalSeconds]
+                : [.withInternetDateTime]
+            if let date = formatter.date(from: value) { return date }
+        }
+
+        for pattern in [
+            "yyyy-MM-dd'T'HH:mm:ss.SSSXXXXX",
+            "yyyy-MM-dd'T'HH:mm:ss.SSSZ",
+            "yyyy-MM-dd'T'HH:mm:ssXXXXX",
+            "yyyy-MM-dd'T'HH:mm:ssZ",
+            "yyyy-MM-dd HH:mm:ss.SSSXXXXX",
+            "yyyy-MM-dd HH:mm:ss.SSSZ",
+            "yyyy-MM-dd HH:mm:ssXXXXX",
+            "yyyy-MM-dd HH:mm:ssZ",
+            "yyyy-MM-dd'T'HH:mm:ss",
+            "yyyy-MM-dd HH:mm:ss",
+            "yyyy-MM-dd"
+        ] {
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.calendar = Calendar(identifier: .gregorian)
+            formatter.timeZone = .current
+            formatter.dateFormat = pattern
+            if let date = formatter.date(from: value) { return date }
+        }
+        return nil
+    }
+
+    static func publicationDateValue(for date: Date, preserving existingValue: String? = nil) -> String {
+        let existing = existingValue?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\"'")) ?? ""
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+
+        if existing.range(of: #"^\d{4}-\d{2}-\d{2}$"#, options: .regularExpression) != nil {
+            formatter.timeZone = .current
+            formatter.dateFormat = "yyyy-MM-dd"
+            return formatter.string(from: date)
+        }
+
+        let dateTimePattern = #"^\d{4}-\d{2}-\d{2}([T ])\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$"#
+        if existing.range(of: dateTimePattern, options: .regularExpression) != nil {
+            let separator = existing.contains("T") ? "'T'" : " "
+            let fractionDigits = existing.range(of: #"(?<=\.)\d+"#, options: .regularExpression)
+                .map { existing[$0].count } ?? 0
+            let suffix = existing.range(of: #"(Z|[+-]\d{2}:?\d{2})$"#, options: .regularExpression)
+                .map { String(existing[$0]) }
+            let fraction = fractionDigits > 0 ? "." + String(repeating: "S", count: fractionDigits) : ""
+            formatter.dateFormat = "yyyy-MM-dd\(separator)HH:mm:ss\(fraction)"
+
+            if let suffix {
+                formatter.timeZone = publicationTimeZone(from: suffix) ?? .current
+                if suffix == "Z" {
+                    formatter.dateFormat += "'Z'"
+                } else {
+                    formatter.dateFormat += "'\(suffix)'"
+                }
+            } else {
+                formatter.timeZone = .current
+            }
+            return formatter.string(from: date)
+        }
+
+        formatter.timeZone = .current
+        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ssXXXXX"
+        return formatter.string(from: date)
+    }
+
+    static func updatingPublicationDate(in markdown: String, date: Date?) -> String {
+        var matter = MarkdownFrontMatter(markdown: markdown)
+        matter.date = date.map { publicationDateValue(for: $0, preserving: matter.date) } ?? ""
+        return matter.applying(to: markdown)
+    }
+
+    private static func publicationTimeZone(from suffix: String) -> TimeZone? {
+        if suffix == "Z" { return TimeZone(secondsFromGMT: 0) }
+        let compact = suffix.replacingOccurrences(of: ":", with: "")
+        guard compact.count == 5,
+              let hours = Int(compact.dropFirst().prefix(2)),
+              let minutes = Int(compact.suffix(2)) else { return nil }
+        let sign = compact.first == "-" ? -1 : 1
+        return TimeZone(secondsFromGMT: sign * ((hours * 60 + minutes) * 60))
     }
 
     static func isValidBundleName(_ value: String) -> Bool {
@@ -158,12 +282,14 @@ struct MarkdownFrontMatter {
     var cover = ""
     var body = ""
     var delimiter = "---"
+    var hasFrontMatter = false
 
     init(markdown: String) {
         body = markdown
         let lines = markdown.components(separatedBy: .newlines)
         guard let first = lines.first, first == "---" || first == "+++",
               let end = lines.dropFirst().firstIndex(of: first) else { return }
+        hasFrontMatter = true
         delimiter = first
         let header = lines[1..<end]
         body = lines.dropFirst(end + 1).joined(separator: "\n").trimmingCharacters(in: .newlines)
@@ -188,9 +314,21 @@ struct MarkdownFrontMatter {
     func applying(to original: String) -> String {
         let lines = original.components(separatedBy: .newlines)
         var extra: [String] = []
+        var originalDateValue: String?
         if let first = lines.first, first == "---" || first == "+++",
            let end = lines.dropFirst().firstIndex(of: first) {
-            extra = lines[1..<end].filter {
+            let header = lines[1..<end]
+            let separator: Character = delimiter == "+++" ? "=" : ":"
+            if let dateLine = header.first(where: { line in
+                line.split(separator: separator, maxSplits: 1).first?
+                    .trimmingCharacters(in: .whitespaces) == "date"
+            }) {
+                let parts = dateLine.split(separator: separator, maxSplits: 1).map(String.init)
+                if parts.count == 2 {
+                    originalDateValue = parts[1].trimmingCharacters(in: .whitespaces)
+                }
+            }
+            extra = header.filter {
                 let separator: Character = delimiter == "+++" ? "=" : ":"
                 let key = $0.split(separator: separator, maxSplits: 1).first?.trimmingCharacters(in: .whitespaces) ?? ""
                 return !["title", "date", "draft", "tags", "cover"].contains(key)
@@ -198,7 +336,15 @@ struct MarkdownFrontMatter {
         }
         let assignment = delimiter == "+++" ? " = " : ": "
         var header = ["title\(assignment)\"\(title)\""]
-        if !date.isEmpty { header.append("date\(assignment)\(date)") }
+        if !date.isEmpty {
+            let trimmedDate = date.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+            let quote = originalDateValue.flatMap { value -> Character? in
+                guard let first = value.first, value.last == first, (first == "\"" || first == "'") else { return nil }
+                return first
+            }
+            let formattedDate = quote.map { "\($0)\(trimmedDate)\($0)" } ?? trimmedDate
+            header.append("date\(assignment)\(formattedDate)")
+        }
         header.append("draft\(assignment)\(draft ? "true" : "false")")
         if !tags.isEmpty { header.append("tags\(assignment)[\(tags)]") }
         if !cover.isEmpty { header.append("cover\(assignment)\"\(cover)\"") }

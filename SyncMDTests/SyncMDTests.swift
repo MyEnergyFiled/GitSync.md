@@ -90,6 +90,70 @@ final class SyncMDTests: XCTestCase {
         XCTAssertFalse(result.isValid)
     }
 
+    func testHugoArticleValidationReportsMissingFrontMatter() {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathComponent("index.md")
+
+        let result = HugoContentService.validateArticleBundle(
+            markdown: "Body without Front Matter",
+            fileURL: fileURL
+        )
+
+        XCTAssertEqual(result.frontMatterIssues, [.missingOrIncomplete])
+        XCTAssertFalse(result.isValid)
+    }
+
+    func testHugoArticleValidationReportsMissingTitleAndInvalidDate() {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathComponent("index.md")
+        let markdown = "---\ntitle: \"\"\ndate: someday\ndraft: false\n---\n\nBody"
+
+        let result = HugoContentService.validateArticleBundle(
+            markdown: markdown,
+            fileURL: fileURL
+        )
+
+        XCTAssertEqual(result.frontMatterIssues, [.missingTitle, .invalidDate])
+        XCTAssertFalse(result.isValid)
+    }
+
+    func testHugoArticleValidationAcceptsValidFrontMatter() {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathComponent("index.md")
+        let markdown = "---\ntitle: \"Post\"\ndate: 2026-08-16T12:00:00+08:00\ndraft: false\n---\n\nBody"
+
+        let result = HugoContentService.validateArticleBundle(
+            markdown: markdown,
+            fileURL: fileURL
+        )
+
+        XCTAssertTrue(result.frontMatterIssues.isEmpty)
+        XCTAssertTrue(result.isValid)
+    }
+
+    func testHugoArticleValidationTreatsOversizedImageAsWarning() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundle = root.appendingPathComponent("content/posts/test", isDirectory: true)
+        let images = bundle.appendingPathComponent("images", isDirectory: true)
+        try FileManager.default.createDirectory(at: images, withIntermediateDirectories: true)
+        let fileURL = bundle.appendingPathComponent("index.md")
+        try Data([0, 1, 2, 3]).write(to: images.appendingPathComponent("large.jpg"))
+        let markdown = "---\ntitle: \"Post\"\ndraft: false\n---\n\n![image](images/large.jpg)"
+
+        let result = HugoContentService.validateArticleBundle(
+            markdown: markdown,
+            fileURL: fileURL,
+            oversizedThreshold: 3
+        )
+
+        XCTAssertEqual(result.oversizedImageNames, ["large.jpg"])
+        XCTAssertTrue(result.isValid)
+    }
+
     func testArticleImageFormatsIncludeBitmapFiles() {
         for name in ["photo.jpg", "photo.HEIC", "photo.bmp", "photo.tif", "photo.tiff"] {
             XCTAssertTrue(HugoContentService.isSupportedArticleImage(URL(fileURLWithPath: name)), name)
@@ -4203,6 +4267,62 @@ final class HugoContentServiceTests: XCTestCase {
         let output = matter.applying(to: original)
         XCTAssertTrue(output.contains("draft = false"))
         XCTAssertTrue(output.contains("layout = \"post\""))
+    }
+
+    func testUpdatingYAMLDraftStatusPreservesBodyAndUnknownFields() {
+        let original = "---\ntitle: \"Post\"\ndraft: true\nlayout: special\n---\n\nBody"
+
+        let output = HugoContentService.updatingDraftStatus(in: original, isDraft: false)
+
+        XCTAssertTrue(output.contains("draft: false"))
+        XCTAssertTrue(output.contains("layout: special"))
+        XCTAssertTrue(output.hasSuffix("Body"))
+    }
+
+    func testUpdatingTOMLDraftStatusPreservesDelimiterAndUnknownFields() {
+        let original = "+++\ntitle = \"Post\"\ndraft = false\nlayout = \"wide\"\n+++\n\nBody"
+
+        let output = HugoContentService.updatingDraftStatus(in: original, isDraft: true)
+
+        XCTAssertTrue(output.hasPrefix("+++\n"))
+        XCTAssertTrue(output.contains("draft = true"))
+        XCTAssertTrue(output.contains("layout = \"wide\""))
+        XCTAssertTrue(output.hasSuffix("Body"))
+    }
+
+    func testPublicationDateUpdatePreservesISOOffsetAndQuotedYAMLValue() throws {
+        let value = "2026-08-15T14:09:09+08:00"
+        let original = "---\ntitle: \"Post\"\ndate: '\(value)'\ndraft: false\n---\n\nBody"
+        let date = try XCTUnwrap(HugoContentService.publicationDate(from: value))
+
+        let output = HugoContentService.updatingPublicationDate(
+            in: original,
+            date: date.addingTimeInterval(24 * 60 * 60)
+        )
+
+        XCTAssertTrue(output.contains("date: '2026-08-16T14:09:09+08:00'"))
+        XCTAssertTrue(output.hasSuffix("Body"))
+    }
+
+    func testPublicationDateUpdatePreservesDateOnlyFormat() throws {
+        let date = try XCTUnwrap(HugoContentService.publicationDate(from: "2026-08-15"))
+
+        let value = HugoContentService.publicationDateValue(
+            for: date.addingTimeInterval(24 * 60 * 60),
+            preserving: "2026-08-15"
+        )
+
+        XCTAssertEqual(value, "2026-08-16")
+    }
+
+    func testClearingPublicationDatePreservesOtherFrontMatter() {
+        let original = "+++\ntitle = \"Post\"\ndate = 2026-08-15T14:09:09Z\nlayout = \"wide\"\n+++\n\nBody"
+
+        let output = HugoContentService.updatingPublicationDate(in: original, date: nil)
+
+        XCTAssertFalse(output.contains("date ="))
+        XCTAssertTrue(output.contains("layout = \"wide\""))
+        XCTAssertTrue(output.hasSuffix("Body"))
     }
 
     func testCoverFieldCanBeEditedWithoutDroppingCustomFields() {

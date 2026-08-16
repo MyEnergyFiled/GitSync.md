@@ -38,7 +38,7 @@ content/posts/my-article/
 
 Choose an archetype such as `archetypes/default.md` or `archetypes/moments.md`, select the target content directory, and enter an English directory name. The article title is stored in the generated `index.md` Front Matter and does not need to match the directory name.
 
-The article manager displays covers, titles, dates, and draft state, with search, filtering, and sorting. The editor supports Front Matter fields, Markdown formatting, syntax highlighting, undo/redo, local preview, image insertion and management, and recoverable local drafts. **Save, Commit & Push** stages only the current article bundle and validates missing image references and unusually large images before publishing.
+The article manager displays covers, titles, dates, and draft state, with search, filtering, sorting, and direct draft/published switching. The editor keeps the current publication state visible and editable in every Markdown mode, provides publication-date selection that preserves common Hugo formats and time zones, and supports Front Matter fields, Markdown formatting, syntax highlighting, undo/redo, local preview, image insertion and management, and recoverable local drafts. **Save, Commit & Push** stages only the current article bundle and presents one pre-publish summary for Front Matter, missing image references, unusually large images, and unsaved editor changes.
 
 ## How It Works
 
@@ -166,8 +166,7 @@ Tokens are stored in the iOS Keychain. Debug logs never intentionally include au
 
 The core Git workspace, Git LFS transport, authentication methods, file editor, automation entry points, and Hugo writing workflow described above are implemented. Current work is focused on:
 
-- SideStore real-device regression testing, including upgrades, draft recovery, article-scoped publishing, failure handling, diagnostics, and parallel XCTest stability
-- Clearer draft/published state and publication-date controls
+- Publish failure recovery with preserved content, drafts, and staging choices
 - Configurable Front Matter, richer article management, and a more complete in-app preview
 - More detailed progress, cancellation, retry guidance, and a broader Git transport regression matrix
 - Longer-term Hugo theme-aware previewing

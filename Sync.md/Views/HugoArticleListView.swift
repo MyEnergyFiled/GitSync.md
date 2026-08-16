@@ -38,6 +38,7 @@ struct HugoArticleListView: View {
     @State private var filter: HugoArticleFilter = .all
     @State private var sort: HugoArticleSort = .newest
     @State private var query = ""
+    @State private var errorMessage: String?
 
     private var root: URL { state.vaultURL(for: repoID) }
     private var visibleArticles: [HugoArticle] {
@@ -73,8 +74,27 @@ struct HugoArticleListView: View {
                     .listRowBackground(Color.brutalSurface)
 
                     ForEach(visibleArticles) { article in
-                        NavigationLink(value: FileEditorDestination(repoID: repoID, fileURL: article.fileURL)) {
-                            articleRow(article)
+                        HStack(spacing: 10) {
+                            NavigationLink(value: FileEditorDestination(repoID: repoID, fileURL: article.fileURL)) {
+                                articleRow(article)
+                            }
+                            Button {
+                                togglePublicationStatus(for: article)
+                            } label: {
+                                HStack(spacing: 5) {
+                                    Image(systemName: "arrow.triangle.2.circlepath")
+                                    Text(article.draft ? String(localized: "Draft") : String(localized: "Published"))
+                                }
+                                .font(.caption2.monospaced().bold())
+                                .foregroundStyle(article.draft ? Color.orange : Color.green)
+                                .padding(.horizontal, 8)
+                                .frame(height: 30)
+                                .overlay { Rectangle().stroke(Color.brutalBorder, lineWidth: 1) }
+                            }
+                            .buttonStyle(.borderless)
+                            .accessibilityLabel(Text(
+                                article.draft ? String(localized: "Draft") : String(localized: "Published")
+                            ))
                         }
                         .listRowBackground(Color.brutalBg)
                     }
@@ -104,6 +124,14 @@ struct HugoArticleListView: View {
             FileEditorView(repoID: destination.repoID, fileURL: destination.fileURL)
         }
         .onAppear(perform: loadArticles)
+        .alert("Error", isPresented: Binding(
+            get: { errorMessage != nil },
+            set: { if !$0 { errorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) { errorMessage = nil }
+        } message: {
+            Text(errorMessage ?? "")
+        }
     }
 
     private func articleRow(_ article: HugoArticle) -> some View {
@@ -173,6 +201,21 @@ struct HugoArticleListView: View {
                 draft: matter.draft,
                 coverURL: coverURL
             )
+        }
+    }
+
+    private func togglePublicationStatus(for article: HugoArticle) {
+        do {
+            let markdown = try String(contentsOf: article.fileURL, encoding: .utf8)
+            let updated = HugoContentService.updatingDraftStatus(
+                in: markdown,
+                isDraft: !article.draft
+            )
+            try updated.write(to: article.fileURL, atomically: true, encoding: .utf8)
+            loadArticles()
+            state.detectChanges(repoID: repoID)
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 }
