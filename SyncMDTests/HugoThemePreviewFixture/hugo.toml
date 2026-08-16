@@ -1,0 +1,9 @@
+baseURL = "https://example.test/"
+title = "GitSync Preview Fixture"
+defaultContentLanguage = "en"
+
+[languages.en]
+label = "English"
+
+[permalinks]
+posts = "/articles/:slug/"

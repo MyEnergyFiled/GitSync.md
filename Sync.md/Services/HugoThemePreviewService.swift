@@ -113,6 +113,7 @@ enum HugoThemePreviewService {
             contentType: options.contentType
         )
         let section = articleSection(articleURL: articleURL, repositoryRoot: repositoryRoot)
+        let matter = MarkdownFrontMatter(markdown: markdown)
         let context = HugoTemplatePreviewContext(
             title: title,
             date: document.date,
@@ -126,9 +127,11 @@ enum HugoThemePreviewService {
             permalink: previewPermalink(
                 section: options.contentType,
                 articleURL: articleURL,
+                title: title,
+                params: matter.customValues,
                 configuration: configuration
             ),
-            params: MarkdownFrontMatter(markdown: markdown).customValues
+            params: matter.customValues
         )
         let renderedLayout = layout.map {
             HugoTemplateCompatibilityService.renderTemplate($0.template, context: context)
@@ -465,11 +468,18 @@ enum HugoThemePreviewService {
     private static func previewPermalink(
         section: String,
         articleURL: URL,
+        title: String,
+        params: [String: String],
         configuration: HugoSiteConfiguration
     ) -> String {
-        let slug = articleURL.deletingLastPathComponent().lastPathComponent
+        let slug = params["slug"]?.nilIfEmpty
+            ?? HugoContentService.slugify(title)
+            .nilIfEmpty
+            ?? articleURL.deletingLastPathComponent().lastPathComponent
         let pattern = configuration.permalinks[section] ?? "/\(section)/:slug/"
-        return pattern.replacingOccurrences(of: ":slug", with: slug)
+        return pattern
+            .replacingOccurrences(of: ":slug", with: slug)
+            .replacingOccurrences(of: ":section", with: section)
     }
 
     private static func renderInline(_ value: String) -> String {
@@ -507,4 +517,8 @@ enum HugoThemePreviewService {
               values.isSymbolicLink != true else { return nil }
         return "\(relative):\(values.contentModificationDate?.timeIntervalSince1970 ?? 0):\(values.fileSize ?? 0)"
     }
+}
+
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
 }

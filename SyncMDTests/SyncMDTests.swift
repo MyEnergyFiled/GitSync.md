@@ -4781,6 +4781,44 @@ final class HugoContentServiceTests: XCTestCase {
         XCTAssertNil(HugoThemePreviewService.resourceFileURL(from: scriptURL, repositoryRoot: root))
     }
 
+    func testThemePreviewSemanticSnapshotMatchesOfficialHugoBuild() throws {
+        let fixture = try XCTUnwrap(
+            Bundle(for: HugoContentServiceTests.self).url(
+                forResource: "HugoThemePreviewFixture",
+                withExtension: nil
+            )
+        )
+        let article = fixture.appendingPathComponent("content/posts/snapshot/index.md")
+        let markdown = try String(contentsOf: article, encoding: .utf8)
+        let reference = try String(
+            contentsOf: fixture.appendingPathComponent("expected.html"),
+            encoding: .utf8
+        )
+        let configuration = HugoSiteConfigurationService.discover(in: fixture)
+        let page = HugoThemePreviewService.render(
+            markdown: markdown,
+            articleURL: article,
+            repositoryRoot: fixture,
+            configuration: configuration,
+            options: HugoThemePreviewOptions(
+                layout: "snapshot",
+                contentType: "posts",
+                language: "en",
+                device: .desktop
+            )
+        )
+
+        let comparison = HugoThemeSnapshotService.compare(
+            previewHTML: page.html,
+            referenceHugoHTML: reference
+        )
+
+        XCTAssertEqual(page.layoutPath, "layouts/posts/snapshot.html")
+        XCTAssertTrue(page.compatibilityIssues.isEmpty, page.compatibilityIssues.joined(separator: "\n"))
+        XCTAssertTrue(comparison.isMatch, comparison.mismatches.joined(separator: "\n"))
+        XCTAssertEqual(comparison.preview.bodyText, comparison.reference.bodyText)
+    }
+
     func testArticleSortSupportsPublicationModifiedTitleDirectoryAndDraftState() {
         let older = HugoArticle(
             fileURL: URL(fileURLWithPath: "/repo/content/z/index.md"),

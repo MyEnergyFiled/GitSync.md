@@ -174,6 +174,8 @@ The core Git workspace, Git LFS transport, authentication methods, file editor, 
 - Hugo site configuration discovery for themes, languages, permalinks, and repository-local resources
 - Longer-term isolated Hugo theme-aware preview rendering
 
+Theme preview scope and known differences from a full Hugo build are tracked in [HUGO_THEME_PREVIEW_COMPATIBILITY.md](HUGO_THEME_PREVIEW_COMPATIBILITY.md).
+
 The detailed, prioritized checklist remains in [TODO.md](TODO.md). Keeping the full task list there avoids duplicating fast-changing implementation details in the project overview.
 
 ## Contributing
