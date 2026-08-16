@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">HugoInk logo mark</title>
+  <desc id="desc">A coral H inside a hexagon with a Markdown document and three Git nodes.</desc>
+  <rect width="1024" height="1024" fill="#061838"/>
+  <path fill="#FF4261" fill-rule="evenodd" d="M512 60 904 286v452L512 964 120 738V286Zm0 88L196 330v364l316 182 316-182V330Z"/>
+  <path fill="#FF4261" d="M280 340h100v450H280zm364 0h100v450H644zM380 478h264v100H380z"/>
+  <path fill="#FFF1D0" d="M408 230h168l56 56v156H408Z"/>
+  <path fill="#061838" d="m576 230 56 56h-56Z"/>
+  <path fill="none" stroke="#20C4D5" stroke-width="30" stroke-linecap="square" stroke-linejoin="miter" d="M512 604v28l-88 126m88-126 88 126"/>
+  <g fill="#20C4D5">
+    <circle cx="512" cy="632" r="48"/><circle cx="424" cy="758" r="48"/><circle cx="600" cy="758" r="48"/>
+  </g>
+  <g fill="#FFF1D0">
+    <circle cx="512" cy="632" r="28"/><circle cx="424" cy="758" r="28"/><circle cx="600" cy="758" r="28"/>
+  </g>
+</svg>
