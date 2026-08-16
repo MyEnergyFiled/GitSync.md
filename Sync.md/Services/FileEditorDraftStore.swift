@@ -1,5 +1,15 @@
 import Foundation
 
+enum EditorDraftAutosaveSettings {
+    static let delaySecondsKey = "editorDraftAutosaveDelaySeconds"
+    static let defaultDelaySeconds = 2
+    static let supportedDelaySeconds = [1, 2, 3, 5]
+
+    static func normalizedDelaySeconds(_ value: Int) -> Int {
+        supportedDelaySeconds.contains(value) ? value : defaultDelaySeconds
+    }
+}
+
 struct FileEditorDraft: Codable, Equatable {
     let repoID: UUID
     let filePath: String

@@ -191,6 +191,17 @@ final class SyncMDTests: XCTestCase {
         XCTAssertFalse(HugoContentService.isValidBundleName("../post"))
     }
 
+    func testEditorDraftAutosaveDelayUsesSupportedValuesAndSafeDefault() {
+        XCTAssertEqual(EditorDraftAutosaveSettings.supportedDelaySeconds, [1, 2, 3, 5])
+        XCTAssertEqual(EditorDraftAutosaveSettings.normalizedDelaySeconds(1), 1)
+        XCTAssertEqual(EditorDraftAutosaveSettings.normalizedDelaySeconds(5), 5)
+        XCTAssertEqual(
+            EditorDraftAutosaveSettings.normalizedDelaySeconds(0),
+            EditorDraftAutosaveSettings.defaultDelaySeconds
+        )
+        XCTAssertEqual(EditorDraftAutosaveSettings.defaultDelaySeconds, 2)
+    }
+
     func testHugoArticleValidationFindsMissingAndOversizedImages() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }

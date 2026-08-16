@@ -24,6 +24,8 @@ private enum MarkdownEditorMode: String, CaseIterable, Identifiable {
 struct FileEditorView: View {
     @Environment(AppState.self) private var state
     @Environment(\.scenePhase) private var scenePhase
+    @AppStorage(EditorDraftAutosaveSettings.delaySecondsKey)
+    private var draftAutosaveDelaySeconds = EditorDraftAutosaveSettings.defaultDelaySeconds
     let repoID: UUID
     let fileURL: URL
 
@@ -975,8 +977,9 @@ struct FileEditorView: View {
         }
         persistenceMessage = String(localized: "Saving draft…")
         let targetURL = liveURL
+        let delaySeconds = EditorDraftAutosaveSettings.normalizedDelaySeconds(draftAutosaveDelaySeconds)
         draftSaveTask = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(700))
+            try? await Task.sleep(for: .seconds(delaySeconds))
             guard !Task.isCancelled else { return }
             do {
                 try draftStore.save(content: value, repoID: repoID, fileURL: targetURL)

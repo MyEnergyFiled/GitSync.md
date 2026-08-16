@@ -4,6 +4,8 @@ import UniformTypeIdentifiers
 struct AppSettingsView: View {
     @Environment(AppState.self) private var state
     @Environment(\.dismiss) private var dismiss
+    @AppStorage(EditorDraftAutosaveSettings.delaySecondsKey)
+    private var draftAutosaveDelaySeconds = EditorDraftAutosaveSettings.defaultDelaySeconds
 
     @State private var showFolderPicker = false
     @State private var showClearConfirm = false
@@ -111,6 +113,37 @@ struct AppSettingsView: View {
                                         .buttonStyle(.plain)
                                     }
                                 }
+                            }
+                        }
+
+                        // Editor
+                        settingsSection(title: String(localized: "Editor")) {
+                            VStack(spacing: 0) {
+                                HStack(spacing: 12) {
+                                    Text(String(localized: "Draft Autosave").uppercased())
+                                        .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                        .foregroundStyle(Color.brutalText)
+                                        .tracking(1)
+                                    Spacer()
+                                    Picker("Draft Autosave", selection: $draftAutosaveDelaySeconds) {
+                                        ForEach(EditorDraftAutosaveSettings.supportedDelaySeconds, id: \.self) { seconds in
+                                            Text(autosaveDelayTitle(seconds)).tag(seconds)
+                                        }
+                                    }
+                                    .labelsHidden()
+                                    .pickerStyle(.menu)
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 13)
+
+                                BDivider().padding(.horizontal, 16)
+
+                                Text("Recovery drafts are saved after you stop typing. Confirmed text is also saved when the app leaves the foreground.")
+                                    .font(.system(size: 12, design: .monospaced))
+                                    .foregroundStyle(Color.brutalText)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 13)
                             }
                         }
 
@@ -236,6 +269,15 @@ struct AppSettingsView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 13)
+    }
+
+    private func autosaveDelayTitle(_ seconds: Int) -> String {
+        switch seconds {
+        case 1: return String(localized: "1 second")
+        case 3: return String(localized: "3 seconds")
+        case 5: return String(localized: "5 seconds")
+        default: return String(localized: "2 seconds")
+        }
     }
 
     private func actionRow(icon: String, title: String, subtitle: String, action: @escaping () -> Void) -> some View {

@@ -121434,6 +121434,36 @@
       "zh-Hans": { "stringUnit": { "state": "translated", "value": "编辑器" } },
       "zh-Hant": { "stringUnit": { "state": "translated", "value": "編輯器" } }
     } },
+    "Draft Autosave": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Draft Autosave" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "草稿自动保存" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "草稿自動儲存" } }
+    } },
+    "1 second": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "1 second" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "1 秒" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "1 秒" } }
+    } },
+    "2 seconds": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "2 seconds" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "2 秒" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "2 秒" } }
+    } },
+    "3 seconds": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "3 seconds" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "3 秒" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "3 秒" } }
+    } },
+    "5 seconds": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "5 seconds" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "5 秒" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "5 秒" } }
+    } },
+    "Recovery drafts are saved after you stop typing. Confirmed text is also saved when the app leaves the foreground.": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Recovery drafts are saved after you stop typing. Confirmed text is also saved when the app leaves the foreground." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "恢复草稿会在您停止输入后保存。应用离开前台时，也会立即保存已确认的文本。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "復原草稿會在您停止輸入後儲存。App 離開前景時，也會立即儲存已確認的文字。" } }
+    } },
     "Live Preview": { "localizations": {
       "en": { "stringUnit": { "state": "translated", "value": "Live Preview" } },
       "zh-Hans": { "stringUnit": { "state": "translated", "value": "实时预览" } },
