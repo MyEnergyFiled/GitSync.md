@@ -168,13 +168,13 @@ Tokens are stored in the iOS Keychain. Debug logs never intentionally include au
 
 ## Development Status and Roadmap
 
-The core Git workspace, Git LFS transport, authentication methods, file editor, automation entry points, and Hugo writing workflow described above are implemented. P3 Git stability and automation evaluation is complete; current work is focused on:
+The core Git workspace, Git LFS transport, authentication methods, file editor, automation entry points, and Hugo writing workflow described above are implemented. P3 Git stability and automation evaluation and P4 isolated Hugo theme preview are complete; current work is focused on:
 
 - Maintaining the [real-device Git regression matrix](REAL_DEVICE_REGRESSION.md) for release candidates
-- Hugo site configuration discovery for themes, languages, permalinks, and repository-local resources
-- Longer-term isolated Hugo theme-aware preview rendering
+- Maintaining Hugo configuration, theme preview, and compatibility snapshot coverage
 
 Theme preview scope and known differences from a full Hugo build are tracked in [HUGO_THEME_PREVIEW_COMPATIBILITY.md](HUGO_THEME_PREVIEW_COMPATIBILITY.md).
+The executable size, signing, licensing, and sandbox decision is recorded in [HUGO_EXECUTABLE_EVALUATION.md](HUGO_EXECUTABLE_EVALUATION.md).
 
 The detailed, prioritized checklist remains in [TODO.md](TODO.md). Keeping the full task list there avoids duplicating fast-changing implementation details in the project overview.
 
