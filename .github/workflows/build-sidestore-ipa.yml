@@ -2,6 +2,9 @@ name: Build SideStore IPA
 
 on:
   workflow_dispatch:
+  push:
+    tags:
+      - '*.*.*'
 
 permissions:
   contents: read
@@ -19,6 +22,25 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Validate release tag
+        if: github.ref_type == 'tag'
+        run: |
+          set -euo pipefail
+          if [[ ! "$GITHUB_REF_NAME" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Release tags must use MAJOR.MINOR.PATCH, for example 2.5.1."
+            exit 1
+          fi
+
+          APP_VERSION=$(xcodebuild -showBuildSettings \
+            -project Sync.md.xcodeproj \
+            -scheme Sync.md \
+            -configuration Release \
+            | awk '/^[[:space:]]*MARKETING_VERSION = / { print $3; exit }')
+          if [ "$APP_VERSION" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match MARKETING_VERSION $APP_VERSION."
+            exit 1
+          fi
 
       - name: Show Xcode environment
         run: |
@@ -53,21 +75,30 @@ jobs:
 
           mkdir -p "$RUNNER_TEMP/package/Payload"
           ditto "$APP_PATH" "$RUNNER_TEMP/package/Payload/Sync.md.app"
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            RELEASE_LABEL="$GITHUB_REF_NAME"
+          else
+            RELEASE_LABEL="run-$GITHUB_RUN_NUMBER"
+          fi
+          IPA_NAME="HugoInk-$RELEASE_LABEL-SideStore.ipa"
+          CHECKSUM_NAME="$IPA_NAME.sha256"
           (
             cd "$RUNNER_TEMP/package"
-            zip -qry "$GITHUB_WORKSPACE/GitSync-md-SideStore.ipa" Payload
+            zip -qry "$GITHUB_WORKSPACE/$IPA_NAME" Payload
           )
 
-          shasum -a 256 GitSync-md-SideStore.ipa | tee GitSync-md-SideStore.ipa.sha256
-          echo "size=$(du -h GitSync-md-SideStore.ipa | cut -f1)" >> "$GITHUB_OUTPUT"
+          shasum -a 256 "$IPA_NAME" | tee "$CHECKSUM_NAME"
+          echo "ipa_name=$IPA_NAME" >> "$GITHUB_OUTPUT"
+          echo "checksum_name=$CHECKSUM_NAME" >> "$GITHUB_OUTPUT"
+          echo "size=$(du -h "$IPA_NAME" | cut -f1)" >> "$GITHUB_OUTPUT"
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
-          name: GitSync-md-SideStore-${{ github.run_number }}
+          name: HugoInk-SideStore-${{ github.run_number }}
           path: |
-            GitSync-md-SideStore.ipa
-            GitSync-md-SideStore.ipa.sha256
+            ${{ steps.package.outputs.ipa_name }}
+            ${{ steps.package.outputs.checksum_name }}
           if-no-files-found: error
           retention-days: 30
 
@@ -76,7 +107,72 @@ jobs:
           {
             echo '## SideStore IPA ready'
             echo ''
-            echo '- File: `GitSync-md-SideStore.ipa`'
+            echo '- File: `${{ steps.package.outputs.ipa_name }}`'
             echo '- Size: `${{ steps.package.outputs.size }}`'
             echo '- This IPA is unsigned; SideStore will sign it with your Apple ID during installation.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  release:
+    name: Publish GitHub Release
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout release notes
+        uses: actions/checkout@v4
+
+      - name: Download IPA artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: HugoInk-SideStore-${{ github.run_number }}
+          path: release-assets
+
+      - name: Locate release notes
+        id: notes
+        run: |
+          set -euo pipefail
+          NOTES_FILE=".github/release-notes/$GITHUB_REF_NAME.md"
+          if [ ! -f "$NOTES_FILE" ]; then
+            echo "::error::Release notes not found: $NOTES_FILE"
+            exit 1
+          fi
+          echo "path=$NOTES_FILE" >> "$GITHUB_OUTPUT"
+
+      - name: Publish release and assets
+        id: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NOTES_FILE: ${{ steps.notes.outputs.path }}
+        run: |
+          set -euo pipefail
+          mapfile -t ASSETS < <(find release-assets -maxdepth 1 -type f -print | sort)
+          if [ "${#ASSETS[@]}" -ne 2 ]; then
+            echo "::error::Expected the IPA and checksum, found ${#ASSETS[@]} files."
+            exit 1
+          fi
+
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "::error::Release $GITHUB_REF_NAME already exists; refusing to overwrite its assets."
+            exit 1
+          fi
+
+          gh release create "$GITHUB_REF_NAME" "${ASSETS[@]}" \
+            --verify-tag \
+            --title "HugoInk $GITHUB_REF_NAME" \
+            --notes-file "$NOTES_FILE" \
+            --latest
+
+          RELEASE_URL=$(gh release view "$GITHUB_REF_NAME" --json url --jq '.url')
+          echo "url=$RELEASE_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Release summary
+        run: |
+          {
+            echo '## GitHub Release published'
+            echo ''
+            echo '- Tag: `${{ github.ref_name }}`'
+            echo '- Release: ${{ steps.publish.outputs.url }}'
           } >> "$GITHUB_STEP_SUMMARY"
