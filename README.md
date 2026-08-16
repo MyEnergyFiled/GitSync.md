@@ -2,6 +2,7 @@
 
 **Markdown notes synced with Git** — a native iOS & iPadOS app that turns any GitHub repository into a synced markdown vault.
 
+[English](README.md) | [简体中文](README_ZH.md)
 
 
 ## What It Does
