@@ -1,15 +1,15 @@
-# GitSync.md
+# HugoInk
 
-**Markdown notes synced with Git** — a native iOS & iPadOS app that turns a Git repository into a synced markdown vault and Hugo writing workspace.
+**Write, preview, and publish Hugo content with Git** — a native iOS & iPadOS app that turns a Git repository into a synced Markdown vault and Hugo writing workspace.
 
 [English](README.md) | [简体中文](README_ZH.md)
 
 > [!NOTE]
-> This is an independently maintained fork of [CodyBontecou/GitSync.md](https://github.com/CodyBontecou/GitSync.md), maintained by [MyEnergyFiled](https://github.com/MyEnergyFiled). It extends the upstream project with advanced Git operations, Git LFS and SSH support, and a Hugo writing workflow. It is not an official upstream release.
+> HugoInk is the product name of this independently maintained fork of [CodyBontecou/GitSync.md](https://github.com/CodyBontecou/GitSync.md), maintained by [MyEnergyFiled](https://github.com/MyEnergyFiled). The repository, Xcode project, bundle identifier, URL scheme, and Keychain service retain their legacy technical names for compatibility. This is not an official upstream release.
 
 ## What It Does
 
-GitSync.md clones Git repositories directly to your iPhone or iPad using [libgit2](https://libgit2.org), giving you a real `.git` directory on the device filesystem. Edit Markdown in the app or with tools such as [Obsidian](https://obsidian.md), iA Writer, and Files, then pull and push changes to GitHub or another Git server.
+HugoInk clones Git repositories directly to your iPhone or iPad using [libgit2](https://libgit2.org), giving you a real `.git` directory on the device filesystem. Edit Markdown in the app or with tools such as [Obsidian](https://obsidian.md), iA Writer, and Files, then pull and push changes to GitHub or another Git server.
 
 **Key features:**
 
@@ -50,7 +50,7 @@ The native preview uses a readable paper-style canvas with serif headings, quota
 4. **Edit** with any markdown editor
 5. **Pull** to fetch remote changes, then selectively stage, commit, and **Push** yours
 
-Files live under `On My iPhone › GitSync.md` by default, or in a custom location you choose.
+Files live under `On My iPhone › HugoInk` by default, or in a custom location you choose. Existing installations keep the same app container and repository data after the visible-name change.
 
 ## Architecture
 
@@ -99,7 +99,7 @@ syncmd://x-callback-url/<action>?repo=<folder-name>&x-success=<url>&x-error=<url
 
 ### Shortcuts
 
-GitSync.md provides App Intents for **Pull Repository** and **Pull All Repositories**. They can be used from the Shortcuts app, including in a personal automation that runs when GitSync.md opens.
+HugoInk provides App Intents for **Pull Repository** and **Pull All Repositories**. They can be used from the Shortcuts app, including in a personal automation that runs when HugoInk opens.
 
 ## Building
 
@@ -136,7 +136,7 @@ Linux cannot run Xcode locally. This fork includes a manually triggered GitHub A
 4. Download the `GitSync-md-SideStore-*` artifact after the job succeeds.
 5. Extract it and open `GitSync-md-SideStore.ipa` with SideStore.
 
-No Apple certificate is stored in GitHub; SideStore signs the IPA during installation.
+The artifact retains the repository's legacy filename, while the installed app appears as **HugoInk**. No Apple certificate is stored in GitHub; SideStore signs the IPA during installation.
 
 ## Testing
 
@@ -168,7 +168,7 @@ Tokens are stored in the iOS Keychain. Debug logs never intentionally include au
 
 ## Development Status and Roadmap
 
-The core Git workspace, Git LFS transport, authentication methods, file editor, automation entry points, and Hugo writing workflow described above are implemented. P3 Git stability and automation evaluation and P4 isolated Hugo theme preview are complete; current work is focused on:
+The core Git workspace, Git LFS transport, authentication methods, file editor, automation entry points, and Hugo writing workflow described above are implemented. P3 Git stability and automation evaluation and P4 isolated Hugo theme preview are complete. The user-facing app brand is now HugoInk while compatibility-sensitive identifiers retain their legacy values. Current work is focused on:
 
 - Maintaining the [real-device Git regression matrix](REAL_DEVICE_REGRESSION.md) for release candidates
 - Maintaining Hugo configuration, theme preview, and compatibility snapshot coverage

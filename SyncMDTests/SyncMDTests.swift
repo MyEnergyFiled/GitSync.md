@@ -157,6 +157,16 @@ final class SyncMDTests: XCTestCase {
         XCTAssertTrue(output.contains("<redacted"))
     }
 
+    @MainActor
+    func testFeedbackUsesHugoInkBrand() throws {
+        let url = try XCTUnwrap(FeedbackHelper.mailtoURL())
+        let components = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
+        let subject = components.queryItems?.first(where: { $0.name == "subject" })?.value
+
+        XCTAssertEqual(subject, "HugoInk Feedback")
+        XCTAssertTrue(FeedbackHelper.diagnosticsBlock.contains("App: HugoInk "))
+    }
+
 
     func testDraftStoreRoundTripsAndRemovesEditorText() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

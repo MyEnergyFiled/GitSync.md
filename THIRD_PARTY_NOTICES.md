@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-GitSync.md includes or links against third-party open-source software. Each
+HugoInk includes or links against third-party open-source software. Each
 component remains subject to its own license; the project's MIT License does
 not replace those terms.
 

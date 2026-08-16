@@ -2,7 +2,7 @@
 
 ## Decision
 
-Do not embed or execute the Hugo command-line binary in the current iOS/iPadOS app. GitSync.md will keep the isolated native theme approximation as its on-device preview engine. “Exact preview” remains a future, opt-in capability only if it can meet every gate below without weakening the iOS security model.
+Do not embed or execute the Hugo command-line binary in the current iOS/iPadOS app. HugoInk will keep the isolated native theme approximation as its on-device preview engine. “Exact preview” remains a future, opt-in capability only if it can meet every gate below without weakening the iOS security model.
 
 ## Evidence
 

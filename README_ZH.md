@@ -1,15 +1,15 @@
-# GitSync.md
+# HugoInk
 
-**通过 Git 同步 Markdown 笔记**——一款原生 iOS 与 iPadOS 应用，可将 Git 仓库变成同步的 Markdown 知识库与 Hugo 写作空间。
+**使用 Git 写作、预览并发布 Hugo 内容**——一款原生 iOS 与 iPadOS 应用，可将 Git 仓库变成同步的 Markdown 知识库与 Hugo 写作空间。
 
 [English](README.md) | [简体中文](README_ZH.md)
 
 > [!NOTE]
-> 这是 [CodyBontecou/GitSync.md](https://github.com/CodyBontecou/GitSync.md) 的独立维护分支，由 [MyEnergyFiled](https://github.com/MyEnergyFiled) 维护，并在上游项目基础上增加了高级 Git 操作、Git LFS 与 SSH 支持以及 Hugo 写作工作流。本项目不是上游官方发行版。
+> HugoInk 是 [CodyBontecou/GitSync.md](https://github.com/CodyBontecou/GitSync.md) 独立维护分支的产品名称，由 [MyEnergyFiled](https://github.com/MyEnergyFiled) 维护。为保证兼容性，仓库名、Xcode 工程名、Bundle ID、URL Scheme 与钥匙串服务名继续保留原有技术标识。本项目不是上游官方发行版。
 
 ## 功能简介
 
-GitSync.md 使用 [libgit2](https://libgit2.org) 将 Git 仓库直接克隆到 iPhone 或 iPad，并在设备文件系统中保留真正的 `.git` 目录。你可以在应用内编辑 Markdown，也可以使用 [Obsidian](https://obsidian.md)、iA Writer 或系统“文件”应用，再从 GitHub 或其他 Git 服务器拉取更新并推送更改。
+HugoInk 使用 [libgit2](https://libgit2.org) 将 Git 仓库直接克隆到 iPhone 或 iPad，并在设备文件系统中保留真正的 `.git` 目录。你可以在应用内编辑 Markdown，也可以使用 [Obsidian](https://obsidian.md)、iA Writer 或系统“文件”应用，再从 GitHub 或其他 Git 服务器拉取更新并推送更改。
 
 **主要功能：**
 
@@ -50,7 +50,7 @@ content/posts/my-article/
 4. 使用任意 Markdown 编辑器进行编辑。
 5. 通过**拉取**获取远程更改，再选择性暂存、提交并**推送**本地更改。
 
-默认情况下，文件位于“我的 iPhone › GitSync.md”中，也可以存放到你选择的自定义位置。
+默认情况下，文件位于“我的 iPhone › HugoInk”中，也可以存放到你选择的自定义位置。显示名称改变后，覆盖安装仍会使用原有 App 容器和仓库数据。
 
 ## 架构
 
@@ -99,7 +99,7 @@ syncmd://x-callback-url/<action>?repo=<folder-name>&x-success=<url>&x-error=<url
 
 ### 快捷指令
 
-GitSync.md 提供**拉取仓库**和**拉取所有仓库**两个 App Intent，可在“快捷指令”应用中使用，也可以加入“打开 GitSync.md 时运行”的个人自动化。
+HugoInk 提供**拉取仓库**和**拉取所有仓库**两个 App Intent，可在“快捷指令”应用中使用，也可以加入“打开 HugoInk 时运行”的个人自动化。
 
 ## 构建
 
@@ -138,7 +138,7 @@ Linux 无法在本地运行 Xcode。此分支提供一个手动触发的 GitHub 
 4. 任务成功后下载 `GitSync-md-SideStore-*` 构建产物。
 5. 解压后使用 SideStore 打开 `GitSync-md-SideStore.ipa`。
 
-GitHub 中不保存 Apple 证书；SideStore 会在安装时对 IPA 签名。
+构建产物继续使用仓库原有文件名，安装后显示的应用名称为 **HugoInk**。GitHub 中不保存 Apple 证书；SideStore 会在安装时对 IPA 签名。
 
 ## 测试
 
@@ -170,10 +170,10 @@ GitHub 登录使用原生 Device Flow 并直接与 GitHub 通信，无需 OAuth 
 
 ## 开发状态与路线图
 
-上述 Git 工作区、Git LFS 传输、身份验证方式、文件编辑器、自动化入口与 Hugo 写作流程均已实现。P3 Git 稳定性与自动化评估已经完成；当前工作重点包括：
+上述 Git 工作区、Git LFS 传输、身份验证方式、文件编辑器、自动化入口与 Hugo 写作流程均已实现。P3 Git 稳定性与自动化评估、P4 隔离 Hugo 主题预览均已完成。应用的用户可见品牌现为 HugoInk，兼容性敏感的内部标识继续保留原值。当前工作重点包括：
 
 - 通过[实机 Git 回归矩阵](REAL_DEVICE_REGRESSION.md)持续验收发布候选版本
-- 后期实现感知 Hugo 主题的预览
+- 维护 Hugo 配置、主题预览和兼容性快照覆盖
 
 详细且按优先级排列的清单继续保存在 [TODO.md](TODO.md) 中。这样可以避免在项目概览中重复容易快速变化的实现细节。
 

@@ -9,7 +9,7 @@ Create one record per run without including credentials, repository contents, pr
 | Field | Value |
 |---|---|
 | Date and tester | |
-| GitSync.md version and commit | |
+| HugoInk version and commit | |
 | IPA workflow run | |
 | Device and iOS/iPadOS version | |
 | Network type | Wi-Fi / cellular / VPN |

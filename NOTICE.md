@@ -1,6 +1,6 @@
 # Attribution Notice
 
-GitSync.md is an independently maintained fork of:
+HugoInk is the product name of an independently maintained fork of:
 
 - Project: GitSync.md
 - Original author: Cody Bontecou

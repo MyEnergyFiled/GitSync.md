@@ -2,6 +2,14 @@
 
 本路线图按优先级排列。数据安全和实机验收优先于新增功能；完成项目需同时更新 README、中文本地化和回归测试。
 
+## 待验收：HugoInk 品牌迁移
+
+- [x] 使用几何六边形、H、Markdown 文档和 Git 节点制作正式 App Icon，并保留旧图标与可重复渲染源文件。
+- [x] 将桌面名称、应用内提示、快捷指令、反馈信息及本地化更新为 HugoInk。
+- [x] 保留 Bundle ID、URL Scheme、Keychain 服务名、Xcode Scheme 和仓库名，避免覆盖安装丢失凭据或数据。
+- [x] 更新英文与简体中文 README，并增加用户可见品牌回归测试。
+- [ ] 通过 XCTest 后构建 SideStore IPA，覆盖安装验证 HugoInk 名称、图标、快捷指令、登录凭据和现有仓库。
+
 ## 已完成：构建与测试基础
 
 - [x] 优化 XCTest 工作流耗时：缓存 Swift Package 和构建产物，将依赖解析、测试编译与执行拆分，并上传 `.xcresult`。

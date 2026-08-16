@@ -1,6 +1,6 @@
 # Hugo Theme Preview Compatibility
 
-GitSync.md theme preview is a safe approximation for writing and layout checks. It is not a complete Hugo runtime.
+HugoInk theme preview is a safe approximation for writing and layout checks. It is not a complete Hugo runtime.
 
 ## Supported
 
@@ -13,7 +13,7 @@ GitSync.md theme preview is a safe approximation for writing and layout checks. 
 
 ## Approximated
 
-- Markdown uses GitSync.md's native block renderer, so generated IDs and some Goldmark extensions may differ
+- Markdown uses HugoInk's native block renderer, so generated IDs and some Goldmark extensions may differ
 - `figure` output preserves the image, caption, and meaning but not every Hugo attribute or wrapper
 - Date formatting, summary, reading time, and permalink expansion cover common cases rather than Hugo's full rules
 - YouTube and Vimeo embeds remain visible placeholders because external frames are blocked
