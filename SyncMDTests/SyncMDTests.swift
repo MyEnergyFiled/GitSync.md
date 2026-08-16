@@ -4329,6 +4329,19 @@ final class HugoContentServiceTests: XCTestCase {
         XCTAssertEqual(document.body, "Preview body.")
     }
 
+    func testArticlePreviewSnapshotUsesCurrentContentAndMarksUnsavedChanges() {
+        let saved = "---\ntitle: \"Saved\"\n---\n\nOld body"
+        let current = "---\ntitle: \"Current\"\n---\n\nLive body"
+
+        let dirty = HugoArticlePreviewSnapshot(markdown: current, savedMarkdown: saved)
+        let clean = HugoArticlePreviewSnapshot(markdown: saved, savedMarkdown: saved)
+
+        XCTAssertEqual(dirty.document.title, "Current")
+        XCTAssertEqual(dirty.document.body, "Live body")
+        XCTAssertTrue(dirty.hasUnsavedChanges)
+        XCTAssertFalse(clean.hasUnsavedChanges)
+    }
+
     func testPreviewParserRecognizesImagesCodeTablesAndShortcodes() {
         let markdown = """
         Intro with [link](../about.md).

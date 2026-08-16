@@ -430,18 +430,16 @@ struct FileEditorView: View {
             GeometryReader { geometry in
                 if geometry.size.width >= 760 {
                     HStack(spacing: 0) {
-                        CodeEditorView(text: $content, selection: $editorSelection, language: language)
-                            .padding(.horizontal, 8)
+                        splitEditorPane
                             .frame(width: geometry.size.width / 2)
                         Rectangle().fill(Color.brutalBorder).frame(width: 1)
-                        markdownPreview
+                        splitPreviewPane
                     }
                 } else {
                     VStack(spacing: 0) {
-                        CodeEditorView(text: $content, selection: $editorSelection, language: language)
-                            .padding(.horizontal, 8)
+                        splitEditorPane
                         Rectangle().fill(Color.brutalBorder).frame(height: 1)
-                        markdownPreview
+                        splitPreviewPane
                     }
                 }
             }
@@ -483,6 +481,31 @@ struct FileEditorView: View {
             .scrollContentBackground(.hidden)
             .background(Color.brutalBg)
         }
+    }
+
+    private var splitEditorPane: some View {
+        VStack(spacing: 0) {
+            splitPanelHeader("Editor", systemImage: "pencil")
+            CodeEditorView(text: $content, selection: $editorSelection, language: language)
+                .padding(.horizontal, 8)
+        }
+    }
+
+    private var splitPreviewPane: some View {
+        VStack(spacing: 0) {
+            splitPanelHeader("Live Preview", systemImage: isDirty ? "doc.badge.clock" : "eye")
+            markdownPreview
+        }
+    }
+
+    private func splitPanelHeader(_ title: LocalizedStringKey, systemImage: String) -> some View {
+        Label(title, systemImage: systemImage)
+            .font(.caption.monospaced().bold())
+            .foregroundStyle(Color.brutalTextMid)
+            .padding(.horizontal, 10)
+            .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
+            .background(Color.brutalSurface)
+            .overlay(alignment: .bottom) { Rectangle().fill(Color.brutalBorder).frame(height: 1) }
     }
 
     @ViewBuilder
@@ -533,9 +556,18 @@ struct FileEditorView: View {
     }
 
     private var markdownPreview: some View {
-        let document = HugoArticlePreviewDocument(markdown: content)
+        let snapshot = HugoArticlePreviewSnapshot(markdown: pendingContent, savedMarkdown: originalContent)
+        let document = snapshot.document
         return ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                if snapshot.hasUnsavedChanges {
+                    Label("Previewing unsaved changes", systemImage: "doc.badge.clock")
+                        .font(.caption.monospaced().bold())
+                        .foregroundStyle(Color.orange)
+                        .padding(.horizontal, 10)
+                        .frame(minHeight: 30)
+                        .overlay { Rectangle().stroke(Color.orange, lineWidth: 1) }
+                }
                 Text(document.title.isEmpty
                      ? liveURL.deletingPathExtension().lastPathComponent
                      : document.title)

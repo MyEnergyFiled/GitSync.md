@@ -672,6 +672,16 @@ struct HugoArticlePreviewDocument: Equatable {
     }
 }
 
+struct HugoArticlePreviewSnapshot: Equatable {
+    let document: HugoArticlePreviewDocument
+    let hasUnsavedChanges: Bool
+
+    init(markdown: String, savedMarkdown: String) {
+        document = HugoArticlePreviewDocument(markdown: markdown)
+        hasUnsavedChanges = markdown != savedMarkdown
+    }
+}
+
 enum HugoPreviewBlock: Equatable {
     case markdown(String)
     case image(alt: String, path: String)

@@ -121284,6 +121284,21 @@
         }
       }
     },
+    "Editor": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Editor" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "编辑器" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "編輯器" } }
+    } },
+    "Live Preview": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Live Preview" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "实时预览" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "即時預覽" } }
+    } },
+    "Previewing unsaved changes": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Previewing unsaved changes" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "正在预览尚未保存的更改" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "正在預覽尚未儲存的變更" } }
+    } },
     "Hugo shortcode": { "localizations": {
       "en": { "stringUnit": { "state": "translated", "value": "Hugo shortcode" } },
       "zh-Hans": { "stringUnit": { "state": "translated", "value": "Hugo 短代码" } },
