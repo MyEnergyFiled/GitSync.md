@@ -1878,8 +1878,8 @@ final class AppState {
         }
     }
 
-    /// Stages only the current Hugo leaf bundle (`index.md` and its sibling
-    /// `images/` directory). Existing staged changes elsewhere are preserved.
+    /// Selects changes inside the current Hugo leaf bundle (`index.md` and its
+    /// sibling `images/` directory). Existing staged changes elsewhere are preserved.
     static func articleBundleEntries(
         in entries: [GitStatusEntry],
         bundlePath: String
@@ -1926,11 +1926,17 @@ final class AppState {
         do {
             let info = try await gitService.repoInfo()
             let bundleEntries = Self.articleBundleEntries(in: info.statusEntries, bundlePath: bundlePath)
-            let unstagedEntries = bundleEntries.filter { $0.workTreeStatus != nil }
+            guard !bundleEntries.isEmpty else { return false }
+            let repositoryConfigurationEntries = info.statusEntries.filter {
+                $0.path == HugoContentService.configurationFile && $0.workTreeStatus != nil
+            }
+            let unstagedEntries = (bundleEntries + repositoryConfigurationEntries).filter {
+                $0.workTreeStatus != nil
+            }
             DebugLogger.shared.info(
                 "publish",
                 "Staging article bundle",
-                detail: "\(bundlePath): \(unstagedEntries.count) unstaged, \(bundleEntries.count) changed",
+                detail: "\(bundlePath): \(unstagedEntries.count) unstaged, \(bundleEntries.count) article changes",
                 repoID: repoID,
                 repoName: repo.displayName,
                 operationID: operationID
@@ -1938,7 +1944,6 @@ final class AppState {
             for entry in unstagedEntries {
                 try await gitService.stage(path: entry.path, oldPath: entry.oldPath, lfsAutoTrack: false)
             }
-            guard !bundleEntries.isEmpty else { return false }
 
             markRepositoryMutated(repoID: repoID)
             for entry in unstagedEntries {

@@ -1392,7 +1392,7 @@ private struct ArticleQuickPublishModal: View {
                     Text(String(localized: "Save, Commit & Push").uppercased())
                         .font(.system(size: 15, weight: .black, design: .monospaced))
                         .tracking(2)
-                    Text(String(localized: "This saves and stages the current article bundle. Any files already staged in Git will also be included."))
+                    Text(String(localized: "This saves and stages the current article bundle and HugoInk repository configuration. Any files already staged in Git will also be included."))
                         .font(.system(size: 13, design: .monospaced))
                         .foregroundStyle(Color.brutalTextMid)
                 }

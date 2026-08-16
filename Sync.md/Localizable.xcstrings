@@ -121032,18 +121032,18 @@
         }
       }
     },
-    "This saves and stages the current article bundle. Any files already staged in Git will also be included.": {
+    "This saves and stages the current article bundle and HugoInk repository configuration. Any files already staged in Git will also be included.": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "这会保存并暂存当前文章目录。Git 中原本已经暂存的文件也会包含在本次提交中。"
+            "value": "这会保存并暂存当前文章目录和 HugoInk 仓库配置。Git 中原本已经暂存的文件也会包含在本次提交中。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "這會儲存並暫存目前文章目錄。Git 中原本已暫存的檔案也會包含在這次提交中。"
+            "value": "這會儲存並暫存目前文章目錄和 HugoInk 儲存庫設定。Git 中原本已暫存的檔案也會包含在這次提交中。"
           }
         }
       }
