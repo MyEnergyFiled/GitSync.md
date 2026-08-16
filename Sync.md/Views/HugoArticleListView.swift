@@ -40,6 +40,7 @@ struct HugoArticleListView: View {
     @State private var query = ""
     @State private var errorMessage: String?
     @State private var showFrontMatterFields = false
+    @State private var articleToMove: HugoArticle?
 
     private var root: URL { state.vaultURL(for: repoID) }
     private var visibleArticles: [HugoArticle] {
@@ -96,6 +97,17 @@ struct HugoArticleListView: View {
                             .accessibilityLabel(Text(
                                 article.draft ? String(localized: "Draft") : String(localized: "Published")
                             ))
+                            Menu {
+                                Button {
+                                    articleToMove = article
+                                } label: {
+                                    Label("Move or Rename", systemImage: "folder.badge.gearshape")
+                                }
+                            } label: {
+                                Image(systemName: "ellipsis")
+                                    .frame(width: 30, height: 30)
+                            }
+                            .accessibilityLabel(Text("Article actions"))
                         }
                         .listRowBackground(Color.brutalBg)
                     }
@@ -133,6 +145,12 @@ struct HugoArticleListView: View {
         .onAppear(perform: loadArticles)
         .sheet(isPresented: $showFrontMatterFields) {
             HugoFrontMatterFieldsView(root: root) {
+                state.detectChanges(repoID: repoID)
+            }
+        }
+        .sheet(item: $articleToMove) { article in
+            HugoArticleMoveView(root: root, article: article) { _ in
+                loadArticles()
                 state.detectChanges(repoID: repoID)
             }
         }
@@ -226,6 +244,131 @@ struct HugoArticleListView: View {
             try updated.write(to: article.fileURL, atomically: true, encoding: .utf8)
             loadArticles()
             state.detectChanges(repoID: repoID)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+}
+
+private struct HugoArticleMoveView: View {
+    @Environment(\.dismiss) private var dismiss
+    let root: URL
+    let article: HugoArticle
+    let onMove: (HugoArticleMoveResult) -> Void
+
+    @State private var targetDirectory: String
+    @State private var bundleName: String
+    @State private var errorMessage: String?
+
+    init(root: URL, article: HugoArticle, onMove: @escaping (HugoArticleMoveResult) -> Void) {
+        self.root = root
+        self.article = article
+        self.onMove = onMove
+        let bundleURL = article.fileURL.deletingLastPathComponent()
+        let parentPath = bundleURL.deletingLastPathComponent().path
+            .replacingOccurrences(of: root.path + "/", with: "")
+        _targetDirectory = State(initialValue: parentPath)
+        _bundleName = State(initialValue: bundleURL.lastPathComponent)
+    }
+
+    private var availableDirectories: [String] {
+        let configured = HugoContentService.loadConfiguration(from: root).contentMappings.map(\.directory)
+        let current = article.fileURL.deletingLastPathComponent().deletingLastPathComponent().path
+            .replacingOccurrences(of: root.path + "/", with: "")
+        return Array(Set(HugoContentService.contentDirectories(in: root) + configured + [current]))
+            .filter { path in
+                var isDirectory: ObjCBool = false
+                return FileManager.default.fileExists(
+                    atPath: root.appendingPathComponent(path).path,
+                    isDirectory: &isDirectory
+                ) && isDirectory.boolValue
+            }
+            .sorted()
+    }
+
+    private var destinationBundleURL: URL {
+        root.appendingPathComponent(targetDirectory, isDirectory: true)
+            .appendingPathComponent(bundleName, isDirectory: true)
+            .standardizedFileURL
+    }
+
+    private var sourceBundleURL: URL {
+        article.fileURL.deletingLastPathComponent().standardizedFileURL
+    }
+
+    private var canMove: Bool {
+        HugoContentService.isValidBundleName(bundleName)
+            && !targetDirectory.isEmpty
+            && destinationBundleURL != sourceBundleURL
+            && !FileManager.default.fileExists(atPath: destinationBundleURL.path)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Picker("Content Directory", selection: $targetDirectory) {
+                        ForEach(availableDirectories, id: \.self) { directory in
+                            Text(directory).tag(directory)
+                        }
+                    }
+                    TextField("Article Directory Name", text: $bundleName)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                } header: {
+                    Text("Destination")
+                } footer: {
+                    Text("Use lowercase letters, numbers, and hyphens. Relative image paths outside the article bundle will be updated automatically.")
+                }
+
+                Section("New Path") {
+                    Text(destinationBundleURL.path.replacingOccurrences(of: root.path + "/", with: ""))
+                        .font(.caption.monospaced())
+                        .textSelection(.enabled)
+                }
+
+                if destinationBundleURL == sourceBundleURL {
+                    Section {
+                        Label("Choose a different directory or name.", systemImage: "exclamationmark.circle")
+                            .foregroundStyle(Color.brutalTextFaint)
+                    }
+                } else if FileManager.default.fileExists(atPath: destinationBundleURL.path) {
+                    Section {
+                        Label("An article directory with this name already exists.", systemImage: "exclamationmark.circle")
+                            .foregroundStyle(Color.brutalError)
+                    }
+                }
+
+                if let errorMessage {
+                    Section {
+                        Text(errorMessage).foregroundStyle(Color.brutalError)
+                    }
+                }
+            }
+            .navigationTitle("Move or Rename")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Move", action: moveArticle)
+                        .disabled(!canMove)
+                }
+            }
+        }
+    }
+
+    private func moveArticle() {
+        do {
+            let result = try HugoContentService.moveArticleBundle(
+                indexFileURL: article.fileURL,
+                toContentDirectory: root.appendingPathComponent(targetDirectory, isDirectory: true),
+                bundleName: bundleName,
+                repositoryRoot: root
+            )
+            onMove(result)
+            dismiss()
         } catch {
             errorMessage = error.localizedDescription
         }

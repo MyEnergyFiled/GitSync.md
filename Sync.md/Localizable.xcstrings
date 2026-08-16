@@ -121284,6 +121284,61 @@
         }
       }
     },
+    "Article actions": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Article actions" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "文章操作" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "文章操作" } }
+    } },
+    "Move or Rename": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Move or Rename" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "移动或重命名" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "移動或重新命名" } }
+    } },
+    "The selected article is not a valid Hugo leaf bundle.": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "The selected article is not a valid Hugo leaf bundle." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "所选文章不是有效的 Hugo 叶子包。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "所選文章不是有效的 Hugo 葉子包。" } }
+    } },
+    "Choose a valid content directory and article directory name.": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Choose a valid content directory and article directory name." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "请选择有效的内容目录和文章目录名称。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "請選擇有效的內容目錄和文章目錄名稱。" } }
+    } },
+    "An article directory with this name already exists.": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "An article directory with this name already exists." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "已存在同名文章目录。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "已存在同名文章目錄。" } }
+    } },
+    "Article Directory Name": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Article Directory Name" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "文章目录名称" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "文章目錄名稱" } }
+    } },
+    "Destination": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Destination" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "目标位置" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "目標位置" } }
+    } },
+    "Use lowercase letters, numbers, and hyphens. Relative image paths outside the article bundle will be updated automatically.": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Use lowercase letters, numbers, and hyphens. Relative image paths outside the article bundle will be updated automatically." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "请使用小写字母、数字和连字符。文章包之外的相对图片路径会自动更新。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "請使用小寫字母、數字和連字號。文章包之外的相對圖片路徑會自動更新。" } }
+    } },
+    "New Path": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "New Path" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "新路径" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "新路徑" } }
+    } },
+    "Choose a different directory or name.": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Choose a different directory or name." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "请选择不同的目录或名称。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "請選擇不同的目錄或名稱。" } }
+    } },
+    "Move": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Move" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "移动" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "移動" } }
+    } },
     "Search logs, repositories, or operation IDs": {
       "localizations": {
         "en": {

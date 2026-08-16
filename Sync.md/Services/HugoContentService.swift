@@ -90,6 +90,28 @@ struct HugoArticleValidation: Equatable {
     var isValid: Bool { frontMatterIssues.isEmpty && missingImagePaths.isEmpty }
 }
 
+struct HugoArticleMoveResult: Equatable {
+    let destinationFileURL: URL
+    let updatedImageReferenceCount: Int
+}
+
+enum HugoArticleMoveError: LocalizedError {
+    case invalidSource
+    case invalidDestination
+    case destinationExists
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidSource:
+            return String(localized: "The selected article is not a valid Hugo leaf bundle.")
+        case .invalidDestination:
+            return String(localized: "Choose a valid content directory and article directory name.")
+        case .destinationExists:
+            return String(localized: "An article directory with this name already exists.")
+        }
+    }
+}
+
 enum HugoContentService {
     static let configurationFile = ".gitsync-hugo.json"
     static let supportedArticleImageExtensions: Set<String> = [
@@ -108,6 +130,152 @@ enum HugoContentService {
 
     static func isValidFrontMatterNumber(_ value: String) -> Bool {
         value.range(of: #"^-?(?:\d+(?:\.\d+)?|\.\d+)$"#, options: .regularExpression) != nil
+    }
+
+    static func moveArticleBundle(
+        indexFileURL: URL,
+        toContentDirectory destinationParentURL: URL,
+        bundleName: String,
+        repositoryRoot: URL
+    ) throws -> HugoArticleMoveResult {
+        let fileManager = FileManager.default
+        let root = repositoryRoot.standardizedFileURL
+        let contentRoot = root.appendingPathComponent("content", isDirectory: true).standardizedFileURL
+        let sourceFileURL = indexFileURL.standardizedFileURL
+        let sourceBundleURL = sourceFileURL.deletingLastPathComponent().standardizedFileURL
+        let destinationParentURL = destinationParentURL.standardizedFileURL
+        let destinationBundleURL = destinationParentURL
+            .appendingPathComponent(bundleName, isDirectory: true)
+            .standardizedFileURL
+        let destinationFileURL = destinationBundleURL.appendingPathComponent("index.md")
+
+        guard sourceFileURL.lastPathComponent == "index.md",
+              isURL(sourceBundleURL, containedIn: contentRoot),
+              fileManager.fileExists(atPath: sourceFileURL.path) else {
+            throw HugoArticleMoveError.invalidSource
+        }
+        var destinationParentIsDirectory: ObjCBool = false
+        guard isValidBundleName(bundleName),
+              isURL(destinationParentURL, containedIn: contentRoot),
+              !isURL(destinationParentURL, containedIn: sourceBundleURL),
+              destinationBundleURL != sourceBundleURL,
+              fileManager.fileExists(
+                  atPath: destinationParentURL.path,
+                  isDirectory: &destinationParentIsDirectory
+              ), destinationParentIsDirectory.boolValue else {
+            throw HugoArticleMoveError.invalidDestination
+        }
+        guard !fileManager.fileExists(atPath: destinationBundleURL.path) else {
+            throw HugoArticleMoveError.destinationExists
+        }
+
+        let markdown = try String(contentsOf: sourceFileURL, encoding: .utf8)
+        let rewritten = updatingRelativeImageReferences(
+            in: markdown,
+            sourceBundleURL: sourceBundleURL,
+            destinationBundleURL: destinationBundleURL,
+            repositoryRoot: root
+        )
+
+        try fileManager.moveItem(at: sourceBundleURL, to: destinationBundleURL)
+        do {
+            if rewritten.markdown != markdown {
+                try rewritten.markdown.write(to: destinationFileURL, atomically: true, encoding: .utf8)
+            }
+        } catch {
+            try? fileManager.moveItem(at: destinationBundleURL, to: sourceBundleURL)
+            throw error
+        }
+
+        return HugoArticleMoveResult(
+            destinationFileURL: destinationFileURL,
+            updatedImageReferenceCount: rewritten.updatedCount
+        )
+    }
+
+    static func updatingRelativeImageReferences(
+        in markdown: String,
+        sourceBundleURL: URL,
+        destinationBundleURL: URL,
+        repositoryRoot: URL
+    ) -> (markdown: String, updatedCount: Int) {
+        let patterns = [
+            #"(?i)(!\[[^\]]*\]\(\s*<?)([^\s)>]+)(>?\s*(?:[\"'][^)]*[\"'])?\))"#,
+            #"(?i)(<img\b[^>]*\bsrc\s*=\s*[\"'])([^\"']+)([\"'])"#,
+            #"(?im)^(\s*cover\s*[:=]\s*[\"']?)([^\"'\s]+)([\"']?\s*)$"#
+        ]
+        var output = markdown
+        var updatedCount = 0
+
+        for pattern in patterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
+            let matches = regex.matches(
+                in: output,
+                range: NSRange(output.startIndex..., in: output)
+            )
+            for match in matches.reversed() {
+                guard match.numberOfRanges > 2,
+                      let valueRange = Range(match.range(at: 2), in: output) else { continue }
+                let value = String(output[valueRange])
+                guard let replacement = movedRelativeImageReference(
+                    value,
+                    sourceBundleURL: sourceBundleURL,
+                    destinationBundleURL: destinationBundleURL,
+                    repositoryRoot: repositoryRoot
+                ), replacement != value else { continue }
+                output.replaceSubrange(valueRange, with: replacement)
+                updatedCount += 1
+            }
+        }
+        return (output, updatedCount)
+    }
+
+    private static func movedRelativeImageReference(
+        _ value: String,
+        sourceBundleURL: URL,
+        destinationBundleURL: URL,
+        repositoryRoot: URL
+    ) -> String? {
+        guard !value.hasPrefix("/"), !value.hasPrefix("#"), !value.hasPrefix("//"),
+              value.range(of: #"^[A-Za-z][A-Za-z0-9+.-]*:"#, options: .regularExpression) == nil else {
+            return nil
+        }
+        let suffixIndex = value.firstIndex(where: { $0 == "?" || $0 == "#" })
+        let encodedPath = suffixIndex.map { String(value[..<$0]) } ?? value
+        let suffix = suffixIndex.map { String(value[$0...]) } ?? ""
+        guard !encodedPath.isEmpty else { return nil }
+
+        let decodedPath = encodedPath.removingPercentEncoding ?? encodedPath
+        let targetURL = sourceBundleURL.appendingPathComponent(decodedPath).standardizedFileURL
+        let root = repositoryRoot.standardizedFileURL
+        guard isURL(targetURL, containedIn: root) else { return nil }
+
+        // Assets inside the article bundle move together, so their relative paths stay valid.
+        if isURL(targetURL, containedIn: sourceBundleURL) { return nil }
+
+        let relativePath = relativePath(from: destinationBundleURL, to: targetURL)
+        let encodedRelativePath = relativePath.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
+            ?? relativePath
+        return encodedRelativePath + suffix
+    }
+
+    private static func isURL(_ url: URL, containedIn directory: URL) -> Bool {
+        let path = url.standardizedFileURL.path
+        let directoryPath = directory.standardizedFileURL.path
+        return path == directoryPath || path.hasPrefix(directoryPath + "/")
+    }
+
+    private static func relativePath(from directory: URL, to target: URL) -> String {
+        let sourceComponents = directory.standardizedFileURL.pathComponents
+        let targetComponents = target.standardizedFileURL.pathComponents
+        var commonCount = 0
+        while commonCount < sourceComponents.count,
+              commonCount < targetComponents.count,
+              sourceComponents[commonCount] == targetComponents[commonCount] {
+            commonCount += 1
+        }
+        let parents = Array(repeating: "..", count: sourceComponents.count - commonCount)
+        return (parents + targetComponents.dropFirst(commonCount)).joined(separator: "/")
     }
 
     static func loadConfiguration(from root: URL) -> HugoRepositoryConfiguration {

@@ -4342,6 +4342,100 @@ final class HugoContentServiceTests: XCTestCase {
         XCTAssertFalse(HugoContentService.isValidFrontMatterNumber("12px"))
     }
 
+    func testMovingArticleBundlePreservesBundleImagesAndUpdatesExternalRelativeImages() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? fileManager.removeItem(at: root) }
+        let sourceBundle = root.appendingPathComponent("content/posts/old-post", isDirectory: true)
+        let images = sourceBundle.appendingPathComponent("images", isDirectory: true)
+        let destinationParent = root.appendingPathComponent("content", isDirectory: true)
+        let sharedImages = root.appendingPathComponent("static/images", isDirectory: true)
+        try fileManager.createDirectory(at: images, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: sharedImages, withIntermediateDirectories: true)
+        try Data([0x01]).write(to: images.appendingPathComponent("cover.jpg"))
+        try Data([0x02]).write(to: sharedImages.appendingPathComponent("shared.jpg"))
+        let original = """
+        ---
+        title: "Post"
+        cover: images/cover.jpg
+        ---
+
+        ![Local](images/cover.jpg)
+        ![Shared](../../../static/images/shared.jpg)
+        """
+        let sourceFile = sourceBundle.appendingPathComponent("index.md")
+        try original.write(to: sourceFile, atomically: true, encoding: .utf8)
+
+        let result = try HugoContentService.moveArticleBundle(
+            indexFileURL: sourceFile,
+            toContentDirectory: destinationParent,
+            bundleName: "new-post",
+            repositoryRoot: root
+        )
+
+        let output = try String(contentsOf: result.destinationFileURL, encoding: .utf8)
+        XCTAssertFalse(fileManager.fileExists(atPath: sourceBundle.path))
+        XCTAssertTrue(fileManager.fileExists(
+            atPath: result.destinationFileURL.deletingLastPathComponent()
+                .appendingPathComponent("images/cover.jpg").path
+        ))
+        XCTAssertTrue(output.contains("cover: images/cover.jpg"))
+        XCTAssertTrue(output.contains("![Local](images/cover.jpg)"))
+        XCTAssertTrue(output.contains("![Shared](../../static/images/shared.jpg)"))
+        XCTAssertEqual(result.updatedImageReferenceCount, 1)
+    }
+
+    func testRelativeImageRewriteSupportsHTMLAndPreservesRemoteURLs() {
+        let root = URL(fileURLWithPath: "/repo")
+        let source = root.appendingPathComponent("content/posts/old")
+        let destination = root.appendingPathComponent("content/new")
+        let markdown = """
+        cover: ../../../static/cover.jpg
+        <img src="../../../static/photo.jpg">
+        ![Remote](https://example.com/photo.jpg)
+        ![Anchor](#diagram)
+        """
+
+        let result = HugoContentService.updatingRelativeImageReferences(
+            in: markdown,
+            sourceBundleURL: source,
+            destinationBundleURL: destination,
+            repositoryRoot: root
+        )
+
+        XCTAssertTrue(result.markdown.contains("cover: ../../static/cover.jpg"))
+        XCTAssertTrue(result.markdown.contains(#"<img src="../../static/photo.jpg">"#))
+        XCTAssertTrue(result.markdown.contains("https://example.com/photo.jpg"))
+        XCTAssertTrue(result.markdown.contains("![Anchor](#diagram)"))
+        XCTAssertEqual(result.updatedCount, 2)
+    }
+
+    func testMovingArticleBundleRejectsExistingDestination() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? fileManager.removeItem(at: root) }
+        let content = root.appendingPathComponent("content", isDirectory: true)
+        let source = content.appendingPathComponent("old", isDirectory: true)
+        let destination = content.appendingPathComponent("existing", isDirectory: true)
+        try fileManager.createDirectory(at: source, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: destination, withIntermediateDirectories: true)
+        try "Body".write(
+            to: source.appendingPathComponent("index.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        XCTAssertThrowsError(try HugoContentService.moveArticleBundle(
+            indexFileURL: source.appendingPathComponent("index.md"),
+            toContentDirectory: content,
+            bundleName: "existing",
+            repositoryRoot: root
+        )) { error in
+            XCTAssertTrue(error is HugoArticleMoveError)
+        }
+        XCTAssertTrue(fileManager.fileExists(atPath: source.appendingPathComponent("index.md").path))
+    }
+
     func testRendersLeafBundleArchetype() {
         let template = """
         ---
