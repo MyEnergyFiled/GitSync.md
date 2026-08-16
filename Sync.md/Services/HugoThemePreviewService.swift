@@ -9,6 +9,36 @@ enum HugoPreviewStyle: String, CaseIterable, Identifiable {
     var title: String { String(localized: String.LocalizationValue(rawValue)) }
 }
 
+enum HugoPreviewDevice: String, CaseIterable, Identifiable {
+    case phone = "Phone"
+    case tablet = "Tablet"
+    case desktop = "Desktop"
+
+    var id: String { rawValue }
+    var title: String { String(localized: String.LocalizationValue(rawValue)) }
+    var width: CGFloat {
+        switch self {
+        case .phone: return 390
+        case .tablet: return 768
+        case .desktop: return 1200
+        }
+    }
+}
+
+struct HugoThemePreviewOptions: Equatable {
+    var layout = "single"
+    var contentType = "page"
+    var language = "en"
+    var device: HugoPreviewDevice = .tablet
+}
+
+struct HugoThemePreviewChoices: Equatable {
+    var layouts: [String] = ["single"]
+    var contentTypes: [String] = ["page"]
+    var languages: [String] = ["en"]
+    var languageVariantURLs: [String: URL] = [:]
+}
+
 struct HugoThemePreviewPage: Equatable {
     let html: String
     let stylesheetPaths: [String]
@@ -26,7 +56,8 @@ enum HugoThemePreviewService {
         markdown: String,
         articleURL: URL,
         repositoryRoot: URL,
-        configuration: HugoSiteConfiguration
+        configuration: HugoSiteConfiguration,
+        options: HugoThemePreviewOptions = HugoThemePreviewOptions()
     ) -> HugoThemePreviewPage {
         let document = HugoArticlePreviewDocument(markdown: markdown)
         let stylesheets = discoverStylesheets(
@@ -69,7 +100,12 @@ enum HugoThemePreviewService {
           <main class="gitsync-content">\(renderedBlocks.html)</main>
         </article>
         """
-        let layout = discoverLayout(repositoryRoot: repositoryRoot, configuration: configuration)
+        let layout = discoverLayout(
+            repositoryRoot: repositoryRoot,
+            configuration: configuration,
+            layout: options.layout,
+            contentType: options.contentType
+        )
         let section = articleSection(articleURL: articleURL, repositoryRoot: repositoryRoot)
         let context = HugoTemplatePreviewContext(
             title: title,
@@ -77,11 +113,15 @@ enum HugoThemePreviewService {
             draft: document.draft,
             contentHTML: renderedBlocks.html,
             siteTitle: repositoryRoot.lastPathComponent,
-            language: configuration.defaultContentLanguage ?? configuration.languages.first ?? "en",
-            contentType: section.isEmpty ? "page" : section,
+            language: options.language,
+            contentType: options.contentType,
             section: section,
-            layout: "single",
-            permalink: previewPermalink(section: section, articleURL: articleURL, configuration: configuration),
+            layout: options.layout,
+            permalink: previewPermalink(
+                section: options.contentType,
+                articleURL: articleURL,
+                configuration: configuration
+            ),
             params: MarkdownFrontMatter(markdown: markdown).customValues
         )
         let renderedLayout = layout.map {
@@ -110,7 +150,7 @@ enum HugoThemePreviewService {
           </style>
           \(stylesheetLinks)
         </head>
-        <body>
+        <body data-gitsync-layout="\(escapeHTML(options.layout))" data-gitsync-type="\(escapeHTML(options.contentType))" lang="\(escapeHTML(options.language))">
           \(pageContent)
         </body>
         </html>
@@ -149,6 +189,73 @@ enum HugoThemePreviewService {
 
     static func mimeType(for fileURL: URL) -> String {
         UTType(filenameExtension: fileURL.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
+    }
+
+    static func discoverChoices(
+        repositoryRoot: URL,
+        configuration: HugoSiteConfiguration,
+        articleURL: URL
+    ) -> HugoThemePreviewChoices {
+        let root = repositoryRoot.standardizedFileURL
+        let layoutRoots = previewLayoutRoots(repositoryRoot: root, configuration: configuration)
+        var layouts: Set<String> = ["single"]
+        var contentTypes: Set<String> = ["page"]
+        for layoutRoot in layoutRoots {
+            guard let enumerator = FileManager.default.enumerator(
+                at: layoutRoot,
+                includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey],
+                options: [.skipsHiddenFiles, .skipsPackageDescendants]
+            ) else { continue }
+            for case let fileURL as URL in enumerator where fileURL.pathExtension.lowercased() == "html" {
+                guard let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey]),
+                      values.isRegularFile == true,
+                      values.isSymbolicLink != true else { continue }
+                let name = fileURL.deletingPathExtension().lastPathComponent
+                if !["baseof", "list"].contains(name) { layouts.insert(name) }
+                let relative = fileURL.path.replacingOccurrences(of: layoutRoot.path + "/", with: "")
+                if let first = relative.split(separator: "/").first.map(String.init),
+                   !["_default", "partials", "shortcodes"].contains(first) {
+                    contentTypes.insert(first)
+                }
+            }
+        }
+        let contentRoot = root.appendingPathComponent("content", isDirectory: true)
+        if let entries = try? FileManager.default.contentsOfDirectory(
+            at: contentRoot,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) {
+            for entry in entries where (try? entry.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+                contentTypes.insert(entry.lastPathComponent)
+            }
+        }
+
+        let defaultLanguage = configuration.defaultContentLanguage ?? configuration.languages.first ?? "en"
+        var variants: [String: URL] = [defaultLanguage: articleURL]
+        let baseName = articleURL.deletingPathExtension().lastPathComponent.split(separator: ".").first.map(String.init)
+            ?? articleURL.deletingPathExtension().lastPathComponent
+        if let siblings = try? FileManager.default.contentsOfDirectory(
+            at: articleURL.deletingLastPathComponent(),
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) {
+            for sibling in siblings where ["md", "markdown"].contains(sibling.pathExtension.lowercased()) {
+                let stem = sibling.deletingPathExtension().lastPathComponent
+                let components = stem.split(separator: ".").map(String.init)
+                if components.count == 2, components[0] == baseName {
+                    variants[components[1]] = sibling
+                } else if stem == baseName {
+                    variants[defaultLanguage] = sibling
+                }
+            }
+        }
+        let languages = Set(configuration.languages + [defaultLanguage] + Array(variants.keys))
+        return HugoThemePreviewChoices(
+            layouts: layouts.sorted(),
+            contentTypes: contentTypes.sorted(),
+            languages: languages.sorted(),
+            languageVariantURLs: variants
+        )
     }
 
     private static func discoverStylesheets(
@@ -265,12 +372,21 @@ enum HugoThemePreviewService {
 
     private static func discoverLayout(
         repositoryRoot: URL,
-        configuration: HugoSiteConfiguration
+        configuration: HugoSiteConfiguration,
+        layout: String,
+        contentType: String
     ) -> (relativePath: String, template: String)? {
-        var candidates = [repositoryRoot.appendingPathComponent("layouts/_default/single.html")]
-        candidates.append(contentsOf: configuration.themes.map {
-            repositoryRoot.appendingPathComponent("themes/\($0)/layouts/_default/single.html")
-        })
+        let candidates = previewLayoutRoots(
+            repositoryRoot: repositoryRoot,
+            configuration: configuration
+        ).flatMap { root in
+            [
+                root.appendingPathComponent("\(contentType)/\(layout).html"),
+                root.appendingPathComponent("_default/\(layout).html"),
+                root.appendingPathComponent("\(contentType)/single.html"),
+                root.appendingPathComponent("_default/single.html")
+            ]
+        }
         for candidate in candidates {
             guard let relative = relativePath(for: candidate, repositoryRoot: repositoryRoot),
                   let values = try? candidate.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
@@ -280,6 +396,16 @@ enum HugoThemePreviewService {
             return (relative, template)
         }
         return nil
+    }
+
+    private static func previewLayoutRoots(
+        repositoryRoot: URL,
+        configuration: HugoSiteConfiguration
+    ) -> [URL] {
+        [repositoryRoot.appendingPathComponent("layouts", isDirectory: true)]
+            + configuration.themes.map {
+                repositoryRoot.appendingPathComponent("themes/\($0)/layouts", isDirectory: true)
+            }
     }
 
     private static func articleSection(articleURL: URL, repositoryRoot: URL) -> String {

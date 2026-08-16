@@ -4672,6 +4672,57 @@ final class HugoContentServiceTests: XCTestCase {
         XCTAssertTrue(page.html.contains("Unsupported Hugo template expression"))
     }
 
+    func testThemePreviewDiscoversLayoutsContentTypesLanguagesAndVariants() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let layout = root.appendingPathComponent("layouts/posts/feature.html")
+        let bundle = root.appendingPathComponent("content/posts/example", isDirectory: true)
+        let article = bundle.appendingPathComponent("index.md")
+        let traditional = bundle.appendingPathComponent("index.zh-Hant.md")
+        defer { try? fileManager.removeItem(at: root) }
+        try fileManager.createDirectory(at: layout.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: bundle, withIntermediateDirectories: true)
+        try "<article data-layout=\"{{ .Layout }}\" lang=\"{{ .Site.Language.Lang }}\">{{ .Content }}</article>"
+            .write(to: layout, atomically: true, encoding: .utf8)
+        try "English".write(to: article, atomically: true, encoding: .utf8)
+        try "繁體內容".write(to: traditional, atomically: true, encoding: .utf8)
+        let configuration = HugoSiteConfiguration(
+            configurationFiles: ["hugo.toml"],
+            defaultContentLanguage: "en",
+            languages: ["en", "zh-Hant"]
+        )
+
+        let choices = HugoThemePreviewService.discoverChoices(
+            repositoryRoot: root,
+            configuration: configuration,
+            articleURL: article
+        )
+        let page = HugoThemePreviewService.render(
+            markdown: "繁體內容",
+            articleURL: traditional,
+            repositoryRoot: root,
+            configuration: configuration,
+            options: HugoThemePreviewOptions(
+                layout: "feature",
+                contentType: "posts",
+                language: "zh-Hant",
+                device: .phone
+            )
+        )
+
+        XCTAssertEqual(choices.layouts, ["feature", "single"])
+        XCTAssertEqual(choices.contentTypes, ["page", "posts"])
+        XCTAssertEqual(choices.languages, ["en", "zh-Hant"])
+        XCTAssertEqual(choices.languageVariantURLs["zh-Hant"], traditional)
+        XCTAssertEqual(page.layoutPath, "layouts/posts/feature.html")
+        XCTAssertTrue(page.html.contains("data-layout=\"feature\""))
+        XCTAssertTrue(page.html.contains("lang=\"zh-Hant\""))
+        XCTAssertTrue(page.html.contains("繁體內容"))
+        XCTAssertEqual(HugoPreviewDevice.phone.width, 390)
+        XCTAssertEqual(HugoPreviewDevice.tablet.width, 768)
+        XCTAssertEqual(HugoPreviewDevice.desktop.width, 1200)
+    }
+
     func testArticleSortSupportsPublicationModifiedTitleDirectoryAndDraftState() {
         let older = HugoArticle(
             fileURL: URL(fileURLWithPath: "/repo/content/z/index.md"),

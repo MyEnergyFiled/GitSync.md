@@ -63,6 +63,8 @@ struct FileEditorView: View {
     @State private var persistenceMessage = String(localized: "File loaded")
     @State private var previewStyle: HugoPreviewStyle = .native
     @State private var siteConfiguration = HugoSiteConfiguration()
+    @State private var themePreviewOptions = HugoThemePreviewOptions()
+    @State private var themePreviewChoices = HugoThemePreviewChoices()
 
     private let draftStore = FileEditorDraftStore()
 
@@ -336,6 +338,7 @@ struct FileEditorView: View {
                 from: state.vaultURL(for: repoID)
             ).frontMatterFields
             loadContent()
+            loadThemePreviewChoices()
             loadImages()
             state.detectChanges(repoID: repoID)
         }
@@ -573,19 +576,126 @@ struct FileEditorView: View {
             .background(Color.brutalSurface)
 
             if previewStyle == .theme {
-                let page = HugoThemePreviewService.render(
-                    markdown: pendingContent,
-                    articleURL: liveURL,
-                    repositoryRoot: state.vaultURL(for: repoID),
-                    configuration: siteConfiguration
-                )
-                HugoThemeWebPreview(
-                    page: page,
-                    repositoryRoot: state.vaultURL(for: repoID)
-                )
+                themeWebPreview
             } else {
                 nativeMarkdownPreview
             }
+        }
+    }
+
+    private var themeWebPreview: some View {
+        let root = state.vaultURL(for: repoID)
+        let selectedMarkdown: String = {
+            guard let variantURL = themePreviewChoices.languageVariantURLs[themePreviewOptions.language],
+                  variantURL.standardizedFileURL != liveURL.standardizedFileURL else { return pendingContent }
+            return (try? String(contentsOf: variantURL, encoding: .utf8)) ?? pendingContent
+        }()
+        let page = HugoThemePreviewService.render(
+            markdown: selectedMarkdown,
+            articleURL: themePreviewChoices.languageVariantURLs[themePreviewOptions.language] ?? liveURL,
+            repositoryRoot: root,
+            configuration: siteConfiguration,
+            options: themePreviewOptions
+        )
+        return VStack(spacing: 0) {
+            themePreviewControls
+            GeometryReader { geometry in
+                ScrollView(.horizontal) {
+                    HStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        HugoThemeWebPreview(page: page, repositoryRoot: root)
+                            .frame(width: themePreviewOptions.device.width)
+                            .overlay { Rectangle().stroke(Color.brutalBorder, lineWidth: 1) }
+                        Spacer(minLength: 0)
+                    }
+                    .frame(minWidth: geometry.size.width, minHeight: geometry.size.height)
+                }
+            }
+            .background(Color.hugoCanvas)
+        }
+    }
+
+    private var themePreviewControls: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 12) {
+                Menu {
+                    ForEach(themePreviewChoices.layouts, id: \.self) { layout in
+                        Button(layout) { themePreviewOptions.layout = layout }
+                    }
+                } label: {
+                    Label(themePreviewOptions.layout, systemImage: "rectangle.3.group")
+                }
+                .accessibilityLabel(Text("Layout"))
+
+                Menu {
+                    ForEach(themePreviewChoices.contentTypes, id: \.self) { contentType in
+                        Button(contentType) { themePreviewOptions.contentType = contentType }
+                    }
+                } label: {
+                    Label(themePreviewOptions.contentType, systemImage: "doc.on.doc")
+                }
+                .accessibilityLabel(Text("Content Type"))
+
+                Menu {
+                    ForEach(themePreviewChoices.languages, id: \.self) { language in
+                        Button(language) { themePreviewOptions.language = language }
+                    }
+                } label: {
+                    Label(themePreviewOptions.language, systemImage: "globe")
+                }
+                .accessibilityLabel(Text("Language"))
+
+                Picker("Device Width", selection: $themePreviewOptions.device) {
+                    ForEach(HugoPreviewDevice.allCases) { device in
+                        Image(systemName: deviceIcon(device))
+                            .accessibilityLabel(device.title)
+                            .tag(device)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 150)
+            }
+            .font(.caption.monospaced().bold())
+            .padding(.horizontal, 10)
+        }
+        .frame(height: 44)
+        .background(Color.brutalSurface)
+        .overlay(alignment: .bottom) { Rectangle().fill(Color.brutalBorder).frame(height: 1) }
+    }
+
+    private func deviceIcon(_ device: HugoPreviewDevice) -> String {
+        switch device {
+        case .phone: return "iphone"
+        case .tablet: return "ipad"
+        case .desktop: return "desktopcomputer"
+        }
+    }
+
+    private func loadThemePreviewChoices() {
+        let root = state.vaultURL(for: repoID)
+        themePreviewChoices = HugoThemePreviewService.discoverChoices(
+            repositoryRoot: root,
+            configuration: siteConfiguration,
+            articleURL: liveURL
+        )
+        let matter = MarkdownFrontMatter(markdown: pendingContent)
+        let requestedLayout = matter.customValues["layout"] ?? "single"
+        if themePreviewChoices.layouts.contains(requestedLayout) {
+            themePreviewOptions.layout = requestedLayout
+        }
+        let pathComponents = liveURL.path.replacingOccurrences(of: root.path + "/", with: "")
+            .split(separator: "/").map(String.init)
+        let requestedType = matter.customValues["type"]
+            ?? (pathComponents.first == "content" && pathComponents.count > 2 ? pathComponents[1] : "page")
+        if themePreviewChoices.contentTypes.contains(requestedType) {
+            themePreviewOptions.contentType = requestedType
+        }
+        let stemParts = liveURL.deletingPathExtension().lastPathComponent.split(separator: ".").map(String.init)
+        let requestedLanguage = stemParts.count == 2
+            ? stemParts[1]
+            : (siteConfiguration.defaultContentLanguage ?? themePreviewChoices.languages.first ?? "en")
+        if themePreviewChoices.languages.contains(requestedLanguage) {
+            themePreviewOptions.language = requestedLanguage
         }
     }
 
