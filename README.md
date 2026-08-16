@@ -13,7 +13,7 @@ GitSync.md clones Git repositories directly to your iPhone or iPad using [libgit
 
 **Key features:**
 
-- **Real Git workspace** — Clone, fetch, fast-forward or rebase, inspect diffs, selectively stage or discard files, commit, and push through libgit2.
+- **Real Git workspace** — Clone, fetch, fast-forward or rebase, inspect diffs, selectively stage or discard files, commit, and push through libgit2, with staged progress, safe cancellation boundaries, and retryable push state.
 - **Branches and recovery tools** — Create, switch, merge, and delete branches; resolve conflicts; browse history; revert commits; and manage stashes and tags.
 - **Git LFS** — Hydrate and upload LFS objects, detect large files, offer automatic tracking, and support LFS over HTTPS and SSH.
 - **Flexible authentication** — Use GitHub OAuth accounts or PATs, generic HTTPS credentials, SSH private keys with host-key verification, public remotes, and local repositories.

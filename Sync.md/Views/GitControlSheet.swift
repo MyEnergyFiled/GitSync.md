@@ -955,15 +955,36 @@ struct GitControlSheet: View {
 
     private var progressCard: some View {
         BCard(padding: 14, bg: .brutalSurface) {
-            HStack(spacing: 12) {
-                ProgressView()
-                    .controlSize(.small)
-                    .tint(Color.brutalAccent)
-                Text(state.syncProgress.uppercased())
-                    .font(.system(size: 13, weight: .medium, design: .monospaced))
-                    .foregroundStyle(Color.brutalText)
-                    .tracking(1)
-                Spacer()
+            VStack(spacing: 10) {
+                HStack(spacing: 12) {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(Color.brutalAccent)
+                    Text(state.syncProgress.uppercased())
+                        .font(.system(size: 13, weight: .medium, design: .monospaced))
+                        .foregroundStyle(Color.brutalText)
+                        .tracking(1)
+                    Spacer()
+                    if let fraction = state.syncProgressFraction {
+                        Text("\(Int(fraction * 100))%")
+                            .font(.caption.monospaced().bold())
+                    }
+                }
+                if let fraction = state.syncProgressFraction {
+                    BProgressBar(progress: fraction, height: 5)
+                }
+                if state.isSyncCancellationRequested {
+                    Text("Waiting for a safe stopping point")
+                        .font(.caption.monospaced())
+                        .foregroundStyle(Color.brutalTextFaint)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else if state.canCancelSyncOperation {
+                    Button("Cancel Safely") { state.requestSyncCancellation() }
+                        .font(.caption.monospaced().bold())
+                        .foregroundStyle(Color.brutalError)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .buttonStyle(.plain)
+                }
             }
         }
     }

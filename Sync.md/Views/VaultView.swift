@@ -632,7 +632,24 @@ struct VaultView: View {
                 if let progress = state.syncProgressFraction {
                     BProgressBar(progress: progress, height: 5)
                 }
+                syncCancellationControl
             }
+        }
+    }
+
+    @ViewBuilder
+    private var syncCancellationControl: some View {
+        if state.isSyncCancellationRequested {
+            Text(String(localized: "Waiting for a safe stopping point").uppercased())
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .foregroundStyle(Color.brutalTextFaint)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else if state.canCancelSyncOperation {
+            Button("Cancel Safely") { state.requestSyncCancellation() }
+                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                .foregroundStyle(Color.brutalError)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .buttonStyle(.plain)
         }
     }
 
@@ -737,6 +754,9 @@ struct VaultView: View {
                 BProgressBar(progress: state.syncProgressFraction ?? 0, height: 6)
             }
             .padding(.horizontal, 40)
+
+            syncCancellationControl
+                .padding(.horizontal, 40)
 
             Spacer()
             Spacer()

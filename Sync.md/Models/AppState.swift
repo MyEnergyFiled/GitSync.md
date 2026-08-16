@@ -129,6 +129,15 @@ final class AppState {
     var syncingRepoID: UUID? = nil
     var syncProgress: String = ""
     var syncProgressFraction: Double? = nil
+    var gitLongOperationProgress: GitLongOperationProgress? = nil
+
+    var canCancelSyncOperation: Bool {
+        gitLongOperationProgress?.canCancel == true
+    }
+
+    var isSyncCancellationRequested: Bool {
+        gitLongOperationProgress?.cancellationRequested == true
+    }
 
     // MARK: - OAuth / Auth
 
@@ -2142,6 +2151,43 @@ final class AppState {
 
     // MARK: - Git Operations (libgit2)
 
+    private func beginLongGitOperation(_ kind: GitLongOperationKind, repoID: UUID) {
+        isSyncing = true
+        syncingRepoID = repoID
+        gitLongOperationProgress = GitLongOperationProgress(kind: kind, stage: .preparing)
+        syncProgress = gitLongOperationProgress?.message ?? ""
+        syncProgressFraction = gitLongOperationProgress?.fraction
+    }
+
+    private func updateLongGitOperation(_ stage: GitLongOperationStage) {
+        guard var progress = gitLongOperationProgress else { return }
+        progress.stage = stage
+        gitLongOperationProgress = progress
+        syncProgress = progress.message
+        syncProgressFraction = progress.fraction
+    }
+
+    func requestSyncCancellation() {
+        guard var progress = gitLongOperationProgress, progress.canCancel else { return }
+        progress.cancellationRequested = true
+        gitLongOperationProgress = progress
+        syncProgress = progress.message
+        DebugLogger.shared.info("git", "Cancellation requested", detail: progress.kind.rawValue)
+    }
+
+    private func checkLongGitOperationCancellation() throws {
+        if gitLongOperationProgress?.cancellationRequested == true {
+            throw GitOperationCancelled()
+        }
+    }
+
+    private func finishLongGitOperation() {
+        isSyncing = false
+        syncingRepoID = nil
+        syncProgressFraction = nil
+        gitLongOperationProgress = nil
+    }
+
     func clone(repoID: UUID) async {
         guard let idx = repoIndex(id: repoID) else {
             showError(message: String(localized: "Repository not found"))
@@ -2149,12 +2195,8 @@ final class AppState {
         }
 
         let operationID = String(UUID().uuidString.prefix(8)).lowercased()
-        isSyncing = true
-        syncingRepoID = repoID
-        syncProgress = String(localized: "Preparing to clone...")
-        syncProgressFraction = 0.08
-        var cloneProgressTask: Task<Void, Never>?
-        defer { cloneProgressTask?.cancel() }
+        beginLongGitOperation(.clone, repoID: repoID)
+        defer { finishLongGitOperation() }
 
         do {
             let fm = FileManager.default
@@ -2200,30 +2242,22 @@ final class AppState {
 
             let gitService = gitRepositoryFactory(cloneWorkingDir)
 
-            syncProgress = String(localized: "Cloning repository...")
-            syncProgressFraction = 0.18
-            cloneProgressTask = Task { @MainActor [weak self] in
-                var progress = 0.18
-                while !Task.isCancelled && progress < 0.82 {
-                    try? await Task.sleep(for: .milliseconds(700))
-                    guard !Task.isCancelled else { return }
-                    progress += max(0.01, (0.82 - progress) * 0.10)
-                    self?.syncProgressFraction = min(progress, 0.82)
-                }
-            }
+            try checkLongGitOperationCancellation()
+            updateLongGitOperation(.connecting)
             DebugLogger.shared.info(
                 "clone", "Starting clone", detail: cloneURL,
                 repoID: repoID, repoName: repo.displayName, operationID: operationID
             )
+            updateLongGitOperation(.transferring)
             let result = try await gitService.clone(remoteURL: cloneURL, pat: authPayload(for: repo))
+            try checkLongGitOperationCancellation()
+            updateLongGitOperation(.checkingRepository)
             if fm.fileExists(atPath: cloneWorkingDir.path) {
                 try fm.moveItem(at: cloneWorkingDir, to: vaultDir)
             } else if gitService is LocalGitService {
                 throw LocalGitError.cloneFailed(String(localized: "Clone completed without creating its destination directory."))
             }
-            cloneProgressTask?.cancel()
-            syncProgress = String(localized: "Finalizing repository...")
-            syncProgressFraction = 0.92
+            updateLongGitOperation(.finalizing)
 
             // Update branch from what was actually checked out
             if repo.branch.isEmpty {
@@ -2242,8 +2276,8 @@ final class AppState {
             saveRepos()
             clearCommitHistoryCache(for: repoID)
             detectChanges(repoID: repoID)
+            updateLongGitOperation(.completed)
             syncProgress = String(localized: "Clone complete! (\(result.fileCount) files)")
-            syncProgressFraction = 1.0
             DebugLogger.shared.info(
                 "clone", "Clone complete", detail: "\(result.fileCount) files, branch: \(result.branch)",
                 repoID: repoID, repoName: repo.displayName, operationID: operationID
@@ -2253,6 +2287,12 @@ final class AppState {
             }
 
 
+        } catch is GitOperationCancelled {
+            syncProgress = String(localized: "Clone cancelled safely")
+            DebugLogger.shared.info(
+                "clone", "Clone cancelled at safe boundary",
+                repoID: repoID, operationID: operationID
+            )
         } catch {
             if !handleSSHHostKeyTrustIfNeeded(error, repoID: repoID, operation: .clone) {
                 showError(message: error.localizedDescription, category: "clone", repoID: repoID, operationID: operationID)
@@ -2260,9 +2300,6 @@ final class AppState {
         }
 
         try? await Task.sleep(for: .seconds(1))
-        isSyncing = false
-        syncingRepoID = nil
-        syncProgressFraction = nil
     }
 
     @discardableResult
@@ -2272,9 +2309,8 @@ final class AppState {
             return false
         }
 
-        isSyncing = true
-        syncingRepoID = repoID
-        syncProgress = String(localized: "Checking for updates...")
+        beginLongGitOperation(.pull, repoID: repoID)
+        defer { finishLongGitOperation() }
 
         pullOutcomeByRepo.removeValue(forKey: repoID)
 
@@ -2287,8 +2323,13 @@ final class AppState {
                 throw LocalGitError.notCloned
             }
 
+            try checkLongGitOperationCancellation()
+            updateLongGitOperation(.connecting)
             DebugLogger.shared.info("pull", "Starting pull", detail: "branch: \(repo.branch)")
+            updateLongGitOperation(.transferring)
             let plan = try await gitService.pullPlan(pat: authPayload(for: repo))
+            try checkLongGitOperationCancellation()
+            updateLongGitOperation(.checkingRepository)
 
             switch plan.action {
             case .upToDate:
@@ -2326,7 +2367,7 @@ final class AppState {
                 )
 
             case .fastForward:
-                syncProgress = String(localized: "Applying remote updates...")
+                updateLongGitOperation(.applyingChanges)
                 let result = try await gitService.pullFastForward(branch: plan.branch, pat: authPayload(for: repo))
 
                 if !result.updated {
@@ -2354,6 +2395,10 @@ final class AppState {
                 }
             }
 
+            let pullCompletionMessage = syncProgress
+            updateLongGitOperation(.completed)
+            syncProgress = pullCompletionMessage
+
             if showsProgressDelay {
                 try? await Task.sleep(for: .seconds(1))
             }
@@ -2361,6 +2406,14 @@ final class AppState {
             syncingRepoID = nil
             return true
 
+        } catch is GitOperationCancelled {
+            syncProgress = String(localized: "Pull cancelled safely")
+            setPullOutcome(
+                repoID: repoID,
+                kind: .failed,
+                message: String(localized: "Pull cancelled before applying remote changes.")
+            )
+            DebugLogger.shared.info("pull", "Pull cancelled at safe boundary", repoID: repoID)
         } catch let error as LocalGitError {
             switch error {
             case .pullBlockedByLocalChanges:
@@ -2419,9 +2472,8 @@ final class AppState {
             return false
         }
 
-        isSyncing = true
-        syncingRepoID = repoID
-        syncProgress = String(localized: "Checking for updates...")
+        beginLongGitOperation(.pull, repoID: repoID)
+        defer { finishLongGitOperation() }
 
         pullOutcomeByRepo.removeValue(forKey: repoID)
 
@@ -2434,8 +2486,13 @@ final class AppState {
                 throw LocalGitError.notCloned
             }
 
+            try checkLongGitOperationCancellation()
+            updateLongGitOperation(.connecting)
             DebugLogger.shared.info("pull", "Starting pull with rebase", detail: "branch: \(repo.branch)")
+            updateLongGitOperation(.transferring)
             let plan = try await gitService.pullPlan(pat: authPayload(for: repo))
+            try checkLongGitOperationCancellation()
+            updateLongGitOperation(.checkingRepository)
 
             let result: LocalPullResult
             switch plan.action {
@@ -2476,10 +2533,11 @@ final class AppState {
                 return false
 
             case .fastForward:
-                syncProgress = String(localized: "Applying remote updates...")
+                updateLongGitOperation(.applyingChanges)
                 result = try await gitService.pullFastForward(branch: plan.branch, pat: authPayload(for: repo))
 
             case .diverged:
+                updateLongGitOperation(.applyingChanges)
                 syncProgress = String(localized: "Rebasing local commits...")
                 result = try await gitService.pullRebase(
                     branch: plan.branch,
@@ -2512,10 +2570,21 @@ final class AppState {
                 setPullOutcome(repoID: repoID, kind: .upToDate, message: String(localized: "Already up to date"))
             }
 
+            let pullCompletionMessage = syncProgress
+            updateLongGitOperation(.completed)
+            syncProgress = pullCompletionMessage
+
             if showsProgressDelay { try? await Task.sleep(for: .seconds(1)) }
             isSyncing = false
             syncingRepoID = nil
             return true
+        } catch is GitOperationCancelled {
+            syncProgress = String(localized: "Pull cancelled safely")
+            setPullOutcome(
+                repoID: repoID,
+                kind: .failed,
+                message: String(localized: "Pull cancelled before applying remote changes.")
+            )
         } catch LocalGitError.rebaseConflictsDetected {
             await loadConflictSession(repoID: repoID)
             detectChanges(repoID: repoID)
@@ -2636,12 +2705,15 @@ final class AppState {
             return false
         }
 
-        isSyncing = true
-        syncingRepoID = repoID
-        syncProgress = String(localized: "Pushing committed changes...")
+        beginLongGitOperation(.push, repoID: repoID)
+        defer { finishLongGitOperation() }
 
         do {
             let repo = repos[idx]
+            updateLongGitOperation(.connecting)
+            await Task.yield()
+            try checkLongGitOperationCancellation()
+            updateLongGitOperation(.uploading)
             try await gitService.pushCurrentBranch(pat: authPayload(for: repo))
 
             if let info = try? await gitService.repoInfo() {
@@ -2658,16 +2730,16 @@ final class AppState {
             pushRetryRequiresCommit.remove(repoID)
             detectChanges(repoID: repoID)
             await loadBranches(repoID: repoID)
+            updateLongGitOperation(.completed)
             syncProgress = String(localized: "Push complete!")
-            isSyncing = false
-            syncingRepoID = nil
             return true
+        } catch is GitOperationCancelled {
+            syncProgress = String(localized: "Push cancelled before upload")
+            return false
         } catch {
             if !handleSSHHostKeyTrustIfNeeded(error, repoID: repoID, operation: .pushCurrentBranch) {
                 showError(message: error.localizedDescription, category: "push")
             }
-            isSyncing = false
-            syncingRepoID = nil
             return false
         }
     }
@@ -2698,9 +2770,8 @@ final class AppState {
         let operationID = suppliedOperationID ?? String(UUID().uuidString.prefix(8)).lowercased()
         pushRetryRequiresCurrentBranch.remove(repoID)
         pushRetryRequiresCommit.remove(repoID)
-        isSyncing = true
-        syncingRepoID = repoID
-        syncProgress = String(localized: "Preparing changes...")
+        beginLongGitOperation(.push, repoID: repoID)
+        defer { finishLongGitOperation() }
         var startingCommitSHA: String?
 
         do {
@@ -2712,11 +2783,13 @@ final class AppState {
                 throw LocalGitError.notCloned
             }
 
+            updateLongGitOperation(.checkingRepository)
             startingCommitSHA = (try? await gitService.repoInfo())?.commitSHA
+            try checkLongGitOperationCancellation()
 
             let commitMsg = message.isEmpty ? String(localized: "Update from GitSync.md") : message
 
-            syncProgress = String(localized: "Committing and pushing...")
+            updateLongGitOperation(.committing)
             DebugLogger.shared.info(
                 "push", "Starting commit & push", detail: "commit message length: \(commitMsg.count)",
                 repoID: repoID, repoName: repo.displayName, operationID: operationID
@@ -2737,16 +2810,18 @@ final class AppState {
             pushRetryRequiresCurrentBranch.remove(repoID)
             pushRetryRequiresCommit.remove(repoID)
             detectChanges(repoID: repoID)
+            updateLongGitOperation(.completed)
             syncProgress = String(localized: "Push complete!")
             DebugLogger.shared.info(
                 "push", "Push complete", detail: "SHA: \(result.commitSHA)",
                 repoID: repoID, repoName: repo.displayName, operationID: operationID
             )
             try? await Task.sleep(for: .seconds(1))
-            isSyncing = false
-            syncingRepoID = nil
             return true
 
+        } catch is GitOperationCancelled {
+            syncProgress = String(localized: "Push cancelled before commit")
+            return false
         } catch {
             let vaultDir = vaultURL(for: repoID)
             let gitService = gitRepositoryFactory(vaultDir)

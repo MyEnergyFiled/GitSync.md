@@ -121284,6 +121284,96 @@
         }
       }
     },
+    "Preparing operation…": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Preparing operation…" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "正在准备操作…" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "正在準備操作…" } }
+    } },
+    "Connecting to remote…": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Connecting to remote…" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "正在连接远程仓库…" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "正在連線遠端儲存庫…" } }
+    } },
+    "Transferring Git objects…": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Transferring Git objects…" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "正在传输 Git 对象…" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "正在傳輸 Git 物件…" } }
+    } },
+    "Checking repository state…": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Checking repository state…" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "正在检查仓库状态…" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "正在檢查儲存庫狀態…" } }
+    } },
+    "Applying worktree changes…": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Applying worktree changes…" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "正在应用工作区更改…" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "正在套用工作區變更…" } }
+    } },
+    "Creating local commit…": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Creating local commit…" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "正在创建本地提交…" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "正在建立本機提交…" } }
+    } },
+    "Uploading to remote…": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Uploading to remote…" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "正在上传到远程仓库…" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "正在上傳到遠端儲存庫…" } }
+    } },
+    "Finalizing repository…": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Finalizing repository…" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "正在完成仓库处理…" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "正在完成儲存庫處理…" } }
+    } },
+    "Operation complete": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Operation complete" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "操作完成" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "操作完成" } }
+    } },
+    "Cancellation requested; waiting for a safe stopping point…": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Cancellation requested; waiting for a safe stopping point…" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "已请求取消；正在等待安全停止点…" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "已要求取消；正在等待安全停止點…" } }
+    } },
+    "Git operation cancelled safely.": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Git operation cancelled safely." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "Git 操作已安全取消。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "Git 操作已安全取消。" } }
+    } },
+    "Clone cancelled safely": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Clone cancelled safely" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "克隆已安全取消" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "複製已安全取消" } }
+    } },
+    "Pull cancelled safely": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Pull cancelled safely" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "拉取已安全取消" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "拉取已安全取消" } }
+    } },
+    "Pull cancelled before applying remote changes.": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Pull cancelled before applying remote changes." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "已在应用远程更改前取消拉取。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "已在套用遠端變更前取消拉取。" } }
+    } },
+    "Push cancelled before upload": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Push cancelled before upload" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "已在上传前取消推送" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "已在上傳前取消推送" } }
+    } },
+    "Push cancelled before commit": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Push cancelled before commit" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "已在提交前取消推送" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "已在提交前取消推送" } }
+    } },
+    "Cancel Safely": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Cancel Safely" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "安全取消" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "安全取消" } }
+    } },
+    "Waiting for a safe stopping point": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Waiting for a safe stopping point" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "正在等待安全停止点" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "正在等待安全停止點" } }
+    } },
     "Editor": { "localizations": {
       "en": { "stringUnit": { "state": "translated", "value": "Editor" } },
       "zh-Hans": { "stringUnit": { "state": "translated", "value": "编辑器" } },

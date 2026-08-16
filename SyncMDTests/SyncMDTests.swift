@@ -15,6 +15,34 @@ final class SyncMDTests: XCTestCase {
         XCTAssertTrue(true)
     }
 
+    func testLongGitOperationProgressUsesSafeCancellationBoundaries() {
+        var progress = GitLongOperationProgress(kind: .pull, stage: .transferring)
+        XCTAssertTrue(progress.canCancel)
+        XCTAssertEqual(progress.fraction, 0.38)
+
+        progress.cancellationRequested = true
+        XCTAssertFalse(progress.canCancel)
+        XCTAssertTrue(progress.message.contains("safe stopping point"))
+
+        progress = GitLongOperationProgress(kind: .push, stage: .uploading)
+        XCTAssertFalse(progress.canCancel, "Push upload has an ambiguous remote outcome and must not be interrupted")
+        XCTAssertEqual(progress.fraction, 0.86)
+    }
+
+    func testAppStateRecordsCancellationRequestOnlyAtSafeStage() {
+        let state = AppState()
+        state.gitLongOperationProgress = GitLongOperationProgress(kind: .clone, stage: .transferring)
+
+        state.requestSyncCancellation()
+
+        XCTAssertTrue(state.isSyncCancellationRequested)
+        XCTAssertFalse(state.canCancelSyncOperation)
+
+        state.gitLongOperationProgress = GitLongOperationProgress(kind: .push, stage: .uploading)
+        state.requestSyncCancellation()
+        XCTAssertFalse(state.isSyncCancellationRequested)
+    }
+
     func testLegacyLogEntryDecodesWithoutRepositoryContext() throws {
         let id = UUID()
         let payload: [String: Any] = [
