@@ -55,6 +55,8 @@ struct FileEditorView: View {
     @State private var quickCommitMessage = ""
     @State private var isQuickPublishing = false
     @State private var publishValidation = HugoArticleValidation()
+    @State private var canRetryPublish = false
+    @State private var publishFailureMessage: String?
     @State private var showPublicationDateEditor = false
     @State private var publicationDateDraft = Date()
     @State private var persistenceMessage = String(localized: "File loaded")
@@ -74,7 +76,9 @@ struct FileEditorView: View {
     }
     private var isDirty: Bool { pendingContent != originalContent }
     private var canQuickPublish: Bool {
-        isDirty || state.hasArticleBundleChanges(repoID: repoID, fileURL: liveURL)
+        isDirty || canRetryPublish
+            || state.hasArticleBundleChanges(repoID: repoID, fileURL: liveURL)
+            || state.syncStateByRepo[repoID] == .ahead
     }
     private var language: SyntaxLanguage { SyntaxLanguage.detect(fileExtension: liveURL.pathExtension) }
     private var isMarkdown: Bool { ["md", "markdown"].contains(liveURL.pathExtension.lowercased()) }
@@ -159,9 +163,19 @@ struct FileEditorView: View {
                     message: $quickCommitMessage,
                     validation: publishValidation,
                     hasUnsavedChanges: isDirty,
+                    canRetry: canRetryPublish,
+                    failureMessage: publishFailureMessage,
                     isPublishing: isQuickPublishing,
                     progress: isQuickPublishing ? state.syncProgress : persistenceMessage,
-                    onPublish: { Task { await quickPublish() } },
+                    onPublish: {
+                        Task {
+                            if canRetryPublish {
+                                await retryQuickPublish()
+                            } else {
+                                await quickPublish()
+                            }
+                        }
+                    },
                     onCancel: { if !isQuickPublishing { showQuickPublish = false } }
                 )
                 .zIndex(30)
@@ -315,6 +329,10 @@ struct FileEditorView: View {
             state.detectChanges(repoID: repoID)
         }
         .onChange(of: pendingContent) { _, newValue in
+            if canRetryPublish {
+                canRetryPublish = false
+                publishFailureMessage = nil
+            }
             scheduleDraftSave(newValue)
         }
         .onChange(of: scenePhase) { _, phase in
@@ -692,6 +710,7 @@ struct FileEditorView: View {
                 suffix += 1
             }
             try data.write(to: destination, options: .atomic)
+            invalidatePublishRetry()
             loadImages()
             insertMarkdownImage(named: destination.lastPathComponent)
             state.detectChanges(repoID: repoID)
@@ -741,6 +760,7 @@ struct FileEditorView: View {
         guard destination != image, !FileManager.default.fileExists(atPath: destination.path) else { return }
         do {
             try FileManager.default.moveItem(at: image, to: destination)
+            invalidatePublishRetry()
             replaceImageReference(from: image.lastPathComponent, to: destination.lastPathComponent)
             loadImages()
             state.detectChanges(repoID: repoID)
@@ -757,6 +777,7 @@ struct FileEditorView: View {
                 ? image
                 : image.deletingPathExtension().appendingPathExtension(sourceExtension)
             try data.write(to: destination, options: .atomic)
+            invalidatePublishRetry()
             if destination != image {
                 try FileManager.default.removeItem(at: image)
                 replaceImageReference(from: image.lastPathComponent, to: destination.lastPathComponent)
@@ -769,6 +790,7 @@ struct FileEditorView: View {
     private func deleteImage(_ image: URL) {
         do {
             try FileManager.default.removeItem(at: image)
+            invalidatePublishRetry()
             loadImages()
             state.detectChanges(repoID: repoID)
         } catch { imageMessage = error.localizedDescription }
@@ -779,8 +801,13 @@ struct FileEditorView: View {
         frontMatter.body = frontMatter.body.replacingOccurrences(of: "images/\(oldName)", with: "images/\(newName)")
     }
 
+    private func invalidatePublishRetry() {
+        canRetryPublish = false
+        publishFailureMessage = nil
+    }
+
     @discardableResult
-    private func performSave(operationID: String? = nil) -> Bool {
+    private func performSave(operationID: String? = nil, removeDraft: Bool = true) -> Bool {
         content = pendingContent
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         guard let data = content.data(using: .utf8) else { return false }
@@ -788,7 +815,11 @@ struct FileEditorView: View {
             try data.write(to: liveURL, options: .atomic)
             originalContent = content
             draftSaveTask?.cancel()
-            try? draftStore.remove(repoID: repoID, fileURL: liveURL)
+            if removeDraft {
+                try? draftStore.remove(repoID: repoID, fileURL: liveURL)
+            } else {
+                try? draftStore.save(content: content, repoID: repoID, fileURL: liveURL)
+            }
             state.detectChanges(repoID: repoID)
             persistenceMessage = String(localized: "File saved · not committed")
             DebugLogger.shared.info(
@@ -819,6 +850,12 @@ struct FileEditorView: View {
             markdown: pendingContent,
             fileURL: liveURL
         )
+        if !isDirty,
+           !state.hasArticleBundleChanges(repoID: repoID, fileURL: liveURL),
+           state.syncStateByRepo[repoID] == .ahead {
+            canRetryPublish = true
+            publishFailureMessage = String(localized: "A local commit is waiting to be pushed.")
+        }
         showQuickPublish = true
     }
 
@@ -843,7 +880,7 @@ struct FileEditorView: View {
             )
             return
         }
-        guard performSave(operationID: operationID) else { return }
+        guard performSave(operationID: operationID, removeDraft: false) else { return }
         isQuickPublishing = true
         persistenceMessage = String(localized: "Saving file…")
 
@@ -851,6 +888,7 @@ struct FileEditorView: View {
         guard staged else {
             isQuickPublishing = false
             persistenceMessage = String(localized: "No article changes to commit")
+            try? draftStore.remove(repoID: repoID, fileURL: liveURL)
             return
         }
 
@@ -858,12 +896,44 @@ struct FileEditorView: View {
         let pushed = await state.push(repoID: repoID, message: quickCommitMessage, operationID: operationID)
         isQuickPublishing = false
         if pushed {
-            quickCommitMessage = ""
-            showQuickPublish = false
-            persistenceMessage = String(localized: "Pushed to GitHub")
+            finishSuccessfulPublish()
         } else {
-            persistenceMessage = String(localized: "Push failed · file remains saved")
+            preserveFailedPublish()
         }
+    }
+
+    private func retryQuickPublish() async {
+        guard !isQuickPublishing else { return }
+        let operationID = String(UUID().uuidString.prefix(8)).lowercased()
+        isQuickPublishing = true
+        persistenceMessage = String(localized: "Retrying push…")
+        let pushed = await state.retryPush(
+            repoID: repoID,
+            message: quickCommitMessage,
+            operationID: operationID
+        )
+        isQuickPublishing = false
+        if pushed {
+            finishSuccessfulPublish()
+        } else {
+            preserveFailedPublish()
+        }
+    }
+
+    private func preserveFailedPublish() {
+        try? draftStore.save(content: content, repoID: repoID, fileURL: liveURL)
+        canRetryPublish = true
+        publishFailureMessage = state.lastError ?? String(localized: "Push failed · file remains saved")
+        persistenceMessage = String(localized: "Push failed · retry available")
+    }
+
+    private func finishSuccessfulPublish() {
+        try? draftStore.remove(repoID: repoID, fileURL: liveURL)
+        canRetryPublish = false
+        publishFailureMessage = nil
+        quickCommitMessage = ""
+        showQuickPublish = false
+        persistenceMessage = String(localized: "Pushed to GitHub")
     }
 
     private func performDelete() {
@@ -883,6 +953,7 @@ struct FileEditorView: View {
         do {
             let previousURL = liveURL
             try FileManager.default.moveItem(at: previousURL, to: dest)
+            invalidatePublishRetry()
             if isDirty {
                 try? draftStore.save(content: pendingContent, repoID: repoID, fileURL: dest)
             }
@@ -969,6 +1040,8 @@ private struct ArticleQuickPublishModal: View {
     @Binding var message: String
     let validation: HugoArticleValidation
     let hasUnsavedChanges: Bool
+    let canRetry: Bool
+    let failureMessage: String?
     let isPublishing: Bool
     let progress: String
     let onPublish: () -> Void
@@ -989,6 +1062,22 @@ private struct ArticleQuickPublishModal: View {
                 .padding(20)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 BDivider()
+                if let failureMessage {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(String(localized: "Push failed · retry available"))
+                            .font(.system(size: 11, weight: .bold, design: .monospaced))
+                            .foregroundStyle(Color.brutalError)
+                        Text(failureMessage)
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(Color.brutalTextMid)
+                        Text(String(localized: "Your content and publish selection remain local. Retry will not create a duplicate commit."))
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(Color.brutalTextMid)
+                    }
+                    .padding(14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    BDivider()
+                }
                 ScrollView {
                     VStack(alignment: .leading, spacing: 10) {
                         validationRow(
@@ -1040,7 +1129,10 @@ private struct ArticleQuickPublishModal: View {
                     .padding(.bottom, 10)
                 }
                 VStack(spacing: 8) {
-                    BPrimaryButton(title: String(localized: "Save, Commit & Push"), action: onPublish)
+                    BPrimaryButton(
+                        title: canRetry ? String(localized: "Retry Push") : String(localized: "Save, Commit & Push"),
+                        action: onPublish
+                    )
                         .disabled(isPublishing || !validation.isValid)
                     BGhostButton(title: String(localized: "Cancel"), action: onCancel)
                         .frame(maxWidth: .infinity)

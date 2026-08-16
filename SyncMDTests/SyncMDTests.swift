@@ -720,6 +720,67 @@ final class SyncMDTests: XCTestCase {
     }
 
     @MainActor
+    func testAppStateRetryPushReusesStagingWhenCommitWasNotCreated() async throws {
+        let fixture = try GitFixtureFactory.make(state: .dirty)
+        defer { fixture.cleanup() }
+        fixture.repository.commitAndPushResult = .failure(LocalGitError.pushFailed("network down"))
+        let appState = AppState(
+            gitRepositoryFactory: { _ in fixture.repository },
+            loadPersistedState: false
+        )
+        appState.repos = [fixture.repoConfig]
+        appState.syncStateByRepo[fixture.repoConfig.id] = .ahead
+
+        let firstResult = await appState.push(repoID: fixture.repoConfig.id, message: "publish article")
+
+        XCTAssertFalse(firstResult)
+        XCTAssertEqual(fixture.repository.commitAndPushMessages, ["publish article"])
+
+        fixture.repository.commitAndPushResult = .success(
+            LocalPushResult(commitSHA: "6666666666666666666666666666666666666666")
+        )
+        let retryResult = await appState.retryPush(repoID: fixture.repoConfig.id, message: "publish article")
+
+        XCTAssertTrue(retryResult)
+        XCTAssertEqual(fixture.repository.commitAndPushMessages, ["publish article", "publish article"])
+        XCTAssertEqual(fixture.repository.pushCurrentBranchCallCount, 0)
+    }
+
+    @MainActor
+    func testAppStateRetryPushDoesNotCreateDuplicateCommitAfterPushFailure() async throws {
+        let fixture = try GitFixtureFactory.make(state: .dirty)
+        defer { fixture.cleanup() }
+        let localCommitSHA = "7777777777777777777777777777777777777777"
+        fixture.repository.commitAndPushFailureCommitSHA = localCommitSHA
+        fixture.repository.commitAndPushResult = .failure(LocalGitError.pushFailed("network down"))
+        let appState = AppState(
+            gitRepositoryFactory: { _ in fixture.repository },
+            loadPersistedState: false
+        )
+        appState.repos = [fixture.repoConfig]
+
+        let firstResult = await appState.push(repoID: fixture.repoConfig.id, message: "publish article")
+
+        XCTAssertFalse(firstResult)
+        XCTAssertEqual(appState.repos.first?.gitState.commitSHA, localCommitSHA)
+        XCTAssertEqual(appState.syncStateByRepo[fixture.repoConfig.id], .ahead)
+
+        fixture.repository.pushCurrentBranchResult = .success(())
+        fixture.repository.repoInfoResult = LocalRepoInfo(
+            branch: "main",
+            commitSHA: localCommitSHA,
+            changeCount: 0,
+            syncState: .upToDate,
+            statusEntries: []
+        )
+        let retryResult = await appState.retryPush(repoID: fixture.repoConfig.id, message: "publish article")
+
+        XCTAssertTrue(retryResult)
+        XCTAssertEqual(fixture.repository.commitAndPushMessages, ["publish article"])
+        XCTAssertEqual(fixture.repository.pushCurrentBranchCallCount, 1)
+    }
+
+    @MainActor
     func testAppStateNonSSHHostKeyErrorsStillShowRegularErrorAlert() async throws {
         let fixture = try GitFixtureFactory.make(state: .clean)
         defer { fixture.cleanup() }
@@ -3959,6 +4020,7 @@ private final class FakeGitRepository: GitRepositoryProtocol, @unchecked Sendabl
     var pushCurrentBranchCallCount = 0
     var commitAndPushResult: Result<LocalPushResult, Error>?
     var commitAndPushMessages: [String] = []
+    var commitAndPushFailureCommitSHA: String?
 
     init(repoInfoResult: LocalRepoInfo) {
         self.repoInfoResult = repoInfoResult
@@ -4160,6 +4222,15 @@ private final class FakeGitRepository: GitRepositoryProtocol, @unchecked Sendabl
             case .success(let result):
                 return result
             case .failure(let error):
+                if let commitSHA = commitAndPushFailureCommitSHA {
+                    repoInfoResult = LocalRepoInfo(
+                        branch: repoInfoResult.branch,
+                        commitSHA: commitSHA,
+                        changeCount: 0,
+                        syncState: .ahead,
+                        statusEntries: []
+                    )
+                }
                 throw error
             }
         }

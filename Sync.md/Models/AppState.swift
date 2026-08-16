@@ -184,6 +184,8 @@ final class AppState {
     private var lastChangeDetectionStartedAt: [UUID: Date] = [:]
     private var repoMutationGeneration: [UUID: Int] = [:]
     private var didScheduleInitialChangeDetection = false
+    private var pushRetryRequiresCurrentBranch: Set<UUID> = []
+    private var pushRetryRequiresCommit: Set<UUID> = []
 
     // MARK: - PAT / GitHub Accounts
 
@@ -2056,7 +2058,7 @@ final class AppState {
         case .pushCurrentBranch:
             _ = await pushCurrentBranch(repoID: repoID)
         case .pushCommit(let message):
-            _ = await push(repoID: repoID, message: message)
+            _ = await retryPush(repoID: repoID, message: message)
         }
     }
 
@@ -2652,6 +2654,8 @@ final class AppState {
             repos[idx].gitState.lastSyncDate = Date()
             saveRepos()
             clearCommitHistoryCache(for: repoID)
+            pushRetryRequiresCurrentBranch.remove(repoID)
+            pushRetryRequiresCommit.remove(repoID)
             detectChanges(repoID: repoID)
             await loadBranches(repoID: repoID)
             syncProgress = String(localized: "Push complete!")
@@ -2692,9 +2696,12 @@ final class AppState {
         }
 
         let operationID = suppliedOperationID ?? String(UUID().uuidString.prefix(8)).lowercased()
+        pushRetryRequiresCurrentBranch.remove(repoID)
+        pushRetryRequiresCommit.remove(repoID)
         isSyncing = true
         syncingRepoID = repoID
         syncProgress = String(localized: "Preparing changes...")
+        var startingCommitSHA: String?
 
         do {
             var repo = repos[idx]
@@ -2704,6 +2711,8 @@ final class AppState {
             guard gitService.hasGitDirectory else {
                 throw LocalGitError.notCloned
             }
+
+            startingCommitSHA = (try? await gitService.repoInfo())?.commitSHA
 
             let commitMsg = message.isEmpty ? String(localized: "Update from GitSync.md") : message
 
@@ -2725,6 +2734,8 @@ final class AppState {
             repos[idx] = repo
             saveRepos()
             clearCommitHistoryCache(for: repoID)
+            pushRetryRequiresCurrentBranch.remove(repoID)
+            pushRetryRequiresCommit.remove(repoID)
             detectChanges(repoID: repoID)
             syncProgress = String(localized: "Push complete!")
             DebugLogger.shared.info(
@@ -2737,6 +2748,26 @@ final class AppState {
             return true
 
         } catch {
+            let vaultDir = vaultURL(for: repoID)
+            let gitService = gitRepositoryFactory(vaultDir)
+            pushRetryRequiresCurrentBranch.remove(repoID)
+            pushRetryRequiresCommit.insert(repoID)
+            if let info = try? await gitService.repoInfo() {
+                let previousCommitSHA = startingCommitSHA ?? repos[idx].gitState.commitSHA
+                repos[idx].gitState.branch = info.branch
+                repos[idx].gitState.commitSHA = info.commitSHA
+                changeCounts[repoID] = info.changeCount
+                statusEntriesByRepo[repoID] = info.statusEntries
+                syncStateByRepo[repoID] = info.syncState
+                if !previousCommitSHA.isEmpty, info.commitSHA != previousCommitSHA {
+                    pushRetryRequiresCurrentBranch.insert(repoID)
+                    pushRetryRequiresCommit.remove(repoID)
+                } else {
+                    pushRetryRequiresCurrentBranch.remove(repoID)
+                    pushRetryRequiresCommit.insert(repoID)
+                }
+                saveRepos()
+            }
             if !handleSSHHostKeyTrustIfNeeded(error, repoID: repoID, operation: .pushCommit(message: message)) {
                 showError(message: error.localizedDescription, category: "push", repoID: repoID, operationID: operationID)
             }
@@ -2746,6 +2777,20 @@ final class AppState {
         isSyncing = false
         syncingRepoID = nil
         return false
+    }
+
+    @discardableResult
+    func retryPush(repoID: UUID, message: String, operationID: String? = nil) async -> Bool {
+        if pushRetryRequiresCurrentBranch.contains(repoID) {
+            return await pushCurrentBranch(repoID: repoID)
+        }
+        if pushRetryRequiresCommit.contains(repoID) {
+            return await push(repoID: repoID, message: message, operationID: operationID)
+        }
+        if syncStateByRepo[repoID] == .ahead {
+            return await pushCurrentBranch(repoID: repoID)
+        }
+        return await push(repoID: repoID, message: message, operationID: operationID)
     }
 
 
