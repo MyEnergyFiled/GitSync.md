@@ -4306,6 +4306,29 @@ private final class FakeGitRepository: GitRepositoryProtocol, @unchecked Sendabl
 }
 
 final class HugoContentServiceTests: XCTestCase {
+    func testArticlePreviewDocumentParsesCommonFrontMatterAndBody() {
+        let markdown = """
+        ---
+        title: "Preview Title"
+        date: 2026-08-16
+        draft: false
+        tags: [swift, "iOS"]
+        cover: "images/cover.jpg"
+        ---
+
+        Preview body.
+        """
+
+        let document = HugoArticlePreviewDocument(markdown: markdown)
+
+        XCTAssertEqual(document.title, "Preview Title")
+        XCTAssertEqual(document.date, "2026-08-16")
+        XCTAssertFalse(document.draft)
+        XCTAssertEqual(document.tags, ["swift", "iOS"])
+        XCTAssertEqual(document.cover, "images/cover.jpg")
+        XCTAssertEqual(document.body, "Preview body.")
+    }
+
     func testArticleSortSupportsPublicationModifiedTitleDirectoryAndDraftState() {
         let older = HugoArticle(
             fileURL: URL(fileURLWithPath: "/repo/content/z/index.md"),

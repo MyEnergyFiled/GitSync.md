@@ -533,18 +533,64 @@ struct FileEditorView: View {
     }
 
     private var markdownPreview: some View {
-        let parsed = MarkdownFrontMatter(markdown: content)
+        let document = HugoArticlePreviewDocument(markdown: content)
         return ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                if !parsed.title.isEmpty {
-                    Text(parsed.title)
-                        .font(.system(size: 28, weight: .bold, design: .serif))
-                        .foregroundStyle(Color.brutalText)
+                Text(document.title.isEmpty
+                     ? liveURL.deletingPathExtension().lastPathComponent
+                     : document.title)
+                    .font(.system(size: 28, weight: .bold, design: .serif))
+                    .foregroundStyle(Color.brutalText)
+
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) { previewMetadata(document) }
+                    VStack(alignment: .leading, spacing: 8) { previewMetadata(document) }
                 }
-                HugoMarkdownPreview(markdownBody: parsed.body, bundleURL: liveURL.deletingLastPathComponent())
+
+                if !document.tags.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(document.tags, id: \.self) { tag in
+                                Text("#\(tag)")
+                                    .font(.caption.monospaced().bold())
+                                    .padding(.horizontal, 8)
+                                    .frame(height: 26)
+                                    .background(Color.brutalSurface)
+                                    .overlay { Rectangle().stroke(Color.brutalBorder, lineWidth: 1) }
+                            }
+                        }
+                    }
+                }
+
+                Divider()
+                HugoMarkdownPreview(markdownBody: document.body, bundleURL: liveURL.deletingLastPathComponent())
             }
             .padding(24)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    @ViewBuilder
+    private func previewMetadata(_ document: HugoArticlePreviewDocument) -> some View {
+        previewMetadataChip(
+            icon: document.draft ? "doc.badge.ellipsis" : "checkmark.seal",
+            text: document.draft ? String(localized: "Draft") : String(localized: "Published")
+        )
+        if !document.date.isEmpty {
+            previewMetadataChip(icon: "calendar", text: document.date)
+        }
+        if !document.cover.isEmpty {
+            previewMetadataChip(icon: "photo", text: document.cover)
+        }
+    }
+
+    private func previewMetadataChip(icon: String, text: String) -> some View {
+        Label(text, systemImage: icon)
+            .font(.caption.monospaced())
+            .foregroundStyle(Color.brutalTextMid)
+            .padding(.horizontal, 8)
+            .frame(height: 28)
+            .overlay { Rectangle().stroke(Color.brutalBorder, lineWidth: 1) }
     }
 
     private var persistenceBar: some View {

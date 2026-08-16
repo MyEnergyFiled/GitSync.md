@@ -630,3 +630,25 @@ struct MarkdownFrontMatter {
         return ([delimiter] + header + [delimiter, "", body]).joined(separator: "\n")
     }
 }
+
+struct HugoArticlePreviewDocument: Equatable {
+    let title: String
+    let date: String
+    let draft: Bool
+    let tags: [String]
+    let cover: String
+    let body: String
+
+    init(markdown: String) {
+        let matter = MarkdownFrontMatter(markdown: markdown)
+        title = matter.title
+        date = matter.date
+        draft = matter.draft
+        tags = matter.tags.split(separator: ",").map { value in
+            value.trimmingCharacters(in: .whitespacesAndNewlines)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+        }.filter { !$0.isEmpty }
+        cover = matter.cover
+        body = matter.body
+    }
+}
