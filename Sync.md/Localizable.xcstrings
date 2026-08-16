@@ -121544,6 +121544,26 @@
       "zh-Hans": { "stringUnit": { "state": "translated", "value": "外部仓库文件夹不可用。请解锁设备后打开 GitSync.md，并重新授予文件夹访问权限。" } },
       "zh-Hant": { "stringUnit": { "state": "translated", "value": "外部儲存庫資料夾無法使用。請解鎖裝置後開啟 GitSync.md，並重新授予資料夾存取權限。" } }
     } },
+    "Unsupported Hugo template expression: %@": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Unsupported Hugo template expression: %1$@" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "不支持的 Hugo 模板表达式：%1$@" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "不支援的 Hugo 範本運算式：%1$@" } }
+    } },
+    "Unsupported Hugo shortcode: %@": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Unsupported Hugo shortcode: %1$@" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "不支持的 Hugo shortcode：%1$@" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "不支援的 Hugo shortcode：%1$@" } }
+    } },
+    "External %@ embed disabled in preview: %@": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "External %1$@ embed disabled in preview: %2$@" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "预览中已禁用外部 %1$@ 嵌入：%2$@" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "預覽中已停用外部 %1$@ 嵌入：%2$@" } }
+    } },
+    "Missing shortcode image: %@": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Missing shortcode image: %1$@" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "shortcode 图片缺失：%1$@" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "shortcode 圖片缺失：%1$@" } }
+    } },
     "Preview Style": { "localizations": {
       "en": { "stringUnit": { "state": "translated", "value": "Preview Style" } },
       "zh-Hans": { "stringUnit": { "state": "translated", "value": "预览样式" } },

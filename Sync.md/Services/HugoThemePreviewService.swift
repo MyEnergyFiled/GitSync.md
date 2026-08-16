@@ -12,6 +12,8 @@ enum HugoPreviewStyle: String, CaseIterable, Identifiable {
 struct HugoThemePreviewPage: Equatable {
     let html: String
     let stylesheetPaths: [String]
+    let layoutPath: String?
+    let compatibilityIssues: [String]
     let resourceSignature: String
 }
 
@@ -35,7 +37,7 @@ enum HugoThemePreviewService {
             guard let resource = resourceURL(for: fileURL, repositoryRoot: repositoryRoot) else { return nil }
             return #"<link rel="stylesheet" href="\#(resource)">"#
         }.joined(separator: "\n")
-        let body = renderBlocks(
+        let renderedBlocks = renderBlocks(
             HugoPreviewParser.blocks(from: document.body),
             bundleURL: articleURL.deletingLastPathComponent(),
             repositoryRoot: repositoryRoot,
@@ -56,6 +58,36 @@ enum HugoThemePreviewService {
             configuration: configuration
         ).flatMap { resourceURL(for: $0, repositoryRoot: repositoryRoot) }
             .map { #"<img class="gitsync-cover" src="\#($0)" alt="">"# } ?? ""
+        let fallbackArticle = """
+        <article class="gitsync-page single">
+          <header>
+            <h1 class="gitsync-title">\(escapeHTML(title))</h1>
+            <div class="gitsync-meta">\(metadata)</div>
+            <ul class="gitsync-tags">\(tags)</ul>
+            \(cover)
+          </header>
+          <main class="gitsync-content">\(renderedBlocks.html)</main>
+        </article>
+        """
+        let layout = discoverLayout(repositoryRoot: repositoryRoot, configuration: configuration)
+        let section = articleSection(articleURL: articleURL, repositoryRoot: repositoryRoot)
+        let context = HugoTemplatePreviewContext(
+            title: title,
+            date: document.date,
+            draft: document.draft,
+            contentHTML: renderedBlocks.html,
+            siteTitle: repositoryRoot.lastPathComponent,
+            language: configuration.defaultContentLanguage ?? configuration.languages.first ?? "en",
+            contentType: section.isEmpty ? "page" : section,
+            section: section,
+            layout: "single",
+            permalink: previewPermalink(section: section, articleURL: articleURL, configuration: configuration),
+            params: MarkdownFrontMatter(markdown: markdown).customValues
+        )
+        let renderedLayout = layout.map {
+            HugoTemplateCompatibilityService.renderTemplate($0.template, context: context)
+        }
+        let pageContent = renderedLayout?.html ?? fallbackArticle
         let html = """
         <!doctype html>
         <html>
@@ -63,7 +95,6 @@ enum HugoThemePreviewService {
           <meta charset="utf-8">
           <meta name="viewport" content="width=device-width, initial-scale=1">
           <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline' \(resourceScheme):; img-src data: \(resourceScheme):; font-src \(resourceScheme):; media-src \(resourceScheme):; script-src 'none'; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
-          \(stylesheetLinks)
           <style>
             :root { color-scheme: light dark; }
             html, body { margin: 0; min-height: 100%; }
@@ -77,17 +108,10 @@ enum HugoThemePreviewService {
             .gitsync-content th, .gitsync-content td { padding: 8px; border: 1px solid currentColor; }
             .gitsync-placeholder { padding: 12px; border: 1px dashed currentColor; opacity: .72; }
           </style>
+          \(stylesheetLinks)
         </head>
         <body>
-          <article class="gitsync-page single">
-            <header>
-              <h1 class="gitsync-title">\(escapeHTML(title))</h1>
-              <div class="gitsync-meta">\(metadata)</div>
-              <ul class="gitsync-tags">\(tags)</ul>
-              \(cover)
-            </header>
-            <main class="gitsync-content">\(body)</main>
-          </article>
+          \(pageContent)
         </body>
         </html>
         """
@@ -97,6 +121,8 @@ enum HugoThemePreviewService {
         return HugoThemePreviewPage(
             html: html,
             stylesheetPaths: relativePaths,
+            layoutPath: layout?.relativePath,
+            compatibilityIssues: renderedBlocks.issues + (renderedLayout?.issues ?? []),
             resourceSignature: resourceSignature(for: stylesheets)
         )
     }
@@ -160,7 +186,7 @@ enum HugoThemePreviewService {
         return Array(Set(files.map(\.standardizedFileURL))).sorted { $0.path < $1.path }
     }
 
-    private static func previewAssetURL(
+    static func previewAssetURL(
         for reference: String,
         bundleURL: URL,
         repositoryRoot: URL,
@@ -191,8 +217,9 @@ enum HugoThemePreviewService {
         bundleURL: URL,
         repositoryRoot: URL,
         configuration: HugoSiteConfiguration
-    ) -> String {
-        blocks.map { block in
+    ) -> HugoCompatibilityRenderResult {
+        var issues: [String] = []
+        let html = blocks.map { block in
             switch block {
             case .markdown(let value):
                 return "<p>\(renderInline(value))</p>"
@@ -221,9 +248,55 @@ enum HugoThemePreviewService {
                 }.joined()
                 return "<table><thead><tr>\(header)</tr></thead><tbody>\(body)</tbody></table>"
             case .shortcode(let source):
-                return #"<div class="gitsync-placeholder"><strong>Hugo shortcode</strong><br><code>\#(escapeHTML(source))</code></div>"#
+                let rendered = HugoTemplateCompatibilityService.renderShortcode(source) { reference in
+                    previewAssetURL(
+                        for: reference,
+                        bundleURL: bundleURL,
+                        repositoryRoot: repositoryRoot,
+                        configuration: configuration
+                    ).flatMap { resourceURL(for: $0, repositoryRoot: repositoryRoot) }
+                }
+                issues.append(contentsOf: rendered.issues)
+                return rendered.html
             }
         }.joined(separator: "\n")
+        return HugoCompatibilityRenderResult(html: html, issues: issues)
+    }
+
+    private static func discoverLayout(
+        repositoryRoot: URL,
+        configuration: HugoSiteConfiguration
+    ) -> (relativePath: String, template: String)? {
+        var candidates = [repositoryRoot.appendingPathComponent("layouts/_default/single.html")]
+        candidates.append(contentsOf: configuration.themes.map {
+            repositoryRoot.appendingPathComponent("themes/\($0)/layouts/_default/single.html")
+        })
+        for candidate in candidates {
+            guard let relative = relativePath(for: candidate, repositoryRoot: repositoryRoot),
+                  let values = try? candidate.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+                  values.isRegularFile == true,
+                  (values.fileSize ?? 0) <= 1_048_576,
+                  let template = try? String(contentsOf: candidate, encoding: .utf8) else { continue }
+            return (relative, template)
+        }
+        return nil
+    }
+
+    private static func articleSection(articleURL: URL, repositoryRoot: URL) -> String {
+        guard let relative = relativePath(for: articleURL, repositoryRoot: repositoryRoot) else { return "" }
+        let components = relative.split(separator: "/").map(String.init)
+        guard components.first == "content", components.count > 2 else { return "" }
+        return components[1]
+    }
+
+    private static func previewPermalink(
+        section: String,
+        articleURL: URL,
+        configuration: HugoSiteConfiguration
+    ) -> String {
+        let slug = articleURL.deletingLastPathComponent().lastPathComponent
+        let pattern = configuration.permalinks[section] ?? "/\(section)/:slug/"
+        return pattern.replacingOccurrences(of: ":slug", with: slug)
     }
 
     private static func renderInline(_ value: String) -> String {

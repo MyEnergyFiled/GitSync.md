@@ -4595,6 +4595,83 @@ final class HugoContentServiceTests: XCTestCase {
         XCTAssertEqual(HugoThemePreviewService.mimeType(for: css), "text/css")
     }
 
+    func testHugoTemplateCompatibilityResolvesCommonVariablesAndMarksUnknownExpressions() {
+        let context = HugoTemplatePreviewContext(
+            title: "A <Title>",
+            date: "2026-08-16",
+            draft: false,
+            contentHTML: "<p>Rendered body</p>",
+            siteTitle: "Example Site",
+            language: "zh-Hans",
+            contentType: "posts",
+            section: "posts",
+            layout: "single",
+            permalink: "/posts/example/",
+            params: ["featured": "yes"]
+        )
+        let template = """
+        {{ define "main" }}
+        <article lang="{{ .Site.Language.Lang }}">
+          <h1>{{ .Title }}</h1>
+          {{ .Content | safeHTML }}
+          <span>{{ .Params.featured }}</span>
+          {{ partial "author.html" . }}
+        </article>
+        {{ end }}
+        """
+
+        let result = HugoTemplateCompatibilityService.renderTemplate(template, context: context)
+
+        XCTAssertTrue(result.html.contains("lang=\"zh-Hans\""))
+        XCTAssertTrue(result.html.contains("A &lt;Title&gt;"))
+        XCTAssertTrue(result.html.contains("<p>Rendered body</p>"))
+        XCTAssertTrue(result.html.contains("<span>yes</span>"))
+        XCTAssertTrue(result.html.contains("Unsupported Hugo template expression"))
+        XCTAssertEqual(result.issues.count, 1)
+    }
+
+    func testHugoShortcodeCompatibilityRendersFigureAndMarksUnsupportedShortcode() {
+        let figure = HugoTemplateCompatibilityService.renderShortcode(
+            #"{{< figure src="images/photo.jpg" title="Photo" >}}"#
+        ) { path in
+            path == "images/photo.jpg" ? "gitsync-resource://local/content/photo.jpg" : nil
+        }
+        let unsupported = HugoTemplateCompatibilityService.renderShortcode(
+            "{{< custom-widget >}}"
+        ) { _ in nil }
+
+        XCTAssertTrue(figure.html.contains("gitsync-resource://local/content/photo.jpg"))
+        XCTAssertTrue(figure.html.contains("<figcaption>Photo</figcaption>"))
+        XCTAssertTrue(figure.issues.isEmpty)
+        XCTAssertTrue(unsupported.html.contains("Unsupported Hugo shortcode"))
+        XCTAssertEqual(unsupported.issues.count, 1)
+    }
+
+    func testThemePreviewUsesRepositoryLayoutAndReportsCompatibilityIssues() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let layout = root.appendingPathComponent("layouts/_default/single.html")
+        let bundle = root.appendingPathComponent("content/posts/example", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+        try fileManager.createDirectory(at: layout.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: bundle, withIntermediateDirectories: true)
+        try "<main><h1>{{ .Title }}</h1>{{ .Content }}{{ mystery . }}</main>"
+            .write(to: layout, atomically: true, encoding: .utf8)
+
+        let page = HugoThemePreviewService.render(
+            markdown: "---\ntitle: \"Layout Title\"\n---\n\n{{< unknown >}}",
+            articleURL: bundle.appendingPathComponent("index.md"),
+            repositoryRoot: root,
+            configuration: HugoSiteConfiguration(configurationFiles: ["hugo.toml"])
+        )
+
+        XCTAssertEqual(page.layoutPath, "layouts/_default/single.html")
+        XCTAssertTrue(page.html.contains("<h1>Layout Title</h1>"))
+        XCTAssertEqual(page.compatibilityIssues.count, 2)
+        XCTAssertTrue(page.html.contains("Unsupported Hugo shortcode"))
+        XCTAssertTrue(page.html.contains("Unsupported Hugo template expression"))
+    }
+
     func testArticleSortSupportsPublicationModifiedTitleDirectoryAndDraftState() {
         let older = HugoArticle(
             fileURL: URL(fileURLWithPath: "/repo/content/z/index.md"),
