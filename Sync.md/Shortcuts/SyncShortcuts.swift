@@ -1,5 +1,6 @@
 import AppIntents
 import Foundation
+import UIKit
 
 struct GitRepositoryEntity: AppEntity, Identifiable {
     static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Repository")
@@ -142,6 +143,10 @@ struct SyncMDAppShortcutsProvider: AppShortcutsProvider {
 @MainActor
 private enum GitShortcutRunner {
     static func pullAllRepositories() async -> String {
+        guard UIApplication.shared.isProtectedDataAvailable else {
+            return AutomatedPullBlockReason.protectedDataUnavailable.message()
+        }
+
         let state = AppState()
         let clonedRepos = state.repos.filter(\.isCloned)
 
@@ -158,6 +163,10 @@ private enum GitShortcutRunner {
     }
 
     static func pullRepository(id: String) async -> String {
+        guard UIApplication.shared.isProtectedDataAvailable else {
+            return AutomatedPullBlockReason.protectedDataUnavailable.message()
+        }
+
         guard let repoID = UUID(uuidString: id) else {
             return String(localized: "Repository not found. Pick a repository again in Shortcuts.")
         }
@@ -167,14 +176,24 @@ private enum GitShortcutRunner {
             return String(localized: "Repository not found. Pick a repository again in Shortcuts.")
         }
 
-        guard repo.isCloned else {
-            return String(localized: "\(repo.displayName) has not been cloned yet. Open GitSync.md and clone it first.")
-        }
-
         return (await pull(repo: repo, in: state)).dialog
     }
 
     private static func pull(repo: RepoConfig, in state: AppState) async -> GitShortcutPullResult {
+        let blockReason = AutomatedPullPolicy.blockReason(
+            isProtectedDataAvailable: UIApplication.shared.isProtectedDataAvailable,
+            isCloned: repo.isCloned,
+            requiresExternalStorage: repo.customVaultBookmarkData != nil,
+            hasExternalStorageAccess: state.isUsingCustomLocation(for: repo.id)
+        )
+        if let blockReason {
+            return GitShortcutPullResult(
+                repositoryName: repo.displayName,
+                status: .blocked,
+                message: blockReason.message(repositoryName: repo.displayName)
+            )
+        }
+
         let succeeded = await state.pull(repoID: repo.id, showsProgressDelay: false)
         let outcome = state.pullOutcomeByRepo[repo.id]
         let message = outcome?.message

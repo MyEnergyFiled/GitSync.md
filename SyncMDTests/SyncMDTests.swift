@@ -75,6 +75,63 @@ final class SyncMDTests: XCTestCase {
         XCTAssertFalse(guidance.recoverySuggestion.isEmpty)
     }
 
+    func testAutomatedPullPolicyRequiresProtectedData() {
+        let reason = AutomatedPullPolicy.blockReason(
+            isProtectedDataAvailable: false,
+            isCloned: true,
+            requiresExternalStorage: false,
+            hasExternalStorageAccess: true
+        )
+
+        XCTAssertEqual(reason, .protectedDataUnavailable)
+    }
+
+    func testAutomatedPullPolicyRequiresExternalFolderAccess() {
+        let reason = AutomatedPullPolicy.blockReason(
+            isProtectedDataAvailable: true,
+            isCloned: true,
+            requiresExternalStorage: true,
+            hasExternalStorageAccess: false
+        )
+
+        XCTAssertEqual(reason, .externalStorageUnavailable)
+    }
+
+    func testAutomatedPullPolicyAllowsAccessibleClone() {
+        let reason = AutomatedPullPolicy.blockReason(
+            isProtectedDataAvailable: true,
+            isCloned: true,
+            requiresExternalStorage: true,
+            hasExternalStorageAccess: true
+        )
+
+        XCTAssertNil(reason)
+    }
+
+    func testValidationPreservesCloneStateWhenExternalFolderIsTemporarilyUnavailable() {
+        let state = AppState(loadPersistedState: false)
+        let repo = RepoConfig(
+            repoURL: "https://github.com/example/notes.git",
+            branch: "main",
+            authorName: "",
+            authorEmail: "",
+            vaultFolderName: "notes",
+            customVaultBookmarkData: Data([0x01]),
+            gitState: GitState(
+                commitSHA: "abc123",
+                treeSHA: "tree123",
+                branch: "main",
+                blobSHAs: [:],
+                lastSyncDate: .now
+            )
+        )
+        state.repos = [repo]
+
+        state.validateClonedRepos()
+
+        XCTAssertTrue(state.repo(id: repo.id)?.isCloned == true)
+    }
+
     func testLegacyLogEntryDecodesWithoutRepositoryContext() throws {
         let id = UUID()
         let payload: [String: Any] = [

@@ -20,7 +20,7 @@ GitSync.md clones Git repositories directly to your iPhone or iPad using [libgit
 - **Multiple repos** — Manage repositories from GitHub, self-hosted Git services, and local locations in one app.
 - **Custom save locations** — Store repos anywhere accessible via the Files app.
 - **Built-in file editing** — Browse and rename files, create Markdown documents, edit with syntax highlighting and Front Matter controls, and preview local images.
-- **Automation** — Trigger sync through `x-callback-url`, or use Shortcuts actions to pull one repository or all repositories.
+- **Automation** — Trigger sync through `x-callback-url`, or use protected-data-aware Shortcuts actions to pull one repository or all repositories within [iOS background limits](AUTOMATION_AND_BACKGROUND_SYNC.md).
 - **Obsidian and iPad support** — Use repositories as Obsidian vaults and work with layouts optimized for iPad.
 - **Hugo article workflow** — Create leaf bundles from `archetypes`, search and filter articles, edit Front Matter, and manage each article's `images/` directory.
 - **Safer publishing** — Draft recovery, article-scoped staging, pre-push validation, and protection against losing local content when Git or authentication fails.
@@ -168,10 +168,9 @@ Tokens are stored in the iOS Keychain. Debug logs never intentionally include au
 
 ## Development Status and Roadmap
 
-The core Git workspace, Git LFS transport, authentication methods, file editor, automation entry points, and Hugo writing workflow described above are implemented. Current work is focused on:
+The core Git workspace, Git LFS transport, authentication methods, file editor, automation entry points, and Hugo writing workflow described above are implemented. P3 Git stability and automation evaluation is complete; current work is focused on:
 
-- More detailed progress, cancellation, retry guidance, and a broader Git transport regression matrix
-- Background synchronization and automation within iOS execution and data-protection limits
+- Maintaining the [real-device Git regression matrix](REAL_DEVICE_REGRESSION.md) for release candidates
 - Longer-term Hugo theme-aware previewing
 
 The detailed, prioritized checklist remains in [TODO.md](TODO.md). Keeping the full task list there avoids duplicating fast-changing implementation details in the project overview.

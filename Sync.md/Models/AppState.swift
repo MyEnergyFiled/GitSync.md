@@ -780,6 +780,13 @@ final class AppState {
     func validateClonedRepos() {
         var didChange = false
         for (index, repo) in repos.enumerated() where repo.isCloned {
+            // A security-scoped provider can be temporarily unavailable while
+            // the device is locked or while the provider is offline. Preserve
+            // the last known clone state instead of treating that as deletion.
+            if repo.customVaultBookmarkData != nil && resolvedCustomURLs[repo.id] == nil {
+                continue
+            }
+
             let vaultDir = vaultURL(for: repo.id)
             let gitService = gitRepositoryFactory(vaultDir)
 

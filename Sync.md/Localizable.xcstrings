@@ -121524,6 +121524,26 @@
       "zh-Hans": { "stringUnit": { "state": "translated", "value": "移动" } },
       "zh-Hant": { "stringUnit": { "state": "translated", "value": "移動" } }
     } },
+    "Unlock the device before running GitSync.md automation. No repository was changed.": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Unlock the device before running GitSync.md automation. No repository was changed." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "运行 GitSync.md 自动化前请先解锁设备。没有仓库被更改。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "執行 GitSync.md 自動化前請先解鎖裝置。沒有儲存庫被變更。" } }
+    } },
+    "The repository has not been cloned yet. Open GitSync.md and clone it first.": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "The repository has not been cloned yet. Open GitSync.md and clone it first." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "仓库尚未克隆。请打开 GitSync.md 并先完成克隆。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "儲存庫尚未複製。請開啟 GitSync.md 並先完成複製。" } }
+    } },
+    "%@'s external folder is unavailable. Open GitSync.md while the device is unlocked and grant folder access again.": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "%1$@'s external folder is unavailable. Open GitSync.md while the device is unlocked and grant folder access again." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "%1$@ 的外部文件夹不可用。请解锁设备后打开 GitSync.md，并重新授予文件夹访问权限。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "%1$@ 的外部資料夾無法使用。請解鎖裝置後開啟 GitSync.md，並重新授予資料夾存取權限。" } }
+    } },
+    "The external repository folder is unavailable. Open GitSync.md while the device is unlocked and grant folder access again.": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "The external repository folder is unavailable. Open GitSync.md while the device is unlocked and grant folder access again." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "外部仓库文件夹不可用。请解锁设备后打开 GitSync.md，并重新授予文件夹访问权限。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "外部儲存庫資料夾無法使用。請解鎖裝置後開啟 GitSync.md，並重新授予資料夾存取權限。" } }
+    } },
     "Search logs, repositories, or operation IDs": {
       "localizations": {
         "en": {
