@@ -1348,7 +1348,7 @@ private struct ArticleDraftRecoveryModal: View {
                     Text(String(localized: "Unsaved Draft Found").uppercased())
                         .font(.system(size: 15, weight: .black, design: .monospaced))
                         .tracking(2)
-                    Text(String(localized: "GitSync.md preserved newer editor text. Restore it or use the version currently saved in the repository."))
+                    Text(String(localized: "HugoInk preserved newer editor text. Restore it or use the version currently saved in the repository."))
                         .font(.system(size: 13, design: .monospaced))
                         .foregroundStyle(Color.brutalTextMid)
                 }

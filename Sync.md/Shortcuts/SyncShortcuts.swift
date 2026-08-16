@@ -77,7 +77,7 @@ struct GitRepositoryEntityQuery: EntityStringQuery {
 
 struct PullAllRepositoriesIntent: AppIntent {
     static var title: LocalizedStringResource = "Pull All Repositories"
-    static var description = IntentDescription("Fetch and fast-forward every cloned GitSync.md repository. Use this in a Personal Automation that runs when GitSync.md opens to auto-pull on launch.")
+    static var description = IntentDescription("Fetch and fast-forward every cloned HugoInk repository. Use this in a Personal Automation that runs when HugoInk opens to auto-pull on launch.")
     static var openAppWhenRun = false
 
     @MainActor
@@ -89,10 +89,10 @@ struct PullAllRepositoriesIntent: AppIntent {
 
 struct PullRepositoryIntent: AppIntent {
     static var title: LocalizedStringResource = "Pull Repository"
-    static var description = IntentDescription("Fetch and fast-forward one cloned GitSync.md repository.")
+    static var description = IntentDescription("Fetch and fast-forward one cloned HugoInk repository.")
     static var openAppWhenRun = false
 
-    @Parameter(title: "Repository", requestValueDialog: "Which repository should GitSync.md pull?")
+    @Parameter(title: "Repository", requestValueDialog: "Which repository should HugoInk pull?")
     var repository: GitRepositoryEntity
 
     static var parameterSummary: some ParameterSummary {
@@ -151,7 +151,7 @@ private enum GitShortcutRunner {
         let clonedRepos = state.repos.filter(\.isCloned)
 
         guard !clonedRepos.isEmpty else {
-            return String(localized: "No cloned repositories to pull yet. Open GitSync.md and clone a repository first.")
+            return String(localized: "No cloned repositories to pull yet. Open HugoInk and clone a repository first.")
         }
 
         var results: [GitShortcutPullResult] = []

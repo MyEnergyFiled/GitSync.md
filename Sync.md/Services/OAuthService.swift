@@ -174,7 +174,7 @@ final class OAuthService {
 
             let alert = UIAlertController(
                 title: "Connect GitHub",
-                message: "Code: \(code)\n\nThe code has been copied. Paste it on the GitHub page, approve access, then return to GitSync.md.",
+                message: "Code: \(code)\n\nThe code has been copied. Paste it on the GitHub page, approve access, then return to HugoInk.",
                 preferredStyle: .alert
             )
             alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in

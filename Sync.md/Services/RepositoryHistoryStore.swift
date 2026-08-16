@@ -2,7 +2,7 @@ import Foundation
 import Combine
 import Security
 
-/// Maintains the device-local history of repositories that have been added to GitSync.md.
+/// Maintains the device-local history of repositories that have been added to HugoInk.
 ///
 /// The app now uses a paid-up-front model, so there is no in-app unlock state or
 /// repository quota. We still keep this Keychain-backed history so previously

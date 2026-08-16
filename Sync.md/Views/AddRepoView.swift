@@ -460,7 +460,7 @@ struct AddRepoView: View {
 
         case .none:
             BDivider().padding(.horizontal, 16)
-            authHelpRow(String(localized: "GitSync.md will not provide credentials. Choose this for public remotes or local file remotes."))
+            authHelpRow(String(localized: "HugoInk will not provide credentials. Choose this for public remotes or local file remotes."))
 
         case .httpsToken:
             BDivider().padding(.horizontal, 16)
@@ -609,7 +609,7 @@ struct AddRepoView: View {
                                 Image(systemName: "info.circle")
                                     .font(.system(size: 10))
                                     .foregroundStyle(Color.brutalText)
-                                Text("Files › On My iPhone › GitSync.md › \(vaultName)")
+                                Text("Files › On My iPhone › HugoInk › \(vaultName)")
                                     .font(.system(size: 14, design: .monospaced))
                                     .foregroundStyle(Color.brutalText)
                             }

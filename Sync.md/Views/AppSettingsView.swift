@@ -125,7 +125,7 @@ struct AppSettingsView: View {
                                     Text("Pull from Shortcuts")
                                         .font(.system(size: 14, weight: .medium))
                                         .foregroundStyle(Color.brutalText)
-                                    Text("Use Pull All Repositories in Apple Shortcuts. Add a Personal Automation → App → GitSync.md is opened to auto-pull on launch.")
+                                    Text("Use Pull All Repositories in Apple Shortcuts. Add a Personal Automation → App → HugoInk is opened to auto-pull on launch.")
                                         .font(.system(size: 13, design: .monospaced))
                                         .foregroundStyle(Color.brutalText)
                                         .fixedSize(horizontal: false, vertical: true)

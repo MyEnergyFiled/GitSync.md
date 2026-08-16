@@ -494,7 +494,7 @@ nonisolated private func sshHostAndPort(for callbackHost: String, remoteURL: Str
 }
 
 /// Host-key/certificate callback. HTTPS keeps libgit2's platform certificate
-/// validation. SSH remotes are pinned through GitSync.md's known-hosts store:
+/// validation. SSH remotes are pinned through HugoInk's known-hosts store:
 /// first use is blocked until the user explicitly trusts the displayed
 /// SHA-256 host-key fingerprint, and later key changes are rejected.
 nonisolated private func certificateCheckCallback(

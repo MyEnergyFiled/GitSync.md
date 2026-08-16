@@ -205,7 +205,7 @@ final class DebugLogger {
         let build = bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"
         let language = Locale.preferredLanguages.first ?? Locale.current.identifier
         return [
-            "# GitSync.md Debug Log",
+            "# HugoInk Debug Log",
             "App: \(version) (\(build))",
             "System: \(UIDevice.current.systemName) \(UIDevice.current.systemVersion)",
             "Device: \(UIDevice.current.model)",

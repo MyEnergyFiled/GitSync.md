@@ -1,7 +1,7 @@
 import SwiftUI
 import Combine
 
-// MARK: - GitSync.md Brutal Design System
+// MARK: - HugoInk Brutal Design System
 // Swiss brutalism in light mode: sharp edges, monospace, raw contrast, no decoration.
 // Inspired by Teenage Engineering, Bauhaus, and industrial Swiss typography.
 

@@ -86,7 +86,7 @@ struct HugoNewContentView: View {
                         Text("hugo new --kind moments content/moments/today/index.md")
                             .font(.system(size: 11, design: .monospaced))
                             .textSelection(.enabled)
-                        Text("This is a safe simulation. GitSync.md parses the text and creates the file; no shell or Hugo binary is executed.")
+                        Text("This is a safe simulation. HugoInk parses the text and creates the file; no shell or Hugo binary is executed.")
                             .font(.caption.monospaced())
                             .foregroundStyle(Color.brutalTextFaint)
                     }

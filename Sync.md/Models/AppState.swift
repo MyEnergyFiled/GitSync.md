@@ -641,7 +641,7 @@ final class AppState {
             return customURL.path
         }
         guard let repo = repo(id: repoID) else { return "" }
-        return String(localized: "On My iPhone › GitSync.md › \(repo.vaultFolderName)")
+        return String(localized: "On My iPhone › HugoInk › \(repo.vaultFolderName)")
     }
 
     func isUsingCustomLocation(for repoID: UUID) -> Bool {
@@ -1078,7 +1078,7 @@ final class AppState {
         let upstreamName = "origin/\(currentBranch)"
         let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
         let commitMessage = trimmed.isEmpty
-            ? String(localized: "Local changes from GitSync.md")
+            ? String(localized: "Local changes from HugoInk")
             : trimmed
 
         isSyncing = true
@@ -2798,7 +2798,7 @@ final class AppState {
             startingCommitSHA = (try? await gitService.repoInfo())?.commitSHA
             try checkLongGitOperationCancellation()
 
-            let commitMsg = message.isEmpty ? String(localized: "Update from GitSync.md") : message
+            let commitMsg = message.isEmpty ? String(localized: "Update from HugoInk") : message
 
             updateLongGitOperation(.committing)
             DebugLogger.shared.info(
@@ -3047,7 +3047,7 @@ final class AppState {
         let vaultDir = vaultURL(for: id)
 
         // Existing local repositories are user-owned folders that may also be
-        // managed by another app. Removing GitSync.md's bookmark must never
+        // managed by another app. Removing HugoInk's bookmark must never
         // delete those files.
         if deleteLocalFiles && repo.isGitSyncManagedStorage {
             try? FileManager.default.removeItem(at: vaultDir)

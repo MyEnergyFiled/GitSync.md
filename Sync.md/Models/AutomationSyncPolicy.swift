@@ -8,17 +8,17 @@ enum AutomatedPullBlockReason: Equatable, Sendable {
     func message(repositoryName: String? = nil) -> String {
         switch self {
         case .protectedDataUnavailable:
-            return String(localized: "Unlock the device before running GitSync.md automation. No repository was changed.")
+            return String(localized: "Unlock the device before running HugoInk automation. No repository was changed.")
         case .repositoryNotCloned:
             if let repositoryName {
-                return String(localized: "\(repositoryName) has not been cloned yet. Open GitSync.md and clone it first.")
+                return String(localized: "\(repositoryName) has not been cloned yet. Open HugoInk and clone it first.")
             }
-            return String(localized: "The repository has not been cloned yet. Open GitSync.md and clone it first.")
+            return String(localized: "The repository has not been cloned yet. Open HugoInk and clone it first.")
         case .externalStorageUnavailable:
             if let repositoryName {
-                return String(localized: "\(repositoryName)'s external folder is unavailable. Open GitSync.md while the device is unlocked and grant folder access again.")
+                return String(localized: "\(repositoryName)'s external folder is unavailable. Open HugoInk while the device is unlocked and grant folder access again.")
             }
-            return String(localized: "The external repository folder is unavailable. Open GitSync.md while the device is unlocked and grant folder access again.")
+            return String(localized: "The external repository folder is unavailable. Open HugoInk while the device is unlocked and grant folder access again.")
         }
     }
 }

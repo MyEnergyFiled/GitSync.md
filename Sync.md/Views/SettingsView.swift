@@ -161,7 +161,7 @@ struct SettingsView: View {
                                     BDivider().padding(.horizontal, 16)
 
                                     settingsFieldRow(label: String(localized: "Path")) {
-                                        Text(String(localized: "On My iPhone › GitSync.md › \(vaultName)"))
+                                        Text(String(localized: "On My iPhone › HugoInk › \(vaultName)"))
                                             .font(.system(size: 13, design: .monospaced))
                                             .foregroundStyle(Color.brutalText)
                                             .lineLimit(1)
@@ -245,11 +245,11 @@ struct SettingsView: View {
 
                         // Remove / Delete
                         VStack(alignment: .leading, spacing: 8) {
-                            Text(String(localized: "Removing from GitSync.md keeps the files on this device."))
+                            Text(String(localized: "Removing from HugoInk keeps the files on this device."))
                                 .font(.system(size: 12, design: .monospaced))
                                 .foregroundStyle(Color.brutalText)
 
-                            BDestructiveButton(title: String(localized: "Remove from GitSync.md")) {
+                            BDestructiveButton(title: String(localized: "Remove from HugoInk")) {
                                 showRemoveConfirm = true
                             }
 
@@ -322,13 +322,13 @@ struct SettingsView: View {
                     configureAuthDefaults(for: repo.repoURL)
                 }
             }
-            .alert("Remove from GitSync.md?", isPresented: $showRemoveConfirm) {
+            .alert("Remove from HugoInk?", isPresented: $showRemoveConfirm) {
                 Button("Cancel", role: .cancel) {}
                 Button("Remove", role: .destructive) {
                     removeRepository(deleteLocalFiles: false)
                 }
             } message: {
-                Text("This removes the repository from GitSync.md only. Files will remain at:\n\(repoPathForConfirmation)")
+                Text("This removes the repository from HugoInk only. Files will remain at:\n\(repoPathForConfirmation)")
             }
             .alert("Delete Local Files?", isPresented: $showDeleteFilesConfirm) {
                 Button("Cancel", role: .cancel) {}
@@ -450,7 +450,7 @@ struct SettingsView: View {
 
         case .none:
             BDivider().padding(.horizontal, 16)
-            authHelpRow(String(localized: "GitSync.md will not provide credentials. Choose this for public remotes or local file remotes."))
+            authHelpRow(String(localized: "HugoInk will not provide credentials. Choose this for public remotes or local file remotes."))
 
         case .httpsToken:
             BDivider().padding(.horizontal, 16)

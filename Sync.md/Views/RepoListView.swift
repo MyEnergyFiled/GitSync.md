@@ -100,8 +100,8 @@ struct RepoListView: View {
                 if showRepoRemovalConfirm, let repoID = pendingRepoRemovalID,
                    let repo = state.repo(id: repoID) {
                     BConfirmModal(
-                        title: String(localized: "Remove from GitSync.md?"),
-                        message: String(localized: "This removes the repository from GitSync.md only. Local files will not be deleted."),
+                        title: String(localized: "Remove from HugoInk?"),
+                        message: String(localized: "This removes the repository from HugoInk only. Local files will not be deleted."),
                         confirmLabel: String(localized: "Remove"),
                         isDestructive: true,
                         onConfirm: {
@@ -284,7 +284,7 @@ struct RepoListView: View {
                             pendingRepoRemovalID = repo.id
                             showRepoRemovalConfirm = true
                         } label: {
-                            Label(String(localized: "Remove from GitSync.md"), systemImage: "trash")
+                            Label(String(localized: "Remove from HugoInk"), systemImage: "trash")
                         }
                     }
                 }
