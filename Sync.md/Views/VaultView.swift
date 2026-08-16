@@ -137,11 +137,6 @@ struct VaultView: View {
         }
         .animation(.easeOut(duration: 0.18), value: showRevertAllConfirm)
         .animation(.easeOut(duration: 0.18), value: showRevertFileModal)
-        .alert(state.lastErrorTitle, isPresented: $state.showError) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(state.lastErrorPresentation)
-        }
         .interactiveDismissDisabled(state.callbackNavigateToRepoID != nil)
         .navigationBarBackButtonHidden(state.callbackNavigateToRepoID != nil)
         .onAppear {

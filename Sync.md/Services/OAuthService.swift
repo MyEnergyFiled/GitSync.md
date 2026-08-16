@@ -20,6 +20,37 @@ enum OAuthError: LocalizedError {
     }
 }
 
+struct GitHubOAuthCredential: Codable, Equatable, Sendable {
+    let accessToken: String
+    let accessTokenExpiresAt: Date?
+    let refreshToken: String?
+    let refreshTokenExpiresAt: Date?
+
+    init(
+        accessToken: String,
+        expiresIn: Int? = nil,
+        refreshToken: String? = nil,
+        refreshTokenExpiresIn: Int? = nil,
+        now: Date = Date()
+    ) {
+        self.accessToken = accessToken
+        accessTokenExpiresAt = expiresIn.map { now.addingTimeInterval(TimeInterval($0)) }
+        self.refreshToken = refreshToken
+        refreshTokenExpiresAt = refreshTokenExpiresIn.map { now.addingTimeInterval(TimeInterval($0)) }
+    }
+
+    func requiresRefresh(at date: Date = Date(), leeway: TimeInterval = 5 * 60) -> Bool {
+        guard let accessTokenExpiresAt else { return false }
+        return accessTokenExpiresAt <= date.addingTimeInterval(leeway)
+    }
+
+    func usableRefreshToken(at date: Date = Date()) -> String? {
+        guard let refreshToken, !refreshToken.isEmpty else { return nil }
+        if let refreshTokenExpiresAt, refreshTokenExpiresAt <= date { return nil }
+        return refreshToken
+    }
+}
+
 /// GitHub Device Flow implemented entirely on-device.
 /// Requests go directly to github.com; no OAuth proxy or client secret is used.
 @MainActor
@@ -32,7 +63,7 @@ final class OAuthService {
 
     private init() {}
 
-    func signIn() async throws -> String {
+    func signIn() async throws -> GitHubOAuthCredential {
         let device = try await requestDeviceCode()
         try await presentDeviceCode(device.userCode)
 
@@ -42,6 +73,22 @@ final class OAuthService {
         }
 
         return try await pollForAccessToken(device)
+    }
+
+    func refresh(refreshToken: String) async throws -> GitHubOAuthCredential {
+        let data = try await postForm(
+            to: accessTokenURL,
+            fields: [
+                "client_id": clientID,
+                "grant_type": "refresh_token",
+                "refresh_token": refreshToken,
+            ]
+        )
+        let response = try decodeTokenResponse(data)
+        if let error = response.error {
+            throw OAuthError.failed(response.errorDescription ?? error)
+        }
+        return try response.credential()
     }
 
     private func requestDeviceCode() async throws -> DeviceCodeResponse {
@@ -56,7 +103,7 @@ final class OAuthService {
         }
     }
 
-    private func pollForAccessToken(_ device: DeviceCodeResponse) async throws -> String {
+    private func pollForAccessToken(_ device: DeviceCodeResponse) async throws -> GitHubOAuthCredential {
         let deadline = Date().addingTimeInterval(TimeInterval(device.expiresIn))
         var interval = max(device.interval, 5)
 
@@ -72,15 +119,9 @@ final class OAuthService {
                     "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
                 ]
             )
-            let response: TokenResponse
-            do {
-                response = try JSONDecoder().decode(TokenResponse.self, from: data)
-            } catch {
-                throw OAuthError.failed("GitHub returned an invalid access token response.")
-            }
-
+            let response = try decodeTokenResponse(data)
             if let token = response.accessToken, !token.isEmpty {
-                return token
+                return try response.credential()
             }
 
             switch response.error {
@@ -102,6 +143,14 @@ final class OAuthService {
         }
 
         throw OAuthError.failed("The GitHub authorization code expired. Please try again.")
+    }
+
+    private func decodeTokenResponse(_ data: Data) throws -> TokenResponse {
+        do {
+            return try JSONDecoder().decode(TokenResponse.self, from: data)
+        } catch {
+            throw OAuthError.failed("GitHub returned an invalid access token response.")
+        }
     }
 
     private func postForm(to url: URL, fields: [String: String]) async throws -> Data {
@@ -220,11 +269,28 @@ private struct DeviceCodeResponse: Decodable {
 
 private struct TokenResponse: Decodable {
     let accessToken: String?
+    let expiresIn: Int?
+    let refreshToken: String?
+    let refreshTokenExpiresIn: Int?
     let error: String?
     let errorDescription: String?
 
+    func credential(now: Date = Date()) throws -> GitHubOAuthCredential {
+        guard let accessToken, !accessToken.isEmpty else { throw OAuthError.noToken }
+        return GitHubOAuthCredential(
+            accessToken: accessToken,
+            expiresIn: expiresIn,
+            refreshToken: refreshToken,
+            refreshTokenExpiresIn: refreshTokenExpiresIn,
+            now: now
+        )
+    }
+
     enum CodingKeys: String, CodingKey {
         case accessToken = "access_token"
+        case expiresIn = "expires_in"
+        case refreshToken = "refresh_token"
+        case refreshTokenExpiresIn = "refresh_token_expires_in"
         case error
         case errorDescription = "error_description"
     }

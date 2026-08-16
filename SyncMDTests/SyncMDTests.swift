@@ -15,6 +15,35 @@ final class SyncMDTests: XCTestCase {
         XCTAssertTrue(true)
     }
 
+    func testGitHubOAuthCredentialRefreshesBeforeAccessTokenExpiry() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let credential = GitHubOAuthCredential(
+            accessToken: "access",
+            expiresIn: 600,
+            refreshToken: "refresh",
+            refreshTokenExpiresIn: 3_600,
+            now: now
+        )
+
+        XCTAssertFalse(credential.requiresRefresh(at: now, leeway: 299))
+        XCTAssertTrue(credential.requiresRefresh(at: now, leeway: 300))
+        XCTAssertEqual(credential.usableRefreshToken(at: now), "refresh")
+    }
+
+    func testGitHubOAuthCredentialRejectsExpiredRefreshToken() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let credential = GitHubOAuthCredential(
+            accessToken: "access",
+            expiresIn: 1,
+            refreshToken: "refresh",
+            refreshTokenExpiresIn: 1,
+            now: now
+        )
+
+        XCTAssertTrue(credential.requiresRefresh(at: now.addingTimeInterval(2)))
+        XCTAssertNil(credential.usableRefreshToken(at: now.addingTimeInterval(2)))
+    }
+
     func testLongGitOperationProgressUsesSafeCancellationBoundaries() {
         var progress = GitLongOperationProgress(kind: .pull, stage: .transferring)
         XCTAssertTrue(progress.canCancel)

@@ -238,7 +238,7 @@ final class CallbackURLHandler {
             throw LocalGitError.notCloned
         }
 
-        let result = try await gitService.pull(pat: appState.authPayload(for: repo))
+        let result = try await gitService.pull(pat: try await appState.authPayload(for: repo))
 
         if result.updated {
             appState.repos[idx].gitState.commitSHA    = result.newCommitSHA
@@ -273,7 +273,7 @@ final class CallbackURLHandler {
             message: commitMsg,
             authorName: repo.authorName,
             authorEmail: repo.authorEmail,
-            pat: appState.authPayload(for: repo)
+            pat: try await appState.authPayload(for: repo)
         )
 
         appState.repos[idx].gitState.commitSHA    = result.commitSHA

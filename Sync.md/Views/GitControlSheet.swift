@@ -75,14 +75,6 @@ struct GitControlSheet: View {
                     }
                 }
             }
-            .alert(state.lastErrorTitle, isPresented: Binding(
-                get: { state.showError },
-                set: { state.showError = $0 }
-            )) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text(state.lastErrorPresentation)
-            }
             .alert("Use Git LFS?", isPresented: Binding(
                 get: { state.pendingLFSAutoTrackingConfirmation != nil },
                 set: { _ in

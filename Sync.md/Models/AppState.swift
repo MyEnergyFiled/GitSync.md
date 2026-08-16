@@ -196,6 +196,8 @@ final class AppState {
     private var didScheduleInitialChangeDetection = false
     private var pushRetryRequiresCurrentBranch: Set<UUID> = []
     private var pushRetryRequiresCommit: Set<UUID> = []
+    private var lastPushFailureByRepo: [UUID: String] = [:]
+    private var gitHubTokenRefreshTasks: [String: Task<GitHubOAuthCredential, Error>] = [:]
 
     // MARK: - PAT / GitHub Accounts
 
@@ -209,11 +211,11 @@ final class AppState {
         set {
             if newValue.isEmpty {
                 if !activeGitHubAccountLogin.isEmpty {
-                    KeychainService.delete(key: Self.gitHubTokenKey(for: activeGitHubAccountLogin))
+                    deleteGitHubCredential(for: activeGitHubAccountLogin)
                 }
                 KeychainService.delete(key: "github_pat")
             } else if !activeGitHubAccountLogin.isEmpty {
-                KeychainService.save(key: Self.gitHubTokenKey(for: activeGitHubAccountLogin), value: newValue)
+                saveGitHubCredential(GitHubOAuthCredential(accessToken: newValue), for: activeGitHubAccountLogin)
             } else {
                 KeychainService.save(key: "github_pat", value: newValue)
             }
@@ -232,9 +234,39 @@ final class AppState {
         "github_pat_\(login.lowercased())"
     }
 
+    private static func gitHubOAuthCredentialKey(for login: String) -> String {
+        "github_oauth_credential_\(login.lowercased())"
+    }
+
+    private func gitHubCredential(for login: String?) -> GitHubOAuthCredential? {
+        guard let login = login?.trimmingCharacters(in: .whitespacesAndNewlines), !login.isEmpty else {
+            return nil
+        }
+        if let encoded = KeychainService.load(key: Self.gitHubOAuthCredentialKey(for: login)),
+           let data = encoded.data(using: .utf8),
+           let credential = try? JSONDecoder().decode(GitHubOAuthCredential.self, from: data) {
+            return credential
+        }
+        guard let accessToken = KeychainService.load(key: Self.gitHubTokenKey(for: login)),
+              !accessToken.isEmpty else { return nil }
+        return GitHubOAuthCredential(accessToken: accessToken)
+    }
+
+    private func saveGitHubCredential(_ credential: GitHubOAuthCredential, for login: String) {
+        KeychainService.save(key: Self.gitHubTokenKey(for: login), value: credential.accessToken)
+        if let data = try? JSONEncoder().encode(credential),
+           let encoded = String(data: data, encoding: .utf8) {
+            KeychainService.save(key: Self.gitHubOAuthCredentialKey(for: login), value: encoded)
+        }
+    }
+
+    private func deleteGitHubCredential(for login: String) {
+        KeychainService.delete(key: Self.gitHubTokenKey(for: login))
+        KeychainService.delete(key: Self.gitHubOAuthCredentialKey(for: login))
+    }
+
     func gitHubToken(for login: String?) -> String? {
-        guard let login = login?.trimmingCharacters(in: .whitespacesAndNewlines), !login.isEmpty else { return nil }
-        return KeychainService.load(key: Self.gitHubTokenKey(for: login))
+        gitHubCredential(for: login)?.accessToken
     }
 
     private func shouldShowRepoForActiveAccount(_ repo: RepoConfig) -> Bool {
@@ -318,8 +350,50 @@ final class AppState {
         }
     }
 
-    func authPayload(for repo: RepoConfig) -> String {
-        remoteCredentials(for: repo).transportPayload
+    @MainActor
+    private func validGitHubToken(for login: String?) async throws -> String {
+        let requestedLogin = login?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let resolvedLogin = requestedLogin.isEmpty ? activeGitHubAccountLogin : requestedLogin
+        guard let credential = gitHubCredential(for: resolvedLogin), !credential.accessToken.isEmpty else {
+            throw OAuthError.failed(String(localized: "GitHub authentication is missing. Sign in again."))
+        }
+        guard credential.requiresRefresh() else { return credential.accessToken }
+        guard let refreshToken = credential.usableRefreshToken() else {
+            throw OAuthError.failed(String(localized: "Your GitHub session expired. Sign in again to continue."))
+        }
+
+        do {
+            let refreshTask: Task<GitHubOAuthCredential, Error>
+            if let existingTask = gitHubTokenRefreshTasks[resolvedLogin] {
+                refreshTask = existingTask
+            } else {
+                let newTask = Task {
+                    try await OAuthService.shared.refresh(refreshToken: refreshToken)
+                }
+                gitHubTokenRefreshTasks[resolvedLogin] = newTask
+                refreshTask = newTask
+            }
+            let refreshed = try await refreshTask.value
+            gitHubTokenRefreshTasks.removeValue(forKey: resolvedLogin)
+            saveGitHubCredential(refreshed, for: resolvedLogin)
+            DebugLogger.shared.info("auth", "Refreshed GitHub access token", detail: resolvedLogin)
+            return refreshed.accessToken
+        } catch {
+            gitHubTokenRefreshTasks.removeValue(forKey: resolvedLogin)
+            DebugLogger.shared.error("auth", "GitHub token refresh failed", detail: error.localizedDescription)
+            throw OAuthError.failed(
+                String(localized: "Could not refresh the GitHub session. Check the network or sign in again.")
+            )
+        }
+    }
+
+    @MainActor
+    func authPayload(for repo: RepoConfig) async throws -> String {
+        guard repo.authMethod == .gitHubPAT else {
+            return remoteCredentials(for: repo).transportPayload
+        }
+        let token = try await validGitHubToken(for: repo.gitHubAccountLogin)
+        return GitRemoteCredentials.gitHubPAT(token).transportPayload
     }
 
     // MARK: - Dependencies
@@ -917,7 +991,7 @@ final class AppState {
         let gitService = gitRepositoryFactory(vaultDir)
         guard gitService.hasGitDirectory else { return }
         do {
-            try await gitService.fetchRemote(pat: authPayload(for: repo))
+            try await gitService.fetchRemote(pat: try await authPayload(for: repo))
             detectChanges(repoID: repoID)
         } catch {
             showError(message: error.localizedDescription)
@@ -1131,7 +1205,7 @@ final class AppState {
                 if didCommit {
                     syncProgress = String(localized: "Pushing local commit...")
                     do {
-                        try await gitService.pushCurrentBranch(pat: authPayload(for: repo))
+                        try await gitService.pushCurrentBranch(pat: try await authPayload(for: repo))
                         setPullOutcome(
                             repoID: repoID,
                             kind: .fastForwarded,
@@ -1158,7 +1232,7 @@ final class AppState {
 
                 syncProgress = String(localized: "Pushing merged changes...")
                 do {
-                    try await gitService.pushCurrentBranch(pat: authPayload(for: repo))
+                    try await gitService.pushCurrentBranch(pat: try await authPayload(for: repo))
                     setPullOutcome(
                         repoID: repoID,
                         kind: .fastForwarded,
@@ -1373,7 +1447,7 @@ final class AppState {
         }
 
         do {
-            try await gitService.pushTag(name: name, pat: authPayload(for: repo))
+            try await gitService.pushTag(name: name, pat: try await authPayload(for: repo))
         } catch {
             showError(message: error.localizedDescription)
         }
@@ -1592,7 +1666,7 @@ final class AppState {
 
                 syncProgress = String(localized: "Pushing merged changes...")
                 do {
-                    try await gitService.pushCurrentBranch(pat: authPayload(for: repo))
+                    try await gitService.pushCurrentBranch(pat: try await authPayload(for: repo))
                     setPullOutcome(
                         repoID: repoID,
                         kind: .fastForwarded,
@@ -1707,7 +1781,7 @@ final class AppState {
 
             syncProgress = String(localized: "Pushing merged changes...")
             do {
-                try await gitService.pushCurrentBranch(pat: authPayload(for: repo))
+                try await gitService.pushCurrentBranch(pat: try await authPayload(for: repo))
                 setPullOutcome(
                     repoID: repoID,
                     kind: .fastForwarded,
@@ -2265,7 +2339,7 @@ final class AppState {
                 repoID: repoID, repoName: repo.displayName, operationID: operationID
             )
             updateLongGitOperation(.transferring)
-            let result = try await gitService.clone(remoteURL: cloneURL, pat: authPayload(for: repo))
+            let result = try await gitService.clone(remoteURL: cloneURL, pat: try await authPayload(for: repo))
             try checkLongGitOperationCancellation()
             updateLongGitOperation(.checkingRepository)
             if fm.fileExists(atPath: cloneWorkingDir.path) {
@@ -2343,7 +2417,7 @@ final class AppState {
             updateLongGitOperation(.connecting)
             DebugLogger.shared.info("pull", "Starting pull", detail: "branch: \(repo.branch)")
             updateLongGitOperation(.transferring)
-            let plan = try await gitService.pullPlan(pat: authPayload(for: repo))
+            let plan = try await gitService.pullPlan(pat: try await authPayload(for: repo))
             try checkLongGitOperationCancellation()
             updateLongGitOperation(.checkingRepository)
 
@@ -2384,7 +2458,7 @@ final class AppState {
 
             case .fastForward:
                 updateLongGitOperation(.applyingChanges)
-                let result = try await gitService.pullFastForward(branch: plan.branch, pat: authPayload(for: repo))
+                let result = try await gitService.pullFastForward(branch: plan.branch, pat: try await authPayload(for: repo))
 
                 if !result.updated {
                     syncProgress = String(localized: "Already up to date!")
@@ -2506,7 +2580,7 @@ final class AppState {
             updateLongGitOperation(.connecting)
             DebugLogger.shared.info("pull", "Starting pull with rebase", detail: "branch: \(repo.branch)")
             updateLongGitOperation(.transferring)
-            let plan = try await gitService.pullPlan(pat: authPayload(for: repo))
+            let plan = try await gitService.pullPlan(pat: try await authPayload(for: repo))
             try checkLongGitOperationCancellation()
             updateLongGitOperation(.checkingRepository)
 
@@ -2550,14 +2624,14 @@ final class AppState {
 
             case .fastForward:
                 updateLongGitOperation(.applyingChanges)
-                result = try await gitService.pullFastForward(branch: plan.branch, pat: authPayload(for: repo))
+                result = try await gitService.pullFastForward(branch: plan.branch, pat: try await authPayload(for: repo))
 
             case .diverged:
                 updateLongGitOperation(.applyingChanges)
                 syncProgress = String(localized: "Rebasing local commits...")
                 result = try await gitService.pullRebase(
                     branch: plan.branch,
-                    pat: authPayload(for: repo),
+                    pat: try await authPayload(for: repo),
                     authorName: repo.authorName,
                     authorEmail: repo.authorEmail
                 )
@@ -2641,7 +2715,7 @@ final class AppState {
         do {
             let repo = repos[idx]
             let result = try await gitService.continueRebase(
-                pat: authPayload(for: repo),
+                pat: try await authPayload(for: repo),
                 authorName: repo.authorName,
                 authorEmail: repo.authorEmail
             )
@@ -2730,7 +2804,7 @@ final class AppState {
             await Task.yield()
             try checkLongGitOperationCancellation()
             updateLongGitOperation(.uploading)
-            try await gitService.pushCurrentBranch(pat: authPayload(for: repo))
+            try await gitService.pushCurrentBranch(pat: try await authPayload(for: repo))
 
             if let info = try? await gitService.repoInfo() {
                 repos[idx].gitState.branch = info.branch
@@ -2744,6 +2818,7 @@ final class AppState {
             clearCommitHistoryCache(for: repoID)
             pushRetryRequiresCurrentBranch.remove(repoID)
             pushRetryRequiresCommit.remove(repoID)
+            lastPushFailureByRepo.removeValue(forKey: repoID)
             detectChanges(repoID: repoID)
             await loadBranches(repoID: repoID)
             updateLongGitOperation(.completed)
@@ -2754,7 +2829,7 @@ final class AppState {
             return false
         } catch {
             if !handleSSHHostKeyTrustIfNeeded(error, repoID: repoID, operation: .pushCurrentBranch) {
-                showError(message: error.localizedDescription, category: "push")
+                showError(message: preferredPushFailure(error.localizedDescription, repoID: repoID), category: "push")
             }
             return false
         }
@@ -2814,7 +2889,7 @@ final class AppState {
                 message: commitMsg,
                 authorName: repo.authorName,
                 authorEmail: repo.authorEmail,
-                pat: authPayload(for: repo)
+                pat: try await authPayload(for: repo)
             )
 
             repo.gitState.commitSHA = result.commitSHA
@@ -2825,6 +2900,7 @@ final class AppState {
             clearCommitHistoryCache(for: repoID)
             pushRetryRequiresCurrentBranch.remove(repoID)
             pushRetryRequiresCommit.remove(repoID)
+            lastPushFailureByRepo.removeValue(forKey: repoID)
             detectChanges(repoID: repoID)
             updateLongGitOperation(.completed)
             syncProgress = String(localized: "Push complete!")
@@ -2860,7 +2936,12 @@ final class AppState {
                 saveRepos()
             }
             if !handleSSHHostKeyTrustIfNeeded(error, repoID: repoID, operation: .pushCommit(message: message)) {
-                showError(message: error.localizedDescription, category: "push", repoID: repoID, operationID: operationID)
+                showError(
+                    message: preferredPushFailure(error.localizedDescription, repoID: repoID),
+                    category: "push",
+                    repoID: repoID,
+                    operationID: operationID
+                )
             }
         }
 
@@ -3147,8 +3228,8 @@ final class AppState {
         let operationID = String(UUID().uuidString.prefix(8)).lowercased()
         DebugLogger.shared.info("auth", "Starting GitHub Device Flow", operationID: operationID)
         do {
-            let token = try await OAuthService.shared.signIn()
-            try await activateGitHubAccount(token: token)
+            let credential = try await OAuthService.shared.signIn()
+            try await activateGitHubAccount(credential: credential)
             DebugLogger.shared.info(
                 "auth", "GitHub sign-in complete", detail: activeGitHubAccountLogin,
                 operationID: operationID
@@ -3164,7 +3245,9 @@ final class AppState {
         let operationID = String(UUID().uuidString.prefix(8)).lowercased()
         DebugLogger.shared.info("auth", "Validating personal access token", operationID: operationID)
         do {
-            try await activateGitHubAccount(token: token)
+            try await activateGitHubAccount(
+                credential: GitHubOAuthCredential(accessToken: token)
+            )
             DebugLogger.shared.info(
                 "auth", "Token sign-in complete", detail: activeGitHubAccountLogin,
                 operationID: operationID
@@ -3191,8 +3274,9 @@ final class AppState {
         await refreshRepos()
     }
 
-    private func activateGitHubAccount(token: String) async throws {
+    private func activateGitHubAccount(credential: GitHubOAuthCredential) async throws {
         syncProgress = String(localized: "Fetching profile...")
+        let token = credential.accessToken
         let user = try await GitHubService.fetchUser(token: token)
         let email: String
         if let userEmail = user.email, !userEmail.isEmpty {
@@ -3215,7 +3299,7 @@ final class AppState {
         }
 
         activeGitHubAccountLogin = account.login
-        KeychainService.save(key: Self.gitHubTokenKey(for: account.login), value: token)
+        saveGitHubCredential(credential, for: account.login)
         KeychainService.delete(key: "github_pat")
         isSignedIn = true
         applyGitHubAccount(account)
@@ -3229,20 +3313,19 @@ final class AppState {
     }
 
     func refreshRepos() async {
-        let token = pat
-        guard !token.isEmpty else { return }
+        guard !activeGitHubAccountLogin.isEmpty else { return }
         isLoadingRepos = true
         defer { isLoadingRepos = false }
         do {
+            let token = try await validGitHubToken(for: activeGitHubAccountLogin)
             gitHubRepos = try await GitHubService.fetchRepos(token: token)
         } catch {
-            showError(message: error.localizedDescription)
+            showError(message: error.localizedDescription, category: "auth")
         }
     }
 
     func hydrateGitHubProfileIfNeeded() async {
-        let token = pat
-        guard !token.isEmpty else { return }
+        guard !activeGitHubAccountLogin.isEmpty else { return }
 
         let needsProfile = gitHubUsername.isEmpty
             || gitHubDisplayName.isEmpty
@@ -3252,6 +3335,7 @@ final class AppState {
         guard needsProfile else { return }
 
         do {
+            let token = try await validGitHubToken(for: activeGitHubAccountLogin)
             let user = try await GitHubService.fetchUser(token: token)
 
             if gitHubUsername.isEmpty {
@@ -3293,7 +3377,7 @@ final class AppState {
     }
 
     func removeGitHubAccount(login: String) {
-        KeychainService.delete(key: Self.gitHubTokenKey(for: login))
+        deleteGitHubCredential(for: login)
         gitHubAccounts.removeAll { $0.login.caseInsensitiveCompare(login) == .orderedSame }
 
         activeGitHubAccountLogin = gitHubAccounts.first(where: { gitHubToken(for: $0.login)?.isEmpty == false })?.login ?? ""
@@ -3332,6 +3416,17 @@ final class AppState {
     }
 
     // MARK: - Error Handling
+
+    private func preferredPushFailure(_ message: String, repoID: UUID) -> String {
+        let currentCategory = GitFailureGuidance.classify(message: message).category
+        if currentCategory == .general,
+           let previous = lastPushFailureByRepo[repoID],
+           GitFailureGuidance.classify(message: previous).category == .authentication {
+            return previous
+        }
+        lastPushFailureByRepo[repoID] = message
+        return message
+    }
 
     private func showError(
         message: String,

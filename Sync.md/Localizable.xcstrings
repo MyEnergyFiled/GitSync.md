@@ -29876,6 +29876,22 @@
         }
       }
     },
+    "Could not refresh the GitHub session. Check the network or sign in again.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法刷新 GitHub 会话。请检查网络，或重新登录。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法重新整理 GitHub 工作階段。請檢查網路，或重新登入。"
+          }
+        }
+      }
+    },
     "Could not stage local file changes before push.": {
       "localizations": {
         "ar": {
@@ -45456,6 +45472,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "Git 錯誤：%@"
+          }
+        }
+      }
+    },
+    "GitHub authentication is missing. Sign in again.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub 身份验证信息缺失。请重新登录。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub 驗證資訊遺失。請重新登入。"
           }
         }
       }
@@ -108543,6 +108575,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "您的代碼倉庫，位於您的 IPHONE 上"
+          }
+        }
+      }
+    },
+    "Your GitHub session expired. Sign in again to continue.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub 会话已过期。请重新登录后继续。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub 工作階段已過期。請重新登入後繼續。"
           }
         }
       }
