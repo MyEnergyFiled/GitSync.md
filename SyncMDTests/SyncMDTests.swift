@@ -25,8 +25,10 @@ final class SyncMDTests: XCTestCase {
             now: now
         )
 
-        XCTAssertFalse(credential.requiresRefresh(at: now, leeway: 299))
-        XCTAssertTrue(credential.requiresRefresh(at: now, leeway: 300))
+        XCTAssertFalse(credential.requiresRefresh(at: now, leeway: 300))
+        XCTAssertTrue(
+            credential.requiresRefresh(at: now.addingTimeInterval(300), leeway: 300)
+        )
         XCTAssertEqual(credential.usableRefreshToken(at: now), "refresh")
     }
 
