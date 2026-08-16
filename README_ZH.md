@@ -130,15 +130,17 @@ HugoInk 提供**拉取仓库**和**拉取所有仓库**两个 App Intent，可�
 
 ## 在 Linux 上构建 IPA
 
-Linux 无法在本地运行 Xcode。此分支提供一个手动触发的 GitHub Actions 工作流，可在 macOS Runner 上为 SideStore 构建未签名 IPA：
+Linux 无法在本地运行 Xcode。稳定版 SideStore 构建和 SHA-256 校验文件会发布到 [Releases 页面](https://github.com/MyEnergyFiled/GitSync.md/releases)。下载 `HugoInk-<版本>-SideStore.ipa` 后使用 SideStore 打开即可。
+
+需要开发版构建时，本分支也提供一个手动触发的 GitHub Actions 工作流，在 macOS Runner 上构建未签名 IPA：
 
 1. 将仓库推送到 GitHub。
 2. 打开 **Actions → Build SideStore IPA**。
 3. 选择 **Run workflow**。
-4. 任务成功后下载 `GitSync-md-SideStore-*` 构建产物。
-5. 解压后使用 SideStore 打开 `GitSync-md-SideStore.ipa`。
+4. 任务成功后下载 `HugoInk-SideStore-*` 构建产物。
+5. 解压后使用 SideStore 打开 `HugoInk-run-*-SideStore.ipa`。
 
-构建产物继续使用仓库原有文件名，安装后显示的应用名称为 **HugoInk**。GitHub 中不保存 Apple 证书；SideStore 会在安装时对 IPA 签名。
+GitHub 中不保存 Apple 证书；SideStore 会在安装时对 IPA 签名。
 
 ## 测试
 

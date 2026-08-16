@@ -128,15 +128,17 @@ The pre-built `libgit2.xcframework` is included in the repo so no additional dep
 
 ## Building an IPA from Linux
 
-Linux cannot run Xcode locally. This fork includes a manually triggered GitHub Actions workflow that builds an unsigned IPA on a macOS runner for SideStore:
+Linux cannot run Xcode locally. Stable SideStore builds and SHA-256 checksums are published on the [Releases page](https://github.com/MyEnergyFiled/GitSync.md/releases). Download `HugoInk-<version>-SideStore.ipa` and open it with SideStore.
+
+For a development build, this fork also includes a manually triggered GitHub Actions workflow that builds an unsigned IPA on a macOS runner:
 
 1. Push the repository to GitHub.
 2. Open **Actions → Build SideStore IPA**.
 3. Choose **Run workflow**.
-4. Download the `GitSync-md-SideStore-*` artifact after the job succeeds.
-5. Extract it and open `GitSync-md-SideStore.ipa` with SideStore.
+4. Download the `HugoInk-SideStore-*` artifact after the job succeeds.
+5. Extract it and open `HugoInk-run-*-SideStore.ipa` with SideStore.
 
-The artifact retains the repository's legacy filename, while the installed app appears as **HugoInk**. No Apple certificate is stored in GitHub; SideStore signs the IPA during installation.
+No Apple certificate is stored in GitHub; SideStore signs the IPA during installation.
 
 ## Testing
 
