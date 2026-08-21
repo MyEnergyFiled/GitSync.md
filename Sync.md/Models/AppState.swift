@@ -123,6 +123,10 @@ final class AppState {
         indexMutationRepoIDs.contains(repoID)
     }
 
+    func isRepositoryOperationInProgress(repoID: UUID) -> Bool {
+        (isSyncing && syncingRepoID == repoID) || isIndexMutationInProgress(repoID: repoID)
+    }
+
     // MARK: - Sync State
 
     var isSyncing: Bool = false
@@ -768,6 +772,9 @@ final class AppState {
     /// `accessingSecurityScope`. On failure the caller is responsible for
     /// releasing it.
     func moveVaultLocation(for repoID: UUID, to newParentURL: URL, bookmark: Data) throws {
+        guard !isRepositoryOperationInProgress(repoID: repoID) else {
+            throw MoveVaultError.operationInProgress
+        }
         guard let idx = repoIndex(id: repoID) else {
             throw MoveVaultError.repoNotFound
         }
@@ -804,16 +811,19 @@ final class AppState {
         detectChanges(repoID: repoID)
     }
 
-    enum MoveVaultError: LocalizedError {
+    enum MoveVaultError: LocalizedError, Equatable {
         case repoNotFound
         case destinationExists
         case bookmarkFailed
+        case operationInProgress
 
         var errorDescription: String? {
             switch self {
             case .repoNotFound: String(localized: "Repository not found")
             case .destinationExists: String(localized: "A folder with the same name already exists at the chosen location")
             case .bookmarkFailed: String(localized: "Could not access the selected folder")
+            case .operationInProgress:
+                String(localized: "Wait for the current Git operation to finish before moving or removing this repository.")
             }
         }
     }
@@ -3128,8 +3138,15 @@ final class AppState {
         return nil
     }
 
-    func removeRepo(id: UUID, deleteLocalFiles: Bool = false) {
-        guard let repo = repo(id: id) else { return }
+    @discardableResult
+    func removeRepo(id: UUID, deleteLocalFiles: Bool = false) -> Bool {
+        guard let repo = repo(id: id) else { return false }
+        guard !isRepositoryOperationInProgress(repoID: id) else {
+            showError(
+                message: String(localized: "Wait for the current Git operation to finish before moving or removing this repository.")
+            )
+            return false
+        }
         let vaultDir = vaultURL(for: id)
 
         // Existing local repositories are user-owned folders that may also be
@@ -3144,6 +3161,7 @@ final class AppState {
         clearCachedRepoState(for: id)
         repos.removeAll { $0.id == id }
         saveRepos()
+        return true
     }
 
     private func clearCachedRepoState(for repoID: UUID) {

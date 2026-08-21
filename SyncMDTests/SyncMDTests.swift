@@ -70,6 +70,40 @@ final class SyncMDTests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testAppStateRefusesToRemoveRepositoryDuringGitOperation() {
+        let state = AppState(loadPersistedState: false)
+        let repo = RepoConfig(repoURL: "https://github.com/example/notes.git")
+        state.repos = [repo]
+        state.isSyncing = true
+        state.syncingRepoID = repo.id
+
+        XCTAssertFalse(state.removeRepo(id: repo.id))
+        XCTAssertEqual(state.repos.map(\.id), [repo.id])
+        XCTAssertTrue(state.showError)
+        XCTAssertTrue(state.lastError?.contains("current Git operation") == true)
+    }
+
+    @MainActor
+    func testAppStateRefusesToMoveRepositoryDuringGitOperation() {
+        let state = AppState(loadPersistedState: false)
+        let repo = RepoConfig(repoURL: "https://github.com/example/notes.git")
+        state.repos = [repo]
+        state.isSyncing = true
+        state.syncingRepoID = repo.id
+
+        XCTAssertThrowsError(
+            try state.moveVaultLocation(
+                for: repo.id,
+                to: FileManager.default.temporaryDirectory,
+                bookmark: Data("bookmark".utf8)
+            )
+        ) { error in
+            XCTAssertEqual(error as? AppState.MoveVaultError, .operationInProgress)
+        }
+        XCTAssertEqual(state.repos.map(\.id), [repo.id])
+    }
+
     func testGitHubOAuthCredentialRefreshesBeforeAccessTokenExpiry() {
         let now = Date(timeIntervalSince1970: 1_000)
         let credential = GitHubOAuthCredential(

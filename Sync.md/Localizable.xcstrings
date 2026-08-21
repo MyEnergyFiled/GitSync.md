@@ -121752,6 +121752,11 @@
       "zh-Hans": { "stringUnit": { "state": "translated", "value": "文件必须保留在仓库内。" } },
       "zh-Hant": { "stringUnit": { "state": "translated", "value": "檔案必須保留在儲存庫內。" } }
     } },
+    "Wait for the current Git operation to finish before moving or removing this repository.": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Wait for the current Git operation to finish before moving or removing this repository." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "请等待当前 Git 操作完成后再移动或移除此仓库。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "請等待目前的 Git 操作完成後再移動或移除此儲存庫。" } }
+    } },
     "Search logs, repositories, or operation IDs": {
       "localizations": {
         "en": {
