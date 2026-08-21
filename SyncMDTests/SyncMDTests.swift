@@ -73,7 +73,13 @@ final class SyncMDTests: XCTestCase {
     @MainActor
     func testAppStateRefusesToRemoveRepositoryDuringGitOperation() {
         let state = AppState(loadPersistedState: false)
-        let repo = RepoConfig(repoURL: "https://github.com/example/notes.git")
+        let repo = RepoConfig(
+            repoURL: "https://github.com/example/notes.git",
+            branch: "main",
+            authorName: "Test User",
+            authorEmail: "test@example.com",
+            vaultFolderName: "SyncMD-OperationGuard-\(UUID().uuidString)"
+        )
         state.repos = [repo]
         state.isSyncing = true
         state.syncingRepoID = repo.id
@@ -87,7 +93,13 @@ final class SyncMDTests: XCTestCase {
     @MainActor
     func testAppStateRefusesToMoveRepositoryDuringGitOperation() {
         let state = AppState(loadPersistedState: false)
-        let repo = RepoConfig(repoURL: "https://github.com/example/notes.git")
+        let repo = RepoConfig(
+            repoURL: "https://github.com/example/notes.git",
+            branch: "main",
+            authorName: "Test User",
+            authorEmail: "test@example.com",
+            vaultFolderName: "SyncMD-OperationGuard-\(UUID().uuidString)"
+        )
         state.repos = [repo]
         state.isSyncing = true
         state.syncingRepoID = repo.id
