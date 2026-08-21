@@ -286,7 +286,9 @@ enum HugoContentService {
         guard !pathWithoutQuery.isEmpty else { return nil }
         let decodedPath = pathWithoutQuery.removingPercentEncoding ?? pathWithoutQuery
         let target = bundleURL.appendingPathComponent(decodedPath).standardizedFileURL
-        guard isURL(target, containedIn: repositoryRoot.standardizedFileURL) else { return nil }
+        let resolvedRoot = repositoryRoot.standardizedFileURL.resolvingSymlinksInPath()
+        let resolvedTarget = target.resolvingSymlinksInPath()
+        guard isURL(resolvedTarget, containedIn: resolvedRoot) else { return nil }
         return target
     }
 

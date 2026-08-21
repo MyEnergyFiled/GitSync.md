@@ -4744,6 +4744,26 @@ final class HugoContentServiceTests: XCTestCase {
         ))
     }
 
+    func testPreviewAssetResolutionRejectsSymlinkOutsideRepository() throws {
+        let fileManager = FileManager.default
+        let temporaryRoot = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let repositoryRoot = temporaryRoot.appendingPathComponent("repository", isDirectory: true)
+        let bundle = repositoryRoot.appendingPathComponent("content/post", isDirectory: true)
+        let outsideImages = temporaryRoot.appendingPathComponent("outside-images", isDirectory: true)
+        let linkedImages = bundle.appendingPathComponent("images", isDirectory: true)
+        defer { try? fileManager.removeItem(at: temporaryRoot) }
+        try fileManager.createDirectory(at: bundle, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: outsideImages, withIntermediateDirectories: true)
+        try Data([0x01]).write(to: outsideImages.appendingPathComponent("cover.png"))
+        try fileManager.createSymbolicLink(at: linkedImages, withDestinationURL: outsideImages)
+
+        XCTAssertNil(HugoContentService.localPreviewAssetURL(
+            for: "images/cover.png",
+            bundleURL: bundle,
+            repositoryRoot: repositoryRoot
+        ))
+    }
+
     func testThemePreviewLoadsRepositoryStylesheetsAndImagesThroughIsolatedScheme() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)

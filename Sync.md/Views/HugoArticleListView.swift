@@ -247,7 +247,11 @@ struct HugoArticleListView: View {
             let relativePath = url.path.replacingOccurrences(of: root.path + "/", with: "")
             let coverURL = matter.cover.isEmpty
                 ? nil
-                : url.deletingLastPathComponent().appendingPathComponent(matter.cover)
+                : HugoContentService.localPreviewAssetURL(
+                    for: matter.cover,
+                    bundleURL: url.deletingLastPathComponent(),
+                    repositoryRoot: root
+                )
             return HugoArticle(
                 fileURL: url,
                 relativePath: relativePath,
