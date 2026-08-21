@@ -71,7 +71,7 @@ final class SyncMDTests: XCTestCase {
     }
 
     @MainActor
-    func testAppStateRefusesToRemoveRepositoryDuringGitOperation() {
+    func testAppStateRefusesToRemoveRepositoryDuringGitOperation() async {
         let state = AppState(loadPersistedState: false)
         let repo = RepoConfig(
             repoURL: "https://github.com/example/notes.git",
@@ -91,7 +91,7 @@ final class SyncMDTests: XCTestCase {
     }
 
     @MainActor
-    func testAppStateRefusesToMoveRepositoryDuringGitOperation() {
+    func testAppStateRefusesToMoveRepositoryDuringGitOperation() async {
         let state = AppState(loadPersistedState: false)
         let repo = RepoConfig(
             repoURL: "https://github.com/example/notes.git",
