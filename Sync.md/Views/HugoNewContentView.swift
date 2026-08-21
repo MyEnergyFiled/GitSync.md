@@ -239,8 +239,8 @@ struct HugoNewContentView: View {
             return
         }
         directory = safeDirectory
-        let templateURL = root.appendingPathComponent(archetype)
         do {
+            let templateURL = try HugoContentService.archetypeURL(for: archetype, in: root)
             let bundleDirectory = try HugoContentService.newArticleBundleDirectory(
                 contentDirectory: safeDirectory,
                 bundleName: safeBundleName,

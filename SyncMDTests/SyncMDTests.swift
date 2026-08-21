@@ -5346,6 +5346,47 @@ final class HugoContentServiceTests: XCTestCase {
         XCTAssertEqual(destination, posts.appendingPathComponent("safe-article", isDirectory: true))
     }
 
+    func testArchetypeValidationRejectsSymlinkOutsideRepository() throws {
+        let fileManager = FileManager.default
+        let temporaryRoot = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let repositoryRoot = temporaryRoot.appendingPathComponent("repository", isDirectory: true)
+        let archetypes = repositoryRoot.appendingPathComponent("archetypes", isDirectory: true)
+        let outside = temporaryRoot.appendingPathComponent("outside.md")
+        let linkedArchetype = archetypes.appendingPathComponent("leak.md")
+        defer { try? fileManager.removeItem(at: temporaryRoot) }
+        try fileManager.createDirectory(at: archetypes, withIntermediateDirectories: true)
+        try "private".write(to: outside, atomically: true, encoding: .utf8)
+        try fileManager.createSymbolicLink(at: linkedArchetype, withDestinationURL: outside)
+
+        XCTAssertFalse(
+            HugoContentService.archetypes(in: repositoryRoot).contains("archetypes/leak.md")
+        )
+        XCTAssertThrowsError(try HugoContentService.archetypeURL(
+            for: "archetypes/leak.md",
+            in: repositoryRoot
+        )) { error in
+            XCTAssertEqual(error as? HugoArticleCreationError, .invalidArchetype)
+        }
+    }
+
+    func testArchetypeValidationAcceptsRepositoryTemplate() throws {
+        let fileManager = FileManager.default
+        let repositoryRoot = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let archetypes = repositoryRoot.appendingPathComponent("archetypes", isDirectory: true)
+        let template = archetypes.appendingPathComponent("default.md")
+        defer { try? fileManager.removeItem(at: repositoryRoot) }
+        try fileManager.createDirectory(at: archetypes, withIntermediateDirectories: true)
+        try "---\ndraft: true\n---".write(to: template, atomically: true, encoding: .utf8)
+
+        XCTAssertEqual(
+            try HugoContentService.archetypeURL(for: "archetypes/default.md", in: repositoryRoot),
+            template
+        )
+        XCTAssertTrue(
+            HugoContentService.archetypes(in: repositoryRoot).contains("archetypes/default.md")
+        )
+    }
+
     func testRendersLeafBundleArchetype() {
         let template = """
         ---

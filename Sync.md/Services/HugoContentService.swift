@@ -98,6 +98,7 @@ struct HugoArticleMoveResult: Equatable {
 enum HugoArticleCreationError: LocalizedError, Equatable {
     case invalidDestination
     case destinationExists
+    case invalidArchetype
 
     var errorDescription: String? {
         switch self {
@@ -105,6 +106,8 @@ enum HugoArticleCreationError: LocalizedError, Equatable {
             return String(localized: "Choose a directory below content/.")
         case .destinationExists:
             return String(localized: "A content bundle with this folder name already exists.")
+        case .invalidArchetype:
+            return String(localized: "Choose an existing archetype template.")
         }
     }
 }
@@ -185,6 +188,37 @@ enum HugoContentService {
             throw HugoArticleCreationError.destinationExists
         }
         return bundleDirectory
+    }
+
+    static func archetypeURL(for relativePath: String, in repositoryRoot: URL) throws -> URL {
+        let prefix = "archetypes/"
+        guard relativePath.hasPrefix(prefix) else {
+            throw HugoArticleCreationError.invalidArchetype
+        }
+        let name = String(relativePath.dropFirst(prefix.count))
+        guard !name.isEmpty,
+              !name.contains("/"),
+              !name.contains("\\"),
+              name != ".",
+              name != "..",
+              name.rangeOfCharacter(from: .controlCharacters) == nil,
+              ["md", "markdown"].contains((name as NSString).pathExtension.lowercased()) else {
+            throw HugoArticleCreationError.invalidArchetype
+        }
+
+        let root = repositoryRoot.standardizedFileURL
+        let archetypesRoot = root.appendingPathComponent("archetypes", isDirectory: true).standardizedFileURL
+        let candidate = archetypesRoot.appendingPathComponent(name).standardizedFileURL
+        let resolvedRoot = root.resolvingSymlinksInPath()
+        let resolvedArchetypesRoot = archetypesRoot.resolvingSymlinksInPath()
+        let resolvedCandidate = candidate.resolvingSymlinksInPath()
+        guard isURL(resolvedArchetypesRoot, containedIn: resolvedRoot),
+              isURL(resolvedCandidate, containedIn: resolvedArchetypesRoot),
+              let values = try? resolvedCandidate.resourceValues(forKeys: [.isRegularFileKey]),
+              values.isRegularFile == true else {
+            throw HugoArticleCreationError.invalidArchetype
+        }
+        return candidate
     }
 
     static func localPreviewAssetURL(
@@ -394,11 +428,18 @@ enum HugoContentService {
     }
 
     static func archetypes(in root: URL) -> [String] {
-        let directory = root.appendingPathComponent("archetypes", isDirectory: true)
+        let resolvedRoot = root.standardizedFileURL.resolvingSymlinksInPath()
+        let directory = root.appendingPathComponent("archetypes", isDirectory: true).standardizedFileURL
+        guard isURL(directory.resolvingSymlinksInPath(), containedIn: resolvedRoot) else { return [] }
         return ((try? FileManager.default.contentsOfDirectory(
-            at: directory, includingPropertiesForKeys: nil, options: .skipsHiddenFiles
-        )) ?? []).filter { ["md", "markdown"].contains($0.pathExtension.lowercased()) }
-            .map { "archetypes/\($0.lastPathComponent)" }.sorted()
+            at: directory,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: .skipsHiddenFiles
+        )) ?? []).compactMap { url in
+            let relativePath = "archetypes/\(url.lastPathComponent)"
+            guard (try? archetypeURL(for: relativePath, in: root)) != nil else { return nil }
+            return relativePath
+        }.sorted()
     }
 
     static func suggestedArchetype(for directory: String, available: [String]) -> String? {
