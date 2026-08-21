@@ -112,6 +112,14 @@ enum HugoArticleCreationError: LocalizedError, Equatable {
     }
 }
 
+enum HugoArticleAccessError: LocalizedError, Equatable {
+    case invalidArticle
+
+    var errorDescription: String? {
+        String(localized: "The selected article is not a valid Hugo leaf bundle.")
+    }
+}
+
 enum HugoArticleMoveError: LocalizedError {
     case invalidSource
     case invalidDestination
@@ -219,6 +227,48 @@ enum HugoContentService {
             throw HugoArticleCreationError.invalidArchetype
         }
         return candidate
+    }
+
+    static func articleIndexURL(_ fileURL: URL, in repositoryRoot: URL) throws -> URL {
+        let root = repositoryRoot.standardizedFileURL
+        let contentRoot = root.appendingPathComponent("content", isDirectory: true).standardizedFileURL
+        let candidate = fileURL.standardizedFileURL
+        let resolvedRoot = root.resolvingSymlinksInPath()
+        let resolvedContentRoot = contentRoot.resolvingSymlinksInPath()
+        let resolvedCandidate = candidate.resolvingSymlinksInPath()
+
+        guard candidate.lastPathComponent == "index.md",
+              isURL(resolvedContentRoot, containedIn: resolvedRoot),
+              isURL(resolvedCandidate, containedIn: resolvedContentRoot),
+              let values = try? resolvedCandidate.resourceValues(forKeys: [.isRegularFileKey]),
+              values.isRegularFile == true else {
+            throw HugoArticleAccessError.invalidArticle
+        }
+        return candidate
+    }
+
+    static func articleIndexFiles(in repositoryRoot: URL) -> [URL] {
+        let root = repositoryRoot.standardizedFileURL
+        let contentRoot = root.appendingPathComponent("content", isDirectory: true).standardizedFileURL
+        let resolvedRoot = root.resolvingSymlinksInPath()
+        let resolvedContentRoot = contentRoot.resolvingSymlinksInPath()
+        var contentIsDirectory: ObjCBool = false
+        guard isURL(resolvedContentRoot, containedIn: resolvedRoot),
+              FileManager.default.fileExists(
+                  atPath: contentRoot.path,
+                  isDirectory: &contentIsDirectory
+              ), contentIsDirectory.boolValue,
+              let enumerator = FileManager.default.enumerator(
+                  at: contentRoot,
+                  includingPropertiesForKeys: [.isRegularFileKey],
+                  options: [.skipsHiddenFiles]
+              ) else { return [] }
+
+        return enumerator.compactMap { value in
+            guard let url = value as? URL,
+                  url.lastPathComponent == "index.md" else { return nil }
+            return try? articleIndexURL(url, in: root)
+        }
     }
 
     static func localPreviewAssetURL(

@@ -5387,6 +5387,70 @@ final class HugoContentServiceTests: XCTestCase {
         )
     }
 
+    func testArticleDiscoveryRejectsContentSymlinkOutsideRepository() throws {
+        let fileManager = FileManager.default
+        let temporaryRoot = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let repositoryRoot = temporaryRoot.appendingPathComponent("repository", isDirectory: true)
+        let outsideContent = temporaryRoot.appendingPathComponent("outside-content", isDirectory: true)
+        let outsideArticle = outsideContent.appendingPathComponent("post/index.md")
+        let linkedContent = repositoryRoot.appendingPathComponent("content", isDirectory: true)
+        defer { try? fileManager.removeItem(at: temporaryRoot) }
+        try fileManager.createDirectory(
+            at: outsideArticle.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try "outside".write(to: outsideArticle, atomically: true, encoding: .utf8)
+        try fileManager.createDirectory(at: repositoryRoot, withIntermediateDirectories: true)
+        try fileManager.createSymbolicLink(at: linkedContent, withDestinationURL: outsideContent)
+
+        XCTAssertTrue(HugoContentService.articleIndexFiles(in: repositoryRoot).isEmpty)
+        XCTAssertThrowsError(try HugoContentService.articleIndexURL(
+            outsideArticle,
+            in: repositoryRoot
+        )) { error in
+            XCTAssertEqual(error as? HugoArticleAccessError, .invalidArticle)
+        }
+    }
+
+    func testArticleDiscoveryRejectsIndexSymlinkOutsideRepository() throws {
+        let fileManager = FileManager.default
+        let temporaryRoot = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let repositoryRoot = temporaryRoot.appendingPathComponent("repository", isDirectory: true)
+        let articleDirectory = repositoryRoot.appendingPathComponent("content/post", isDirectory: true)
+        let linkedArticle = articleDirectory.appendingPathComponent("index.md")
+        let outsideArticle = temporaryRoot.appendingPathComponent("outside.md")
+        defer { try? fileManager.removeItem(at: temporaryRoot) }
+        try fileManager.createDirectory(at: articleDirectory, withIntermediateDirectories: true)
+        try "outside".write(to: outsideArticle, atomically: true, encoding: .utf8)
+        try fileManager.createSymbolicLink(at: linkedArticle, withDestinationURL: outsideArticle)
+
+        XCTAssertTrue(HugoContentService.articleIndexFiles(in: repositoryRoot).isEmpty)
+        XCTAssertThrowsError(try HugoContentService.articleIndexURL(
+            linkedArticle,
+            in: repositoryRoot
+        )) { error in
+            XCTAssertEqual(error as? HugoArticleAccessError, .invalidArticle)
+        }
+    }
+
+    func testArticleDiscoveryAcceptsIndexInsideRepository() throws {
+        let fileManager = FileManager.default
+        let repositoryRoot = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let article = repositoryRoot.appendingPathComponent("content/posts/safe/index.md")
+        defer { try? fileManager.removeItem(at: repositoryRoot) }
+        try fileManager.createDirectory(
+            at: article.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try "safe".write(to: article, atomically: true, encoding: .utf8)
+
+        XCTAssertEqual(
+            try HugoContentService.articleIndexURL(article, in: repositoryRoot),
+            article
+        )
+        XCTAssertEqual(HugoContentService.articleIndexFiles(in: repositoryRoot), [article])
+    }
+
     func testRendersLeafBundleArchetype() {
         let template = """
         ---
