@@ -31,6 +31,7 @@ struct FileBrowserView: View {
     @State private var newFileName: String = ""
     @State private var showHugoCreator = false
     @State private var newlyCreatedFile: FileEditorDestination?
+    @State private var fileOperationError: String?
 
     private var vaultURL: URL { state.vaultURL(for: repoID) }
     private var currentURL: URL {
@@ -115,6 +116,14 @@ struct FileBrowserView: View {
             Button("Cancel", role: .cancel) { newFileName = "" }
         } message: {
             Text("Enter a name for the new file in \"\(navTitle)\"")
+        }
+        .alert("Error", isPresented: Binding(
+            get: { fileOperationError != nil },
+            set: { if !$0 { fileOperationError = nil } }
+        )) {
+            Button("OK", role: .cancel) { fileOperationError = nil }
+        } message: {
+            Text(fileOperationError ?? "")
         }
         .sheet(isPresented: $showHugoCreator) {
             HugoNewContentView(
@@ -340,25 +349,46 @@ struct FileBrowserView: View {
     // MARK: - File Operations
 
     private func performRename(_ item: FileItem, to name: String) {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         renameItem = nil
         newName = ""
-        guard !trimmed.isEmpty, trimmed != item.name else { return }
-        let dest = item.url.deletingLastPathComponent().appendingPathComponent(trimmed)
-        try? FileManager.default.moveItem(at: item.url, to: dest)
-        loadItems()
-        // Refresh git status so the rename appears in VaultView
-        state.detectChanges(repoID: repoID)
+        do {
+            let destination = try RepositoryFileDestinationValidator.destinationURL(
+                for: name,
+                in: item.url.deletingLastPathComponent(),
+                repositoryRootURL: vaultURL
+            )
+            guard destination.lastPathComponent != item.name else { return }
+            guard !FileManager.default.fileExists(atPath: destination.path) else {
+                throw CocoaError(.fileWriteFileExists)
+            }
+            try FileManager.default.moveItem(at: item.url, to: destination)
+            loadItems()
+            // Refresh git status so the rename appears in VaultView
+            state.detectChanges(repoID: repoID)
+        } catch {
+            fileOperationError = error.localizedDescription
+        }
     }
 
     private func performCreateFile() {
-        let trimmed = newFileName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let requestedName = newFileName
         newFileName = ""
-        guard !trimmed.isEmpty else { return }
-        let dest = currentURL.appendingPathComponent(trimmed)
-        guard !FileManager.default.fileExists(atPath: dest.path) else { return }
-        FileManager.default.createFile(atPath: dest.path, contents: nil)
-        loadItems()
-        state.detectChanges(repoID: repoID)
+        do {
+            let destination = try RepositoryFileDestinationValidator.destinationURL(
+                for: requestedName,
+                in: currentURL,
+                repositoryRootURL: vaultURL
+            )
+            guard !FileManager.default.fileExists(atPath: destination.path) else {
+                throw CocoaError(.fileWriteFileExists)
+            }
+            guard FileManager.default.createFile(atPath: destination.path, contents: nil) else {
+                throw CocoaError(.fileWriteUnknown)
+            }
+            loadItems()
+            state.detectChanges(repoID: repoID)
+        } catch {
+            fileOperationError = error.localizedDescription
+        }
     }
 }

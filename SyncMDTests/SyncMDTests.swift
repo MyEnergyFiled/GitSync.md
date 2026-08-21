@@ -15,6 +15,61 @@ final class SyncMDTests: XCTestCase {
         XCTAssertTrue(true)
     }
 
+    func testRepositoryFileDestinationAcceptsDirectChildName() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let directory = root.appendingPathComponent("notes", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        let destination = try RepositoryFileDestinationValidator.destinationURL(
+            for: "  文章.md  ",
+            in: directory,
+            repositoryRootURL: root
+        )
+
+        XCTAssertEqual(destination, directory.appendingPathComponent("文章.md"))
+    }
+
+    func testRepositoryFileDestinationRejectsTraversalAndGitMetadata() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        for name in ["../outside.md", "nested/file.md", #"nested\file.md"#, ".", "..", ".git", ".GIT"] {
+            XCTAssertThrowsError(
+                try RepositoryFileDestinationValidator.destinationURL(
+                    for: name,
+                    in: root,
+                    repositoryRootURL: root
+                ),
+                name
+            ) { error in
+                XCTAssertEqual(error as? RepositoryFileDestinationError, .invalidName)
+            }
+        }
+    }
+
+    func testRepositoryFileDestinationRejectsSymlinkOutsideRepository() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let repositoryRoot = temporaryRoot.appendingPathComponent("repository", isDirectory: true)
+        let outsideRoot = temporaryRoot.appendingPathComponent("outside", isDirectory: true)
+        let linkedDirectory = repositoryRoot.appendingPathComponent("linked", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+        try FileManager.default.createDirectory(at: repositoryRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outsideRoot, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: linkedDirectory, withDestinationURL: outsideRoot)
+
+        XCTAssertThrowsError(
+            try RepositoryFileDestinationValidator.destinationURL(
+                for: "escaped.md",
+                in: linkedDirectory,
+                repositoryRootURL: repositoryRoot
+            )
+        ) { error in
+            XCTAssertEqual(error as? RepositoryFileDestinationError, .outsideRepository)
+        }
+    }
+
     func testGitHubOAuthCredentialRefreshesBeforeAccessTokenExpiry() {
         let now = Date(timeIntervalSince1970: 1_000)
         let credential = GitHubOAuthCredential(

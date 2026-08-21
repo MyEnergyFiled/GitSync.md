@@ -121742,6 +121742,16 @@
       "zh-Hans": { "stringUnit": { "state": "translated", "value": "站点配置" } },
       "zh-Hant": { "stringUnit": { "state": "translated", "value": "網站設定" } }
     } },
+    "Enter a file name without folders, '.', '..', or '.git'.": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Enter a file name without folders, '.', '..', or '.git'." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "请输入不包含文件夹、'.'、'..' 或 '.git' 的文件名。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "請輸入不包含資料夾、'.'、'..' 或 '.git' 的檔名。" } }
+    } },
+    "Files must stay inside the repository.": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Files must stay inside the repository." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "文件必须保留在仓库内。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "檔案必須保留在儲存庫內。" } }
+    } },
     "Search logs, repositories, or operation IDs": {
       "localizations": {
         "en": {
