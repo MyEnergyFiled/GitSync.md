@@ -31,7 +31,7 @@ jobs:
           restore-keys: |
             xctest-${{ runner.os }}-${{ runner.arch }}-
 
-      - name: Select and start iPhone simulator
+      - name: Select iPhone simulator
         id: simulator
         shell: bash
         run: |
@@ -45,7 +45,6 @@ jobs:
           fi
           echo "udid=$SIMULATOR_UDID" >> "$GITHUB_OUTPUT"
           echo "Selected simulator: $SIMULATOR_UDID"
-          xcrun simctl boot "$SIMULATOR_UDID" || true
 
       - name: Resolve Swift package dependencies
         shell: bash
@@ -68,10 +67,12 @@ jobs:
             -derivedDataPath "$RUNNER_TEMP/DerivedData" \
             CODE_SIGNING_ALLOWED=NO
 
-      - name: Wait for simulator
+      - name: Boot simulator
         shell: bash
         run: |
           set -euo pipefail
+          xcrun simctl shutdown all || true
+          xcrun simctl boot "${{ steps.simulator.outputs.udid }}" || true
           xcrun simctl bootstatus "${{ steps.simulator.outputs.udid }}" -b
 
       - name: Run unit tests without rebuilding
@@ -84,8 +85,7 @@ jobs:
             -destination "id=${{ steps.simulator.outputs.udid }}" \
             -only-testing:"$TEST_TARGET" \
             -resultBundlePath "$RUNNER_TEMP/SyncMDTests.xcresult" \
-            -parallel-testing-enabled YES \
-            -maximum-parallel-testing-workers 2 \
+            -parallel-testing-enabled NO \
             -derivedDataPath "$RUNNER_TEMP/DerivedData" \
             CODE_SIGNING_ALLOWED=NO
 
