@@ -9,7 +9,7 @@ jobs:
   reject-non-timestamp-build-numbers:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # CFBundleVersion (CURRENT_PROJECT_VERSION) must remain a 12-digit
       # YYYYMMDDHHMM timestamp. A reset to a small integer would cause every
