@@ -31,19 +31,21 @@ jobs:
           restore-keys: |
             xctest-${{ runner.os }}-${{ runner.arch }}-
 
-      - name: Select iPhone simulator
+      - name: Select and start iPhone simulator
         id: simulator
         shell: bash
         run: |
           set -euo pipefail
-          xcrun simctl list devices available
-          SIMULATOR_UDID=$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/ && /Shutdown|Booted/ { print $2; exit }')
+          AVAILABLE_DEVICES=$(xcrun simctl list devices available)
+          printf '%s\n' "$AVAILABLE_DEVICES"
+          SIMULATOR_UDID=$(printf '%s\n' "$AVAILABLE_DEVICES" | awk -F '[()]' '/iPhone/ && /Shutdown|Booted/ { print $2; exit }')
           if [ -z "${SIMULATOR_UDID:-}" ]; then
             echo "::error::No available iPhone simulator found"
             exit 1
           fi
           echo "udid=$SIMULATOR_UDID" >> "$GITHUB_OUTPUT"
           echo "Selected simulator: $SIMULATOR_UDID"
+          xcrun simctl boot "$SIMULATOR_UDID" || true
 
       - name: Resolve Swift package dependencies
         shell: bash
@@ -66,12 +68,10 @@ jobs:
             -derivedDataPath "$RUNNER_TEMP/DerivedData" \
             CODE_SIGNING_ALLOWED=NO
 
-      - name: Boot simulator
+      - name: Wait for simulator
         shell: bash
         run: |
           set -euo pipefail
-          xcrun simctl shutdown all || true
-          xcrun simctl boot "${{ steps.simulator.outputs.udid }}" || true
           xcrun simctl bootstatus "${{ steps.simulator.outputs.udid }}" -b
 
       - name: Run unit tests without rebuilding
