@@ -70,6 +70,34 @@ final class SyncMDTests: XCTestCase {
         }
     }
 
+    func testRepositoryFileRenameDestinationKeepsEditorFileInsideRepository() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let articleDirectory = root.appendingPathComponent("content/posts/article", isDirectory: true)
+        let source = articleDirectory.appendingPathComponent("index.md")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: articleDirectory, withIntermediateDirectories: true)
+
+        let destination = try RepositoryFileDestinationValidator.destinationURL(
+            forRenaming: source,
+            to: "renamed.md",
+            repositoryRootURL: root
+        )
+        XCTAssertEqual(destination, articleDirectory.appendingPathComponent("renamed.md"))
+
+        for name in ["../outside.md", "nested/file.md", ".git"] {
+            XCTAssertThrowsError(
+                try RepositoryFileDestinationValidator.destinationURL(
+                    forRenaming: source,
+                    to: name,
+                    repositoryRootURL: root
+                ),
+                name
+            ) { error in
+                XCTAssertEqual(error as? RepositoryFileDestinationError, .invalidName)
+            }
+        }
+    }
+
     @MainActor
     func testAppStateRefusesToRemoveRepositoryDuringGitOperation() async {
         let state = AppState(loadPersistedState: false)

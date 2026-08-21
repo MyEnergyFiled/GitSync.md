@@ -1269,9 +1269,16 @@ struct FileEditorView: View {
         showRenameModal = false
         renameText = ""
         guard !trimmed.isEmpty, trimmed != liveURL.lastPathComponent else { return }
-        let dest = liveURL.deletingLastPathComponent().appendingPathComponent(trimmed)
-        guard !FileManager.default.fileExists(atPath: dest.path) else { return }
         do {
+            let dest = try RepositoryFileDestinationValidator.destinationURL(
+                forRenaming: liveURL,
+                to: trimmed,
+                repositoryRootURL: state.vaultURL(for: repoID)
+            )
+            guard dest != liveURL else { return }
+            guard !FileManager.default.fileExists(atPath: dest.path) else {
+                throw CocoaError(.fileWriteFileExists)
+            }
             let previousURL = liveURL
             try FileManager.default.moveItem(at: previousURL, to: dest)
             invalidatePublishRetry()
@@ -1281,7 +1288,9 @@ struct FileEditorView: View {
             try? draftStore.remove(repoID: repoID, fileURL: previousURL)
             liveURL = dest
             state.detectChanges(repoID: repoID)
-        } catch {}
+        } catch {
+            persistenceMessage = error.localizedDescription
+        }
     }
 }
 

@@ -16,6 +16,18 @@ enum RepositoryFileDestinationError: LocalizedError, Equatable {
 
 enum RepositoryFileDestinationValidator {
     static func destinationURL(
+        forRenaming sourceURL: URL,
+        to rawName: String,
+        repositoryRootURL: URL
+    ) throws -> URL {
+        try destinationURL(
+            for: rawName,
+            in: sourceURL.deletingLastPathComponent(),
+            repositoryRootURL: repositoryRootURL
+        )
+    }
+
+    static func destinationURL(
         for rawName: String,
         in directoryURL: URL,
         repositoryRootURL: URL
