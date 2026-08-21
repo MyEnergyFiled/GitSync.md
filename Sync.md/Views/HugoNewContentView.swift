@@ -29,16 +29,16 @@ struct HugoNewContentView: View {
         guard HugoContentService.isValidBundleName(normalizedBundleName) else {
             return String(localized: "Use lowercase English letters, numbers, and single hyphens.")
         }
-        guard normalizedDirectory == "content" || normalizedDirectory.hasPrefix("content/"),
-              !normalizedDirectory.contains("..") else {
-            return String(localized: "Choose a directory below content/.")
+        do {
+            _ = try HugoContentService.newArticleBundleDirectory(
+                contentDirectory: normalizedDirectory,
+                bundleName: normalizedBundleName,
+                repositoryRoot: root
+            )
+        } catch {
+            return error.localizedDescription
         }
         guard archetypes.contains(archetype) else { return String(localized: "Choose an existing archetype template.") }
-        let destination = root.appendingPathComponent(normalizedDirectory)
-            .appendingPathComponent(normalizedBundleName, isDirectory: true)
-        guard !FileManager.default.fileExists(atPath: destination.path) else {
-            return String(localized: "This article folder already exists.")
-        }
         return nil
     }
 
@@ -234,22 +234,20 @@ struct HugoNewContentView: View {
             return
         }
         let safeDirectory = directory.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        guard (safeDirectory == "content" || safeDirectory.hasPrefix("content/")),
-              !safeDirectory.contains(".."), archetypes.contains(archetype) else {
+        guard archetypes.contains(archetype) else {
             errorMessage = String(localized: "Choose a safe content/ directory and an existing archetype.")
             return
         }
         directory = safeDirectory
         let templateURL = root.appendingPathComponent(archetype)
-        let contentDirectory = root.appendingPathComponent(directory, isDirectory: true)
-        let bundleDirectory = contentDirectory.appendingPathComponent(safeBundleName, isDirectory: true)
-        let destination = bundleDirectory.appendingPathComponent("index.md")
-        let imagesDirectory = bundleDirectory.appendingPathComponent("images", isDirectory: true)
-        guard !FileManager.default.fileExists(atPath: bundleDirectory.path) else {
-            errorMessage = String(localized: "A content bundle with this folder name already exists.")
-            return
-        }
         do {
+            let bundleDirectory = try HugoContentService.newArticleBundleDirectory(
+                contentDirectory: safeDirectory,
+                bundleName: safeBundleName,
+                repositoryRoot: root
+            )
+            let destination = bundleDirectory.appendingPathComponent("index.md")
+            let imagesDirectory = bundleDirectory.appendingPathComponent("images", isDirectory: true)
             let template = try String(contentsOf: templateURL, encoding: .utf8)
             let section = URL(fileURLWithPath: directory).lastPathComponent
             let generatedTitle = safeBundleName.replacingOccurrences(of: "-", with: " ").capitalized

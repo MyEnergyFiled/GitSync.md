@@ -5308,6 +5308,44 @@ final class HugoContentServiceTests: XCTestCase {
         XCTAssertFalse(fileManager.fileExists(atPath: outside.appendingPathComponent("escaped").path))
     }
 
+    func testNewArticleBundleDestinationRejectsSymlinkOutsideRepository() throws {
+        let fileManager = FileManager.default
+        let temporaryRoot = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let repositoryRoot = temporaryRoot.appendingPathComponent("repository", isDirectory: true)
+        let content = repositoryRoot.appendingPathComponent("content", isDirectory: true)
+        let outside = temporaryRoot.appendingPathComponent("outside", isDirectory: true)
+        let linkedDirectory = content.appendingPathComponent("external", isDirectory: true)
+        defer { try? fileManager.removeItem(at: temporaryRoot) }
+        try fileManager.createDirectory(at: content, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: outside, withIntermediateDirectories: true)
+        try fileManager.createSymbolicLink(at: linkedDirectory, withDestinationURL: outside)
+
+        XCTAssertThrowsError(try HugoContentService.newArticleBundleDirectory(
+            contentDirectory: "content/external",
+            bundleName: "escaped",
+            repositoryRoot: repositoryRoot
+        )) { error in
+            XCTAssertEqual(error as? HugoArticleCreationError, .invalidDestination)
+        }
+        XCTAssertFalse(fileManager.fileExists(atPath: outside.appendingPathComponent("escaped").path))
+    }
+
+    func testNewArticleBundleDestinationAcceptsDirectoryInsideRepository() throws {
+        let fileManager = FileManager.default
+        let repositoryRoot = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let posts = repositoryRoot.appendingPathComponent("content/posts", isDirectory: true)
+        defer { try? fileManager.removeItem(at: repositoryRoot) }
+        try fileManager.createDirectory(at: posts, withIntermediateDirectories: true)
+
+        let destination = try HugoContentService.newArticleBundleDirectory(
+            contentDirectory: "content/posts",
+            bundleName: "safe-article",
+            repositoryRoot: repositoryRoot
+        )
+
+        XCTAssertEqual(destination, posts.appendingPathComponent("safe-article", isDirectory: true))
+    }
+
     func testRendersLeafBundleArchetype() {
         let template = """
         ---

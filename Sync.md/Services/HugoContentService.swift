@@ -95,6 +95,20 @@ struct HugoArticleMoveResult: Equatable {
     let updatedImageReferenceCount: Int
 }
 
+enum HugoArticleCreationError: LocalizedError, Equatable {
+    case invalidDestination
+    case destinationExists
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidDestination:
+            return String(localized: "Choose a directory below content/.")
+        case .destinationExists:
+            return String(localized: "A content bundle with this folder name already exists.")
+        }
+    }
+}
+
 enum HugoArticleMoveError: LocalizedError {
     case invalidSource
     case invalidDestination
@@ -130,6 +144,47 @@ enum HugoContentService {
 
     static func isValidFrontMatterNumber(_ value: String) -> Bool {
         value.range(of: #"^-?(?:\d+(?:\.\d+)?|\.\d+)$"#, options: .regularExpression) != nil
+    }
+
+    static func newArticleBundleDirectory(
+        contentDirectory: String,
+        bundleName: String,
+        repositoryRoot: URL
+    ) throws -> URL {
+        let relativeDirectory = contentDirectory.trimmingCharacters(
+            in: CharacterSet(charactersIn: "/")
+        )
+        guard isValidBundleName(bundleName),
+              relativeDirectory == "content" || relativeDirectory.hasPrefix("content/"),
+              !relativeDirectory.contains(".."),
+              !relativeDirectory.contains("\\"),
+              relativeDirectory.rangeOfCharacter(from: .controlCharacters) == nil else {
+            throw HugoArticleCreationError.invalidDestination
+        }
+
+        let fileManager = FileManager.default
+        let root = repositoryRoot.standardizedFileURL
+        let contentRoot = root.appendingPathComponent("content", isDirectory: true).standardizedFileURL
+        let directory = root.appendingPathComponent(relativeDirectory, isDirectory: true).standardizedFileURL
+        let bundleDirectory = directory
+            .appendingPathComponent(bundleName, isDirectory: true)
+            .standardizedFileURL
+        let resolvedRoot = root.resolvingSymlinksInPath()
+        let resolvedContentRoot = contentRoot.resolvingSymlinksInPath()
+        let resolvedDirectory = directory.resolvingSymlinksInPath()
+        let resolvedBundleDirectory = resolvedDirectory
+            .appendingPathComponent(bundleName, isDirectory: true)
+            .standardizedFileURL
+
+        guard isURL(resolvedContentRoot, containedIn: resolvedRoot),
+              isURL(resolvedDirectory, containedIn: resolvedContentRoot),
+              isURL(resolvedBundleDirectory, containedIn: resolvedContentRoot) else {
+            throw HugoArticleCreationError.invalidDestination
+        }
+        guard !fileManager.fileExists(atPath: bundleDirectory.path) else {
+            throw HugoArticleCreationError.destinationExists
+        }
+        return bundleDirectory
     }
 
     static func localPreviewAssetURL(
