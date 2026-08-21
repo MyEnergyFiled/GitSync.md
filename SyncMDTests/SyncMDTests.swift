@@ -5275,6 +5275,39 @@ final class HugoContentServiceTests: XCTestCase {
         XCTAssertTrue(fileManager.fileExists(atPath: source.appendingPathComponent("index.md").path))
     }
 
+    func testMovingArticleBundleRejectsDestinationSymlinkOutsideRepository() throws {
+        let fileManager = FileManager.default
+        let temporaryRoot = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let repositoryRoot = temporaryRoot.appendingPathComponent("repository", isDirectory: true)
+        let content = repositoryRoot.appendingPathComponent("content", isDirectory: true)
+        let source = content.appendingPathComponent("old", isDirectory: true)
+        let outside = temporaryRoot.appendingPathComponent("outside", isDirectory: true)
+        let linkedDestination = content.appendingPathComponent("external", isDirectory: true)
+        defer { try? fileManager.removeItem(at: temporaryRoot) }
+        try fileManager.createDirectory(at: source, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: outside, withIntermediateDirectories: true)
+        try "Body".write(
+            to: source.appendingPathComponent("index.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try fileManager.createSymbolicLink(at: linkedDestination, withDestinationURL: outside)
+
+        XCTAssertThrowsError(try HugoContentService.moveArticleBundle(
+            indexFileURL: source.appendingPathComponent("index.md"),
+            toContentDirectory: linkedDestination,
+            bundleName: "escaped",
+            repositoryRoot: repositoryRoot
+        )) { error in
+            guard let moveError = error as? HugoArticleMoveError,
+                  case .invalidDestination = moveError else {
+                return XCTFail("Expected invalidDestination, got \(error)")
+            }
+        }
+        XCTAssertTrue(fileManager.fileExists(atPath: source.appendingPathComponent("index.md").path))
+        XCTAssertFalse(fileManager.fileExists(atPath: outside.appendingPathComponent("escaped").path))
+    }
+
     func testRendersLeafBundleArchetype() {
         let template = """
         ---

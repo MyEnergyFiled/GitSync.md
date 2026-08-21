@@ -168,16 +168,28 @@ enum HugoContentService {
             .standardizedFileURL
         let destinationFileURL = destinationBundleURL.appendingPathComponent("index.md")
 
+        let resolvedRoot = root.resolvingSymlinksInPath()
+        let resolvedContentRoot = contentRoot.resolvingSymlinksInPath()
+        let resolvedSourceFileURL = sourceFileURL.resolvingSymlinksInPath()
+        let resolvedSourceBundleURL = sourceBundleURL.resolvingSymlinksInPath()
+        let resolvedDestinationParentURL = destinationParentURL.resolvingSymlinksInPath()
+        let resolvedDestinationBundleURL = resolvedDestinationParentURL
+            .appendingPathComponent(bundleName, isDirectory: true)
+            .standardizedFileURL
+
         guard sourceFileURL.lastPathComponent == "index.md",
-              isURL(sourceBundleURL, containedIn: contentRoot),
+              isURL(resolvedContentRoot, containedIn: resolvedRoot),
+              isURL(resolvedSourceBundleURL, containedIn: resolvedContentRoot),
+              isURL(resolvedSourceFileURL, containedIn: resolvedSourceBundleURL),
               fileManager.fileExists(atPath: sourceFileURL.path) else {
             throw HugoArticleMoveError.invalidSource
         }
         var destinationParentIsDirectory: ObjCBool = false
         guard isValidBundleName(bundleName),
-              isURL(destinationParentURL, containedIn: contentRoot),
-              !isURL(destinationParentURL, containedIn: sourceBundleURL),
-              destinationBundleURL != sourceBundleURL,
+              isURL(resolvedDestinationParentURL, containedIn: resolvedContentRoot),
+              isURL(resolvedDestinationBundleURL, containedIn: resolvedContentRoot),
+              !isURL(resolvedDestinationParentURL, containedIn: resolvedSourceBundleURL),
+              resolvedDestinationBundleURL != resolvedSourceBundleURL,
               fileManager.fileExists(
                   atPath: destinationParentURL.path,
                   isDirectory: &destinationParentIsDirectory
