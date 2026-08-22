@@ -590,8 +590,12 @@ final class AppState {
         }
     }
 
-    func detectChanges(repoID: UUID, skipIfRecentlyStartedWithin interval: TimeInterval? = nil) {
-        guard let repo = repo(id: repoID), repo.isCloned else { return }
+    @discardableResult
+    func detectChanges(
+        repoID: UUID,
+        skipIfRecentlyStartedWithin interval: TimeInterval? = nil
+    ) -> Task<Void, Never>? {
+        guard let repo = repo(id: repoID), repo.isCloned else { return nil }
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
 
@@ -611,19 +615,19 @@ final class AppState {
             commitHistoryHasMoreByRepo[repoID] = false
             commitDetailByRepo[repoID] = [:]
             stashesByRepo[repoID] = []
-            return
+            return nil
         }
 
         let now = Date()
         if let interval,
            let lastStartedAt = lastChangeDetectionStartedAt[repoID],
            now.timeIntervalSince(lastStartedAt) < interval {
-            return
+            return nil
         }
 
         if changeDetectionInFlight.contains(repoID) {
             pendingChangeDetection.insert(repoID)
-            return
+            return nil
         }
         changeDetectionInFlight.insert(repoID)
         lastChangeDetectionStartedAt[repoID] = now
@@ -631,7 +635,7 @@ final class AppState {
         let startedAt = now
         let startedGeneration = repoMutationGeneration[repoID] ?? 0
         let repoName = repo.displayName
-        Task(priority: .utility) {
+        return Task(priority: .utility) {
             do {
                 let info = try await gitService.repoInfo()
                 let isStale = startedGeneration != (repoMutationGeneration[repoID] ?? 0)

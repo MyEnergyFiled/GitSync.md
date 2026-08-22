@@ -805,14 +805,11 @@ final class SyncMDTests: XCTestCase {
         )
         appState.repos = [fixture.repoConfig]
 
-        appState.detectChanges(repoID: fixture.repoConfig.id)
-
-        for _ in 0..<20 {
-            if appState.changeCounts[fixture.repoConfig.id] == fixture.repoInfo.changeCount {
-                break
-            }
-            try await Task.sleep(for: .milliseconds(25))
-        }
+        let refreshTask = try XCTUnwrap(
+            appState.detectChanges(repoID: fixture.repoConfig.id),
+            "A cloned repository should start a status refresh"
+        )
+        await refreshTask.value
 
         XCTAssertEqual(appState.changeCounts[fixture.repoConfig.id], fixture.repoInfo.changeCount)
     }
