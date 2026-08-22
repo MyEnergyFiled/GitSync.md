@@ -3495,7 +3495,7 @@ final class SyncMDTests: XCTestCase {
             encoding: .utf8
         )
         let transport = MockGitLFSTransport { request, _ in
-            if request.url?.absoluteString == "https://lfs.example.test/custom/objects/batch" {
+            if request.url?.absoluteString == "https://lfs.example.test/custom/info/lfs/objects/batch" {
                 XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
                 return (Data("""
                 {"objects":[{"oid":"\(pointer.oid)","size":\(pointer.size),"actions":{"download":{"href":"https://lfs.example.test/objects/\(pointer.oid)"}}}]}
