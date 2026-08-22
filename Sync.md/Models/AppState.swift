@@ -1820,11 +1820,11 @@ final class AppState {
     }
 
     func repositoryInfoForAutomation(repoID: UUID) async throws -> LocalRepoInfo {
-        try await gitOperationCoordinator.withThrowingOperation(repoID: repoID) { [self] in
-            guard let repo = repo(id: repoID), repo.isCloned else {
-                throw LocalGitError.notCloned
-            }
-            let gitService = gitRepositoryFactory(vaultURL(for: repoID))
+        guard let repo = repo(id: repoID), repo.isCloned else {
+            throw LocalGitError.notCloned
+        }
+        let gitService = gitRepositoryFactory(vaultURL(for: repoID))
+        return try await gitOperationCoordinator.withThrowingOperation(repoID: repoID) {
             guard gitService.hasGitDirectory else {
                 throw LocalGitError.notCloned
             }
