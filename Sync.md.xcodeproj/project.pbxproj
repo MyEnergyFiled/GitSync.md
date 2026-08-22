@@ -451,6 +451,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 2.5.4;
+				OTHER_SWIFT_FLAGS = "$(inherited) -Xfrontend -disable-subst-sil-function-types";
 				PRODUCT_BUNDLE_IDENTIFIER = "com.myenergyfiled.GitSyncMD";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -484,6 +485,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 2.5.4;
+				OTHER_SWIFT_FLAGS = "$(inherited) -Xfrontend -disable-subst-sil-function-types";
 				PRODUCT_BUNDLE_IDENTIFIER = "com.myenergyfiled.GitSyncMD";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;

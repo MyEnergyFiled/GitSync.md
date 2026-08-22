@@ -1,4 +1,4 @@
-@preconcurrency import SwiftUI
+import SwiftUI
 import PhotosUI
 import UniformTypeIdentifiers
 import UIKit
