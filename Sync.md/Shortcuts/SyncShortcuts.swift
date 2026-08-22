@@ -46,19 +46,20 @@ struct GitRepositoryEntity: AppEntity, Identifiable {
 
 struct GitRepositoryEntityQuery: EntityStringQuery {
     func entities(for identifiers: [GitRepositoryEntity.ID]) async throws -> [GitRepositoryEntity] {
-        let entitiesByID = Dictionary(uniqueKeysWithValues: Self.allRepositories().map { ($0.id, $0) })
+        let repositories = await Self.allRepositories()
+        let entitiesByID = Dictionary(uniqueKeysWithValues: repositories.map { ($0.id, $0) })
         return identifiers.compactMap { entitiesByID[$0] }
     }
 
     func suggestedEntities() async throws -> [GitRepositoryEntity] {
-        Self.allRepositories().filter(\.isCloned)
+        await Self.allRepositories().filter(\.isCloned)
     }
 
     func entities(matching string: String) async throws -> [GitRepositoryEntity] {
         let query = string.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return try await suggestedEntities() }
 
-        return Self.allRepositories().filter { entity in
+        return await Self.allRepositories().filter { entity in
             entity.isCloned
                 && (entity.name.localizedCaseInsensitiveContains(query)
                     || entity.repoURL.localizedCaseInsensitiveContains(query)
@@ -66,6 +67,7 @@ struct GitRepositoryEntityQuery: EntityStringQuery {
         }
     }
 
+    @MainActor
     private static func allRepositories() -> [GitRepositoryEntity] {
         AppState.loadPersistedRepos()
             .map(GitRepositoryEntity.init(repo:))
