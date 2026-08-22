@@ -15,6 +15,332 @@ final class SyncMDTests: XCTestCase {
         XCTAssertTrue(true)
     }
 
+    func testGitOperationCoordinatorSerializesOperationsForSameRepository() async {
+        let coordinator = GitOperationCoordinator()
+        let probe = GitOperationConcurrencyProbe()
+        let repoID = UUID()
+
+        await withTaskGroup(of: Void.self) { group in
+            for _ in 0..<8 {
+                group.addTask {
+                    await coordinator.withOperation(repoID: repoID) {
+                        await probe.enter()
+                        try? await Task.sleep(for: .milliseconds(20))
+                        await probe.leave()
+                    }
+                }
+            }
+        }
+
+        let snapshot = await probe.snapshot()
+        XCTAssertEqual(snapshot.completed, 8)
+        XCTAssertEqual(snapshot.maximumConcurrent, 1)
+    }
+
+    func testGitOperationCoordinatorAllowsDifferentRepositoriesToProgress() async {
+        let coordinator = GitOperationCoordinator()
+        let probe = GitOperationConcurrencyProbe()
+        let repositoryIDs = [UUID(), UUID()]
+
+        await withTaskGroup(of: Void.self) { group in
+            for repoID in repositoryIDs {
+                group.addTask {
+                    await coordinator.withOperation(repoID: repoID) {
+                        await probe.enter()
+                        try? await Task.sleep(for: .milliseconds(100))
+                        await probe.leave()
+                    }
+                }
+            }
+        }
+
+        let snapshot = await probe.snapshot()
+        XCTAssertEqual(snapshot.completed, 2)
+        XCTAssertEqual(snapshot.maximumConcurrent, 2)
+    }
+
+    func testRepositoryFileDestinationAcceptsDirectChildName() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let directory = root.appendingPathComponent("notes", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        let destination = try RepositoryFileDestinationValidator.destinationURL(
+            for: "  文章.md  ",
+            in: directory,
+            repositoryRootURL: root
+        )
+
+        XCTAssertEqual(destination, directory.appendingPathComponent("文章.md"))
+    }
+
+    func testRepositoryFileDestinationRejectsTraversalAndGitMetadata() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        for name in ["../outside.md", "nested/file.md", #"nested\file.md"#, ".", "..", ".git", ".GIT"] {
+            XCTAssertThrowsError(
+                try RepositoryFileDestinationValidator.destinationURL(
+                    for: name,
+                    in: root,
+                    repositoryRootURL: root
+                ),
+                name
+            ) { error in
+                XCTAssertEqual(error as? RepositoryFileDestinationError, .invalidName)
+            }
+        }
+    }
+
+    func testRepositoryFileDestinationRejectsSymlinkOutsideRepository() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let repositoryRoot = temporaryRoot.appendingPathComponent("repository", isDirectory: true)
+        let outsideRoot = temporaryRoot.appendingPathComponent("outside", isDirectory: true)
+        let linkedDirectory = repositoryRoot.appendingPathComponent("linked", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+        try FileManager.default.createDirectory(at: repositoryRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outsideRoot, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: linkedDirectory, withDestinationURL: outsideRoot)
+
+        XCTAssertThrowsError(
+            try RepositoryFileDestinationValidator.destinationURL(
+                for: "escaped.md",
+                in: linkedDirectory,
+                repositoryRootURL: repositoryRoot
+            )
+        ) { error in
+            XCTAssertEqual(error as? RepositoryFileDestinationError, .outsideRepository)
+        }
+    }
+
+    func testRepositoryExistingFileRejectsSymlinkOutsideRepository() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let repositoryRoot = temporaryRoot.appendingPathComponent("repository", isDirectory: true)
+        let images = repositoryRoot.appendingPathComponent("images", isDirectory: true)
+        let outsideFile = temporaryRoot.appendingPathComponent("outside.jpg")
+        let linkedFile = images.appendingPathComponent("linked.jpg")
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+        try FileManager.default.createDirectory(at: images, withIntermediateDirectories: true)
+        try Data([0x01]).write(to: outsideFile)
+        try FileManager.default.createSymbolicLink(at: linkedFile, withDestinationURL: outsideFile)
+
+        XCTAssertThrowsError(try RepositoryFileDestinationValidator.existingFileURL(
+            linkedFile,
+            in: images,
+            repositoryRootURL: repositoryRoot
+        )) { error in
+            XCTAssertEqual(error as? RepositoryFileDestinationError, .outsideRepository)
+        }
+    }
+
+    func testRepositoryExistingFileAcceptsRegularChild() throws {
+        let repositoryRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let images = repositoryRoot.appendingPathComponent("images", isDirectory: true)
+        let image = images.appendingPathComponent("cover.jpg")
+        defer { try? FileManager.default.removeItem(at: repositoryRoot) }
+        try FileManager.default.createDirectory(at: images, withIntermediateDirectories: true)
+        try Data([0x01]).write(to: image)
+
+        XCTAssertEqual(
+            try RepositoryFileDestinationValidator.existingFileURL(
+                image,
+                in: images,
+                repositoryRootURL: repositoryRoot
+            ),
+            image.resolvingSymlinksInPath()
+        )
+    }
+
+    func testRepositoryExistingDirectoryRejectsSymlinkOutsideRepository() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let repositoryRoot = temporaryRoot.appendingPathComponent("repository", isDirectory: true)
+        let outsideDirectory = temporaryRoot.appendingPathComponent("outside", isDirectory: true)
+        let linkedDirectory = repositoryRoot.appendingPathComponent("linked", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+        try FileManager.default.createDirectory(at: repositoryRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outsideDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: linkedDirectory, withDestinationURL: outsideDirectory)
+
+        XCTAssertThrowsError(try RepositoryFileDestinationValidator.existingDirectoryURL(
+            linkedDirectory,
+            in: repositoryRoot,
+            repositoryRootURL: repositoryRoot
+        )) { error in
+            XCTAssertEqual(error as? RepositoryFileDestinationError, .outsideRepository)
+        }
+    }
+
+    func testRepositoryExistingDirectoryAcceptsRegularChild() throws {
+        let repositoryRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let directory = repositoryRoot.appendingPathComponent("notes", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: repositoryRoot) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        XCTAssertEqual(
+            try RepositoryFileDestinationValidator.existingDirectoryURL(
+                directory,
+                in: repositoryRoot,
+                repositoryRootURL: repositoryRoot
+            ),
+            directory.resolvingSymlinksInPath()
+        )
+    }
+
+    func testRepositoryFileRenameDestinationKeepsEditorFileInsideRepository() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let articleDirectory = root.appendingPathComponent("content/posts/article", isDirectory: true)
+        let source = articleDirectory.appendingPathComponent("index.md")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: articleDirectory, withIntermediateDirectories: true)
+
+        let destination = try RepositoryFileDestinationValidator.destinationURL(
+            forRenaming: source,
+            to: "renamed.md",
+            repositoryRootURL: root
+        )
+        XCTAssertEqual(destination, articleDirectory.appendingPathComponent("renamed.md"))
+
+        for name in ["../outside.md", "nested/file.md", ".git"] {
+            XCTAssertThrowsError(
+                try RepositoryFileDestinationValidator.destinationURL(
+                    forRenaming: source,
+                    to: name,
+                    repositoryRootURL: root
+                ),
+                name
+            ) { error in
+                XCTAssertEqual(error as? RepositoryFileDestinationError, .invalidName)
+            }
+        }
+    }
+
+    @MainActor
+    func testAppStateRefusesToRemoveRepositoryDuringGitOperation() async {
+        let state = AppState(loadPersistedState: false)
+        let repo = RepoConfig(
+            repoURL: "https://github.com/example/notes.git",
+            branch: "main",
+            authorName: "Test User",
+            authorEmail: "test@example.com",
+            vaultFolderName: "SyncMD-OperationGuard-\(UUID().uuidString)"
+        )
+        state.repos = [repo]
+        state.isSyncing = true
+        state.syncingRepoID = repo.id
+
+        XCTAssertFalse(state.removeRepo(id: repo.id))
+        XCTAssertEqual(state.repos.map(\.id), [repo.id])
+        XCTAssertTrue(state.showError)
+        XCTAssertTrue(state.lastError?.contains("current Git operation") == true)
+    }
+
+    @MainActor
+    func testAppStateRefusesToMoveRepositoryDuringGitOperation() async {
+        let state = AppState(loadPersistedState: false)
+        let repo = RepoConfig(
+            repoURL: "https://github.com/example/notes.git",
+            branch: "main",
+            authorName: "Test User",
+            authorEmail: "test@example.com",
+            vaultFolderName: "SyncMD-OperationGuard-\(UUID().uuidString)"
+        )
+        state.repos = [repo]
+        state.isSyncing = true
+        state.syncingRepoID = repo.id
+
+        XCTAssertThrowsError(
+            try state.moveVaultLocation(
+                for: repo.id,
+                to: FileManager.default.temporaryDirectory,
+                bookmark: Data("bookmark".utf8)
+            )
+        ) { error in
+            XCTAssertEqual(error as? AppState.MoveVaultError, .operationInProgress)
+        }
+        XCTAssertEqual(state.repos.map(\.id), [repo.id])
+    }
+
+    @MainActor
+    func testSaveReposReportsPersistenceFailure() async {
+        let writer = RepoPersistenceWriterStub(shouldFail: true)
+        let state = AppState(
+            reposPersistenceWriter: writer,
+            loadPersistedState: false
+        )
+
+        let result = state.saveRepos()
+
+        guard case .failure(.saveFailed) = result else {
+            return XCTFail("Expected repository persistence to fail")
+        }
+        XCTAssertEqual(writer.persistCallCount, 1)
+        XCTAssertTrue(state.showError)
+        XCTAssertEqual(state.lastError, RepoPersistenceError.saveFailed.message)
+    }
+
+    func testKeychainServiceErrorKeepsDiagnosticsOutOfUserMessage() {
+        let error = KeychainServiceError(operation: .save, status: errSecMissingEntitlement)
+
+        XCTAssertEqual(error.errorDescription, String(localized: "Secure credential access failed."))
+        XCTAssertFalse(error.errorDescription?.contains("OSStatus") == true)
+        XCTAssertTrue(error.diagnosticDescription.contains("operation=save"))
+        XCTAssertTrue(error.diagnosticDescription.contains("status="))
+    }
+
+    @MainActor
+    func testRemoveRepositoryPreservesRecordWhenLocalDeletionFails() async throws {
+        let repo = RepoConfig(
+            repoURL: "https://example.com/delete-failure.git",
+            branch: "main",
+            authorName: "Test User",
+            authorEmail: "test@example.com",
+            vaultFolderName: "SyncMD-DeleteFailure-\(UUID().uuidString)",
+            authMethod: .none
+        )
+        let vaultURL = repo.defaultVaultURL
+        try FileManager.default.createDirectory(at: vaultURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: vaultURL) }
+        let writer = RepoPersistenceWriterStub()
+        let remover = RepositoryFileRemoverStub(shouldFail: true)
+        let state = AppState(
+            reposPersistenceWriter: writer,
+            repositoryFileRemover: remover,
+            loadPersistedState: false
+        )
+        state.repos = [repo]
+
+        XCTAssertFalse(state.removeRepo(id: repo.id, deleteLocalFiles: true))
+        XCTAssertEqual(state.repos.map(\.id), [repo.id])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: vaultURL.path))
+        XCTAssertEqual(remover.removeCallCount, 1)
+        XCTAssertEqual(writer.persistCallCount, 0)
+        XCTAssertTrue(state.showError)
+    }
+
+    @MainActor
+    func testRemoveRepositoryRestoresRecordWhenSettingsSaveFails() async {
+        let repo = RepoConfig(
+            repoURL: "https://example.com/save-failure.git",
+            branch: "main",
+            authorName: "Test User",
+            authorEmail: "test@example.com",
+            vaultFolderName: "SyncMD-SaveFailure-\(UUID().uuidString)",
+            authMethod: .none
+        )
+        let writer = RepoPersistenceWriterStub(shouldFail: true)
+        let state = AppState(
+            reposPersistenceWriter: writer,
+            loadPersistedState: false
+        )
+        state.repos = [repo]
+
+        XCTAssertFalse(state.removeRepo(id: repo.id))
+        XCTAssertEqual(state.repos.map(\.id), [repo.id])
+        XCTAssertEqual(writer.persistCallCount, 1)
+        XCTAssertTrue(state.showError)
+    }
+
     func testGitHubOAuthCredentialRefreshesBeforeAccessTokenExpiry() {
         let now = Date(timeIntervalSince1970: 1_000)
         let credential = GitHubOAuthCredential(
@@ -199,18 +525,74 @@ final class SyncMDTests: XCTestCase {
     }
 
 
-    func testDraftStoreRoundTripsAndRemovesEditorText() throws {
+    @MainActor
+    func testDraftStoreRoundTripsAndRemovesEditorText() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = FileEditorDraftStore(directoryURL: directory)
         let repoID = UUID()
         let fileURL = directory.appendingPathComponent("content/posts/test/index.md")
 
-        try store.save(content: "draft text", repoID: repoID, fileURL: fileURL)
-        XCTAssertEqual(store.draft(repoID: repoID, fileURL: fileURL)?.content, "draft text")
+        try await store.save(content: "draft text", repoID: repoID, fileURL: fileURL)
+        let savedDraft = try await store.draft(repoID: repoID, fileURL: fileURL)
+        XCTAssertEqual(savedDraft?.content, "draft text")
 
-        try store.remove(repoID: repoID, fileURL: fileURL)
-        XCTAssertNil(store.draft(repoID: repoID, fileURL: fileURL))
+        try await store.remove(repoID: repoID, fileURL: fileURL)
+        let removedDraft = try await store.draft(repoID: repoID, fileURL: fileURL)
+        XCTAssertNil(removedDraft)
+    }
+
+    @MainActor
+    func testDraftStoreSerializesConcurrentIndependentDraftWrites() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = FileEditorDraftStore(directoryURL: directory)
+        let repoID = UUID()
+        let firstURL = directory.appendingPathComponent("content/posts/first/index.md")
+        let secondURL = directory.appendingPathComponent("content/posts/second/index.md")
+
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask {
+                try await store.save(content: "first draft", repoID: repoID, fileURL: firstURL)
+            }
+            group.addTask {
+                try await store.save(content: "second draft", repoID: repoID, fileURL: secondURL)
+            }
+            try await group.waitForAll()
+        }
+
+        let first = try await store.draft(repoID: repoID, fileURL: firstURL)
+        let second = try await store.draft(repoID: repoID, fileURL: secondURL)
+        XCTAssertEqual(first?.content, "first draft")
+        XCTAssertEqual(second?.content, "second draft")
+        let files = try FileManager.default.contentsOfDirectory(
+            at: directory.appendingPathComponent("editor-drafts"),
+            includingPropertiesForKeys: nil
+        )
+        XCTAssertEqual(files.filter { $0.pathExtension == "json" }.count, 2)
+    }
+
+    @MainActor
+    func testDraftStoreMigratesLegacyCombinedFile() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let repoID = UUID()
+        let fileURL = directory.appendingPathComponent("content/posts/legacy/index.md")
+        let legacyDraft = FileEditorDraft(
+            repoID: repoID,
+            filePath: fileURL.standardizedFileURL.path,
+            content: "legacy draft",
+            updatedAt: Date(timeIntervalSince1970: 1_000)
+        )
+        let legacyFileURL = directory.appendingPathComponent("editor-drafts.json")
+        try JSONEncoder().encode([legacyDraft]).write(to: legacyFileURL, options: .atomic)
+
+        let store = FileEditorDraftStore(directoryURL: directory)
+        let migrated = try await store.draft(repoID: repoID, fileURL: fileURL)
+
+        XCTAssertEqual(migrated, legacyDraft)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacyFileURL.path))
     }
 
     func testHugoBundleNameValidationRequiresEnglishSlug() {
@@ -246,6 +628,7 @@ final class SyncMDTests: XCTestCase {
         let result = HugoContentService.validateArticleBundle(
             markdown: markdown,
             fileURL: fileURL,
+            repositoryRoot: root,
             oversizedThreshold: 3
         )
 
@@ -261,7 +644,8 @@ final class SyncMDTests: XCTestCase {
 
         let result = HugoContentService.validateArticleBundle(
             markdown: "Body without Front Matter",
-            fileURL: fileURL
+            fileURL: fileURL,
+            repositoryRoot: fileURL.deletingLastPathComponent()
         )
 
         XCTAssertEqual(result.frontMatterIssues, [.missingOrIncomplete])
@@ -276,7 +660,8 @@ final class SyncMDTests: XCTestCase {
 
         let result = HugoContentService.validateArticleBundle(
             markdown: markdown,
-            fileURL: fileURL
+            fileURL: fileURL,
+            repositoryRoot: fileURL.deletingLastPathComponent()
         )
 
         XCTAssertEqual(result.frontMatterIssues, [.missingTitle, .invalidDate])
@@ -291,7 +676,8 @@ final class SyncMDTests: XCTestCase {
 
         let result = HugoContentService.validateArticleBundle(
             markdown: markdown,
-            fileURL: fileURL
+            fileURL: fileURL,
+            repositoryRoot: fileURL.deletingLastPathComponent()
         )
 
         XCTAssertTrue(result.frontMatterIssues.isEmpty)
@@ -311,11 +697,38 @@ final class SyncMDTests: XCTestCase {
         let result = HugoContentService.validateArticleBundle(
             markdown: markdown,
             fileURL: fileURL,
+            repositoryRoot: root,
             oversizedThreshold: 3
         )
 
         XCTAssertEqual(result.oversizedImageNames, ["large.jpg"])
         XCTAssertTrue(result.isValid)
+    }
+
+    func testHugoArticleValidationRejectsImagesDirectorySymlinkOutsideRepository() throws {
+        let fileManager = FileManager.default
+        let temporaryRoot = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let repositoryRoot = temporaryRoot.appendingPathComponent("repository", isDirectory: true)
+        let bundle = repositoryRoot.appendingPathComponent("content/posts/test", isDirectory: true)
+        let linkedImages = bundle.appendingPathComponent("images", isDirectory: true)
+        let outsideImages = temporaryRoot.appendingPathComponent("outside-images", isDirectory: true)
+        defer { try? fileManager.removeItem(at: temporaryRoot) }
+        try fileManager.createDirectory(at: bundle, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: outsideImages, withIntermediateDirectories: true)
+        try Data([0, 1, 2, 3]).write(to: outsideImages.appendingPathComponent("private.jpg"))
+        try fileManager.createSymbolicLink(at: linkedImages, withDestinationURL: outsideImages)
+        let markdown = "---\ntitle: \"Post\"\ndraft: false\n---\n\n![image](images/private.jpg)"
+
+        let result = HugoContentService.validateArticleBundle(
+            markdown: markdown,
+            fileURL: bundle.appendingPathComponent("index.md"),
+            repositoryRoot: repositoryRoot,
+            oversizedThreshold: 3
+        )
+
+        XCTAssertEqual(result.missingImagePaths, ["images/private.jpg"])
+        XCTAssertTrue(result.oversizedImageNames.isEmpty)
+        XCTAssertFalse(result.isValid)
     }
 
     func testArticleImageFormatsIncludeBitmapFiles() {
@@ -325,7 +738,8 @@ final class SyncMDTests: XCTestCase {
         XCTAssertFalse(HugoContentService.isSupportedArticleImage(URL(fileURLWithPath: "notes.txt")))
     }
 
-    func testRepositoryDeduplicationPrefersClonedRecord() {
+    @MainActor
+    func testRepositoryDeduplicationPrefersClonedRecord() async {
         let failed = RepoConfig(
             repoURL: "https://github.com/Owner/Notes.git",
             branch: "main",
@@ -391,14 +805,11 @@ final class SyncMDTests: XCTestCase {
         )
         appState.repos = [fixture.repoConfig]
 
-        appState.detectChanges(repoID: fixture.repoConfig.id)
-
-        for _ in 0..<20 {
-            if appState.changeCounts[fixture.repoConfig.id] == fixture.repoInfo.changeCount {
-                break
-            }
-            try await Task.sleep(for: .milliseconds(25))
-        }
+        let refreshTask = try XCTUnwrap(
+            appState.detectChanges(repoID: fixture.repoConfig.id),
+            "A cloned repository should start a status refresh"
+        )
+        await refreshTask.value
 
         XCTAssertEqual(appState.changeCounts[fixture.repoConfig.id], fixture.repoInfo.changeCount)
     }
@@ -474,6 +885,24 @@ final class SyncMDTests: XCTestCase {
         XCTAssertEqual(ssh?.isSSH, true)
     }
 
+    func testGitHubRepoParserRequiresExactGitHubHostAndTwoPathComponents() {
+        let https = GitHubService.parseRepoURL("https://github.com/example/notes.git")
+        XCTAssertEqual(https?.owner, "example")
+        XCTAssertEqual(https?.repo, "notes")
+
+        let ssh = GitHubService.parseRepoURL("git@github.com:example/notes.git")
+        XCTAssertEqual(ssh?.owner, "example")
+        XCTAssertEqual(ssh?.repo, "notes")
+
+        let shortcut = GitHubService.parseRepoURL("example/notes")
+        XCTAssertEqual(shortcut?.owner, "example")
+        XCTAssertEqual(shortcut?.repo, "notes")
+
+        XCTAssertNil(GitHubService.parseRepoURL("https://notgithub.com/example/notes.git"))
+        XCTAssertNil(GitHubService.parseRepoURL("https://github.com.evil.example/example/notes.git"))
+        XCTAssertNil(GitHubService.parseRepoURL("https://github.com/group/example/notes.git"))
+    }
+
     func testGitRemoteCredentialsTransportPayloadRoundTripsAndSupportsLegacyPAT() {
         let credentials = GitRemoteCredentials.sshKey(
             username: "git",
@@ -545,6 +974,70 @@ final class SyncMDTests: XCTestCase {
 
         XCTAssertEqual(appState.repos.first?.gitState.commitSHA, newCommit)
         XCTAssertEqual(appState.pullOutcomeByRepo[fixture.repoConfig.id]?.kind, .fastForwarded)
+    }
+
+    @MainActor
+    func testAppStatePullUpdatesRepositoryByIDAfterArrayReordering() async throws {
+        let fixture = try GitFixtureFactory.make(state: .clean)
+        defer { fixture.cleanup() }
+
+        let newCommit = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        fixture.repository.pullPlanResult = PullPlan(
+            action: .fastForward,
+            branch: "main",
+            localCommitSHA: fixture.repoConfig.gitState.commitSHA,
+            remoteCommitSHA: newCommit,
+            hasLocalChanges: false,
+            aheadBy: 0,
+            behindBy: 1
+        )
+        fixture.repository.pullResult = .success(LocalPullResult(updated: true, newCommitSHA: newCommit))
+        let gate = AsyncTestGate()
+        fixture.repository.beforePullPlan = {
+            await gate.wait()
+        }
+
+        let untouchedCommit = "cccccccccccccccccccccccccccccccccccccccc"
+        let otherRepo = RepoConfig(
+            repoURL: "https://example.com/other.git",
+            branch: "main",
+            authorName: "Other User",
+            authorEmail: "other@example.com",
+            vaultFolderName: "SyncMD-Other-\(UUID().uuidString)",
+            authMethod: .none,
+            gitState: GitState(
+                commitSHA: untouchedCommit,
+                treeSHA: "",
+                branch: "main",
+                blobSHAs: [:],
+                lastSyncDate: .distantPast
+            )
+        )
+
+        let appState = AppState(
+            gitRepositoryFactory: { _ in fixture.repository },
+            gitOperationCoordinator: GitOperationCoordinator(),
+            loadPersistedState: false
+        )
+        appState.repos = [fixture.repoConfig, otherRepo]
+
+        let pullTask = Task {
+            await appState.pull(repoID: fixture.repoConfig.id, showsProgressDelay: false)
+        }
+        for _ in 0..<100 {
+            if await gate.isWaiting { break }
+            await Task.yield()
+        }
+        let operationDidSuspend = await gate.isWaiting
+        XCTAssertTrue(operationDidSuspend)
+
+        appState.repos.swapAt(0, 1)
+        await gate.open()
+        let pullSucceeded = await pullTask.value
+        XCTAssertTrue(pullSucceeded)
+
+        XCTAssertEqual(appState.repo(id: fixture.repoConfig.id)?.gitState.commitSHA, newCommit)
+        XCTAssertEqual(appState.repo(id: otherRepo.id)?.gitState.commitSHA, untouchedCommit)
     }
 
     @MainActor
@@ -1313,7 +1806,8 @@ final class SyncMDTests: XCTestCase {
         XCTAssertTrue(fixture.repository.stagedPaths.isEmpty)
     }
 
-    func testArticleBundleChangeDetectionIgnoresOtherArticles() {
+    @MainActor
+    func testArticleBundleChangeDetectionIgnoresOtherArticles() async {
         let entries = [
             GitStatusEntry(path: "content/posts/one/images/cover.jpg", indexStatus: .added, workTreeStatus: nil),
             GitStatusEntry(path: "content/posts/two/index.md", indexStatus: nil, workTreeStatus: .modified)
@@ -2442,6 +2936,78 @@ final class SyncMDTests: XCTestCase {
         XCTAssertFalse(repoInfo.statusEntries.contains(where: { $0.path == "README.md" && $0.isConflicted }))
     }
 
+    func testLocalGitServiceResolveConflictWithContentRejectsUnsafeKeepPaths() async throws {
+        let fileManager = FileManager.default
+        let temporaryRoot = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let repositoryURL = temporaryRoot.appendingPathComponent("repository", isDirectory: true)
+        let outsideFile = temporaryRoot.appendingPathComponent("outside.txt")
+        defer { try? fileManager.removeItem(at: temporaryRoot) }
+        try fileManager.createDirectory(at: repositoryURL, withIntermediateDirectories: true)
+        try Data("outside".utf8).write(to: outsideFile)
+        var repository: OpaquePointer?
+        XCTAssertEqual(git_repository_init(&repository, repositoryURL.path, 0), 0)
+        if let repository { git_repository_free(repository) }
+        let service = LocalGitService(localURL: repositoryURL)
+
+        for unsafePath in ["../outside.txt", outsideFile.path, ".git/index"] {
+            do {
+                try await service.resolveConflictWithContent(
+                    path: unsafePath,
+                    content: Data("changed".utf8),
+                    additionalPathsToRemove: []
+                )
+                XCTFail("Expected unsafe path to be rejected: \(unsafePath)")
+            } catch {
+                guard let gitError = error as? LocalGitError else {
+                    XCTFail("Expected conflictPathNotFound, got \(error)")
+                    return
+                }
+                guard case .conflictPathNotFound = gitError else {
+                    XCTFail("Expected conflictPathNotFound, got \(error)")
+                    return
+                }
+            }
+        }
+
+        XCTAssertEqual(try String(contentsOf: outsideFile, encoding: .utf8), "outside")
+    }
+
+    func testLocalGitServiceResolveConflictWithContentValidatesRemovalPathsBeforeWriting() async throws {
+        let fileManager = FileManager.default
+        let temporaryRoot = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let repositoryURL = temporaryRoot.appendingPathComponent("repository", isDirectory: true)
+        let insideFile = repositoryURL.appendingPathComponent("README.md")
+        let outsideFile = temporaryRoot.appendingPathComponent("outside.txt")
+        defer { try? fileManager.removeItem(at: temporaryRoot) }
+        try fileManager.createDirectory(at: repositoryURL, withIntermediateDirectories: true)
+        try Data("outside".utf8).write(to: outsideFile)
+        var repository: OpaquePointer?
+        XCTAssertEqual(git_repository_init(&repository, repositoryURL.path, 0), 0)
+        if let repository { git_repository_free(repository) }
+        let service = LocalGitService(localURL: repositoryURL)
+
+        do {
+            try await service.resolveConflictWithContent(
+                path: "README.md",
+                content: Data("resolved".utf8),
+                additionalPathsToRemove: ["../outside.txt"]
+            )
+            XCTFail("Expected traversal removal path to be rejected")
+        } catch {
+            guard let gitError = error as? LocalGitError else {
+                XCTFail("Expected conflictPathNotFound, got \(error)")
+                return
+            }
+            guard case .conflictPathNotFound = gitError else {
+                XCTFail("Expected conflictPathNotFound, got \(error)")
+                return
+            }
+        }
+
+        XCTAssertFalse(fileManager.fileExists(atPath: insideFile.path))
+        XCTAssertEqual(try String(contentsOf: outsideFile, encoding: .utf8), "outside")
+    }
+
     func testLocalGitServiceCompleteMergeCreatesCommitAndCleansState() async throws {
         let fm = FileManager.default
         let repoURL = fm.temporaryDirectory.appendingPathComponent("SyncMD-CompleteMerge-\(UUID().uuidString)", isDirectory: true)
@@ -2727,6 +3293,96 @@ final class SyncMDTests: XCTestCase {
         XCTAssertTrue(changedPaths.contains("other/mover.md"), "Moved file's new path must appear in commit")
         XCTAssertFalse(changedPaths.contains("subdir/mover.md") && !deletedPaths.contains("subdir/mover.md"),
                        "subdir/mover.md may only appear in commit as a deletion, not still tracked")
+    }
+
+    func testLocalGitServiceDiscardChangesRejectsPathsOutsideWorktree() async throws {
+        let fileManager = FileManager.default
+        let temporaryRoot = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let repositoryURL = temporaryRoot.appendingPathComponent("repository", isDirectory: true)
+        let outsideFile = temporaryRoot.appendingPathComponent("outside.txt")
+        defer { try? fileManager.removeItem(at: temporaryRoot) }
+        try fileManager.createDirectory(at: repositoryURL, withIntermediateDirectories: true)
+        try Data("outside".utf8).write(to: outsideFile)
+        var repository: OpaquePointer?
+        XCTAssertEqual(git_repository_init(&repository, repositoryURL.path, 0), 0)
+        if let repository { git_repository_free(repository) }
+        let metadataURL = repositoryURL.appendingPathComponent(".git/config")
+        let originalMetadata = try Data(contentsOf: metadataURL)
+        let service = LocalGitService(localURL: repositoryURL)
+
+        for unsafePath in ["../outside.txt", outsideFile.path, ".git/config"] {
+            do {
+                try await service.discardChanges(path: unsafePath)
+                XCTFail("Expected unsafe discard path to be rejected: \(unsafePath)")
+            } catch {
+                XCTAssertEqual(error as? RepositoryFileDestinationError, .outsideRepository)
+            }
+        }
+
+        XCTAssertEqual(try String(contentsOf: outsideFile, encoding: .utf8), "outside")
+        XCTAssertEqual(try Data(contentsOf: metadataURL), originalMetadata)
+    }
+
+    func testLocalGitServiceStageAndUnstageRejectPathsOutsideWorktree() async throws {
+        let fileManager = FileManager.default
+        let temporaryRoot = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let repositoryURL = temporaryRoot.appendingPathComponent("repository", isDirectory: true)
+        let outsideFile = temporaryRoot.appendingPathComponent("outside.txt")
+        let linkedFile = repositoryURL.appendingPathComponent("linked.txt")
+        let safeFile = repositoryURL.appendingPathComponent("safe.txt")
+        defer { try? fileManager.removeItem(at: temporaryRoot) }
+        try fileManager.createDirectory(at: repositoryURL, withIntermediateDirectories: true)
+        try Data("outside".utf8).write(to: outsideFile)
+        try Data("safe".utf8).write(to: safeFile)
+        try fileManager.createSymbolicLink(at: linkedFile, withDestinationURL: outsideFile)
+        var repository: OpaquePointer?
+        XCTAssertEqual(git_repository_init(&repository, repositoryURL.path, 0), 0)
+        if let repository { git_repository_free(repository) }
+        let metadataURL = repositoryURL.appendingPathComponent(".git/config")
+        let originalMetadata = try Data(contentsOf: metadataURL)
+        let service = LocalGitService(localURL: repositoryURL)
+
+        let unsafePaths = ["../outside.txt", outsideFile.path, ".git/config", "linked.txt"]
+        for unsafePath in unsafePaths {
+            do {
+                try await service.stage(path: unsafePath)
+                XCTFail("Expected unsafe stage path to be rejected: \(unsafePath)")
+            } catch {
+                XCTAssertEqual(error as? RepositoryFileDestinationError, .outsideRepository)
+            }
+
+            do {
+                try await service.unstage(path: unsafePath)
+                XCTFail("Expected unsafe unstage path to be rejected: \(unsafePath)")
+            } catch {
+                XCTAssertEqual(error as? RepositoryFileDestinationError, .outsideRepository)
+            }
+
+            do {
+                try await service.stage(path: "safe.txt", oldPath: unsafePath)
+                XCTFail("Expected unsafe renamed stage path to be rejected: \(unsafePath)")
+            } catch {
+                XCTAssertEqual(error as? RepositoryFileDestinationError, .outsideRepository)
+            }
+
+            do {
+                try await service.unstage(path: "safe.txt", oldPath: unsafePath)
+                XCTFail("Expected unsafe renamed unstage path to be rejected: \(unsafePath)")
+            } catch {
+                XCTAssertEqual(error as? RepositoryFileDestinationError, .outsideRepository)
+            }
+        }
+
+        var reopenedRepository: OpaquePointer?
+        defer { if let reopenedRepository { git_repository_free(reopenedRepository) } }
+        XCTAssertEqual(git_repository_open(&reopenedRepository, repositoryURL.path), 0)
+        var index: OpaquePointer?
+        defer { if let index { git_index_free(index) } }
+        XCTAssertEqual(git_repository_index(&index, reopenedRepository), 0)
+        let safeIndexEntry = "safe.txt".withCString { git_index_get_bypath(index, $0, 0) }
+        XCTAssertNil(safeIndexEntry)
+        XCTAssertEqual(try String(contentsOf: outsideFile, encoding: .utf8), "outside")
+        XCTAssertEqual(try Data(contentsOf: metadataURL), originalMetadata)
     }
 
     func testLocalGitServiceUnifiedDiffShowsStagedOnlyJSONChanges() async throws {
@@ -3018,6 +3674,144 @@ final class SyncMDTests: XCTestCase {
         XCTAssertEqual(result.checkedOutCount, 1)
         XCTAssertEqual(try Data(contentsOf: repoURL.appendingPathComponent("Changed.pdf")), changedData)
         XCTAssertNotNil(GitLFSPointer(data: try Data(contentsOf: repoURL.appendingPathComponent("Unchanged.pdf"))))
+    }
+
+    func testGitLFSIgnoresLFSConfigSymlinkOutsideRepository() async throws {
+        let fileManager = FileManager.default
+        let temporaryRoot = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let repositoryURL = temporaryRoot.appendingPathComponent("repository", isDirectory: true)
+        let outsideConfig = temporaryRoot.appendingPathComponent("outside-lfsconfig")
+        defer { try? fileManager.removeItem(at: temporaryRoot) }
+        try fileManager.createDirectory(
+            at: repositoryURL.appendingPathComponent(".git", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try """
+        [remote "origin"]
+            url = https://github.com/example/vault.git
+        """.write(to: repositoryURL.appendingPathComponent(".git/config"), atomically: true, encoding: .utf8)
+        try """
+        [lfs]
+            url = https://untrusted.example.test/lfs
+        """.write(to: outsideConfig, atomically: true, encoding: .utf8)
+        try fileManager.createSymbolicLink(
+            at: repositoryURL.appendingPathComponent(".lfsconfig"),
+            withDestinationURL: outsideConfig
+        )
+
+        let data = Data("trusted endpoint data\n".utf8)
+        let pointer = GitLFSPointer(oid: GitLFSPointer.sha256Hex(for: data), size: Int64(data.count))
+        try pointer.serializedString.write(
+            to: repositoryURL.appendingPathComponent("Manual.pdf"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let transport = MockGitLFSTransport { request, _ in
+            if request.url?.absoluteString == "https://github.com/example/vault.git/info/lfs/objects/batch" {
+                XCTAssertNotNil(request.value(forHTTPHeaderField: "Authorization"))
+                return (Data("""
+                {"objects":[{"oid":"\(pointer.oid)","size":\(pointer.size),"actions":{"download":{"href":"https://objects.example.test/\(pointer.oid)"}}}]}
+                """.utf8), 200)
+            }
+            if request.url?.absoluteString == "https://objects.example.test/\(pointer.oid)" {
+                return (data, 200)
+            }
+            XCTFail("Unexpected LFS request: \(request.url?.absoluteString ?? "<nil>")")
+            return (Data(), 500)
+        }
+
+        let result = try await GitLFSService(
+            localURL: repositoryURL,
+            credentials: .gitHubPAT("ghp_test"),
+            transport: transport
+        ).hydrateWorktree()
+
+        XCTAssertEqual(result.checkedOutCount, 1)
+        XCTAssertEqual(try Data(contentsOf: repositoryURL.appendingPathComponent("Manual.pdf")), data)
+    }
+
+    func testGitLFSDoesNotForwardGitCredentialsToDifferentConfiguredHost() async throws {
+        let fileManager = FileManager.default
+        let repositoryURL = fileManager.temporaryDirectory
+            .appendingPathComponent("SyncMD-LFSConfiguredHost-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: repositoryURL) }
+        try fileManager.createDirectory(
+            at: repositoryURL.appendingPathComponent(".git", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try """
+        [remote "origin"]
+            url = https://github.com/example/vault.git
+        """.write(to: repositoryURL.appendingPathComponent(".git/config"), atomically: true, encoding: .utf8)
+        try """
+        [lfs]
+            url = https://lfs.example.test/custom
+        """.write(to: repositoryURL.appendingPathComponent(".lfsconfig"), atomically: true, encoding: .utf8)
+
+        let data = Data("custom endpoint data\n".utf8)
+        let pointer = GitLFSPointer(oid: GitLFSPointer.sha256Hex(for: data), size: Int64(data.count))
+        try pointer.serializedString.write(
+            to: repositoryURL.appendingPathComponent("asset.bin"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let transport = MockGitLFSTransport { request, _ in
+            if request.url?.absoluteString == "https://lfs.example.test/custom/info/lfs/objects/batch" {
+                XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+                return (Data("""
+                {"objects":[{"oid":"\(pointer.oid)","size":\(pointer.size),"actions":{"download":{"href":"https://lfs.example.test/objects/\(pointer.oid)"}}}]}
+                """.utf8), 200)
+            }
+            if request.url?.absoluteString == "https://lfs.example.test/objects/\(pointer.oid)" {
+                return (data, 200)
+            }
+            XCTFail("Unexpected LFS request: \(request.url?.absoluteString ?? "<nil>")")
+            return (Data(), 500)
+        }
+
+        let result = try await GitLFSService(
+            localURL: repositoryURL,
+            credentials: .gitHubPAT("ghp_test"),
+            transport: transport
+        ).hydrateWorktree()
+
+        XCTAssertEqual(result.checkedOutCount, 1)
+        XCTAssertEqual(try Data(contentsOf: repositoryURL.appendingPathComponent("asset.bin")), data)
+    }
+
+    func testGitLFSHydrateRejectsCandidateOutsideRepository() async throws {
+        let fileManager = FileManager.default
+        let temporaryRoot = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let repositoryURL = temporaryRoot.appendingPathComponent("repository", isDirectory: true)
+        let outsideURL = temporaryRoot.appendingPathComponent("outside.pdf")
+        defer { try? fileManager.removeItem(at: temporaryRoot) }
+        try fileManager.createDirectory(at: repositoryURL, withIntermediateDirectories: true)
+
+        let outsideData = Data("outside file must not be hydrated\n".utf8)
+        let pointer = GitLFSPointer(
+            oid: GitLFSPointer.sha256Hex(for: outsideData),
+            size: Int64(outsideData.count)
+        )
+        let pointerData = Data(pointer.serializedString.utf8)
+        try pointerData.write(to: outsideURL)
+
+        let transport = MockGitLFSTransport { request, _ in
+            XCTFail("Unexpected LFS request: \(request.url?.absoluteString ?? "<nil>")")
+            return (Data(), 500)
+        }
+
+        do {
+            _ = try await GitLFSService(
+                localURL: repositoryURL,
+                credentials: .gitHubPAT("ghp_test"),
+                transport: transport
+            ).hydrateWorktree(candidatePaths: ["../outside.pdf"])
+            XCTFail("Expected path outside the repository to be rejected")
+        } catch {
+            XCTAssertEqual(error as? RepositoryFileDestinationError, .outsideRepository)
+        }
+
+        XCTAssertEqual(try Data(contentsOf: outsideURL), pointerData)
     }
 
     func testGitLFSBatchErrorsIncludeServerMessage() async throws {
@@ -3489,6 +4283,77 @@ final class SyncMDTests: XCTestCase {
         XCTAssertFalse(fm.fileExists(atPath: repoURL.appendingPathComponent(".gitattributes").path))
     }
 
+    func testGitLFSAutoTrackingRejectsFilesOutsideRepository() throws {
+        let fileManager = FileManager.default
+        let temporaryRoot = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let repositoryURL = temporaryRoot.appendingPathComponent("repository", isDirectory: true)
+        let outsideURL = temporaryRoot.appendingPathComponent("outside.mov")
+        let linkedURL = repositoryURL.appendingPathComponent("linked.mov")
+        defer { try? fileManager.removeItem(at: temporaryRoot) }
+        try fileManager.createDirectory(at: repositoryURL, withIntermediateDirectories: true)
+        try Data(repeating: 0xAA, count: 4096).write(to: outsideURL)
+        try fileManager.createSymbolicLink(at: linkedURL, withDestinationURL: outsideURL)
+
+        for path in ["../outside.mov", "linked.mov"] {
+            XCTAssertThrowsError(
+                try GitLFSService.autoTrackingCandidates(
+                    repositoryURL: repositoryURL,
+                    candidatePaths: [path]
+                )
+            ) { error in
+                XCTAssertEqual(error as? RepositoryFileDestinationError, .outsideRepository)
+            }
+        }
+    }
+
+    func testGitLFSAttributesDoesNotLoadSymlinkOutsideRepository() throws {
+        let fileManager = FileManager.default
+        let temporaryRoot = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let repositoryURL = temporaryRoot.appendingPathComponent("repository", isDirectory: true)
+        let outsideAttributes = temporaryRoot.appendingPathComponent("outside-attributes")
+        let linkedAttributes = repositoryURL.appendingPathComponent(".gitattributes")
+        defer { try? fileManager.removeItem(at: temporaryRoot) }
+        try fileManager.createDirectory(at: repositoryURL, withIntermediateDirectories: true)
+        try "*.pdf filter=lfs diff=lfs merge=lfs -text\n".write(
+            to: outsideAttributes,
+            atomically: true,
+            encoding: .utf8
+        )
+        try fileManager.createSymbolicLink(at: linkedAttributes, withDestinationURL: outsideAttributes)
+
+        let attributes = GitLFSAttributes.load(from: repositoryURL)
+
+        XCTAssertFalse(attributes.isLFSTracked(path: "private.pdf"))
+    }
+
+    func testLocalGitServiceDoesNotWriteGitattributesThroughSymlinkOutsideRepository() async throws {
+        let fileManager = FileManager.default
+        let temporaryRoot = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let repositoryURL = temporaryRoot.appendingPathComponent("repository", isDirectory: true)
+        let outsideAttributes = temporaryRoot.appendingPathComponent("outside-attributes")
+        let linkedAttributes = repositoryURL.appendingPathComponent(".gitattributes")
+        let designURL = repositoryURL.appendingPathComponent("Design", isDirectory: true)
+        let figURL = designURL.appendingPathComponent("mockup.fig")
+        defer { try? fileManager.removeItem(at: temporaryRoot) }
+        try fileManager.createDirectory(at: designURL, withIntermediateDirectories: true)
+        var repository: OpaquePointer?
+        XCTAssertEqual(git_repository_init(&repository, repositoryURL.path, 0), 0)
+        if let repository { git_repository_free(repository) }
+        try "outside\n".write(to: outsideAttributes, atomically: true, encoding: .utf8)
+        try fileManager.createSymbolicLink(at: linkedAttributes, withDestinationURL: outsideAttributes)
+        try Data(repeating: 0xFA, count: 256).write(to: figURL)
+        let service = LocalGitService(localURL: repositoryURL)
+
+        do {
+            try await service.stage(path: "Design/mockup.fig", oldPath: nil, lfsAutoTrack: true)
+            XCTFail("Expected symbolic link to be rejected")
+        } catch {
+            XCTAssertEqual(error as? RepositoryFileDestinationError, .outsideRepository)
+        }
+
+        XCTAssertEqual(try String(contentsOf: outsideAttributes, encoding: .utf8), "outside\n")
+    }
+
     func testLocalGitServiceAutoTracksPDFAsLFSWithoutExistingGitattributes() async throws {
         let fm = FileManager.default
         let repoURL = try makeTemporaryGitRepository(prefix: "SyncMD-AutoLFSPDF")
@@ -3891,1420 +4756,4 @@ final class SyncMDTests: XCTestCase {
         XCTAssertEqual(requestCount, 2)
     }
 
-}
-
-private func makeLFSLockingRepo(attributes: String = "") throws -> URL {
-    let fm = FileManager.default
-    let repoURL = fm.temporaryDirectory.appendingPathComponent("SyncMD-LFSLocking-\(UUID().uuidString)", isDirectory: true)
-    try fm.createDirectory(at: repoURL.appendingPathComponent(".git", isDirectory: true), withIntermediateDirectories: true)
-    try """
-    [remote "origin"]
-        url = https://git.example.com/team/vault.git
-    """.write(to: repoURL.appendingPathComponent(".git/config"), atomically: true, encoding: .utf8)
-    if !attributes.isEmpty {
-        try attributes.write(to: repoURL.appendingPathComponent(".gitattributes"), atomically: true, encoding: .utf8)
-    }
-    return repoURL
-}
-
-private final class MockGitLFSTransport: GitLFSHTTPTransport, @unchecked Sendable {
-    typealias Handler = (URLRequest, Data?) throws -> (Data, Int)
-
-    private let handler: Handler
-
-    init(handler: @escaping Handler) {
-        self.handler = handler
-    }
-
-    func response(for request: URLRequest, body: Data?) async throws -> (Data, HTTPURLResponse) {
-        let (data, statusCode) = try handler(request, body)
-        let response = HTTPURLResponse(
-            url: request.url!,
-            statusCode: statusCode,
-            httpVersion: nil,
-            headerFields: nil
-        )!
-        return (data, response)
-    }
-}
-
-private final class MockGitLFSSSHAuthenticator: GitLFSSSHAuthenticator, @unchecked Sendable {
-    typealias Handler = (GitLFSSSHAuthRequest, GitRemoteCredentials) async throws -> GitLFSAccess
-
-    private let handler: Handler
-    private(set) var requests: [GitLFSSSHAuthRequest] = []
-
-    init(handler: @escaping Handler) {
-        self.handler = handler
-    }
-
-    func authenticate(request: GitLFSSSHAuthRequest, credentials: GitRemoteCredentials) async throws -> GitLFSAccess {
-        requests.append(request)
-        return try await handler(request, credentials)
-    }
-}
-
-private func makeTemporaryGitRepository(prefix: String) throws -> URL {
-    let fm = FileManager.default
-    let repoURL = fm.temporaryDirectory.appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)
-    try fm.createDirectory(at: repoURL, withIntermediateDirectories: true)
-
-    var repo: OpaquePointer?
-    let code = git_repository_init(&repo, repoURL.path, 0)
-    if let repo { git_repository_free(repo) }
-    guard code == 0 else {
-        throw NSError(domain: "SyncMDTests.GitRepositoryInit", code: Int(code))
-    }
-    return repoURL
-}
-
-private func stagePathBypassingLocalGitService(repoURL: URL, path: String) throws {
-    var repo: OpaquePointer?
-    defer { if let repo { git_repository_free(repo) } }
-    XCTAssertEqual(git_repository_open(&repo, repoURL.path), 0)
-
-    var index: OpaquePointer?
-    defer { if let index { git_index_free(index) } }
-    XCTAssertEqual(git_repository_index(&index, repo), 0)
-    XCTAssertEqual(path.withCString { git_index_add_bypath(index, $0) }, 0)
-    XCTAssertEqual(git_index_write(index), 0)
-}
-
-private func lfsObjectURL(repoURL: URL, pointer: GitLFSPointer) -> URL {
-    repoURL
-        .appendingPathComponent(".git/lfs/objects", isDirectory: true)
-        .appendingPathComponent(String(pointer.oid.prefix(2)), isDirectory: true)
-        .appendingPathComponent(String(pointer.oid.dropFirst(2).prefix(2)), isDirectory: true)
-        .appendingPathComponent(pointer.oid)
-}
-
-private func headBlobString(repoURL: URL, path: String) throws -> String {
-    var repo: OpaquePointer?
-    defer { if let repo { git_repository_free(repo) } }
-    XCTAssertEqual(git_repository_open(&repo, repoURL.path), 0)
-
-    var head: OpaquePointer?
-    defer { if let head { git_reference_free(head) } }
-    XCTAssertEqual(git_repository_head(&head, repo), 0)
-
-    guard let headOID = git_reference_target(head) else {
-        throw LocalGitError.repositoryCorrupted("HEAD missing")
-    }
-
-    var oid = headOID.pointee
-    var commit: OpaquePointer?
-    defer { if let commit { git_commit_free(commit) } }
-    XCTAssertEqual(git_commit_lookup(&commit, repo, &oid), 0)
-
-    var tree: OpaquePointer?
-    defer { if let tree { git_tree_free(tree) } }
-    XCTAssertEqual(git_commit_tree(&tree, commit), 0)
-
-    var entry: OpaquePointer?
-    defer { if let entry { git_tree_entry_free(entry) } }
-    XCTAssertEqual(path.withCString { git_tree_entry_bypath(&entry, tree, $0) }, 0)
-
-    guard let entryOID = git_tree_entry_id(entry) else {
-        throw LocalGitError.repositoryCorrupted("Tree entry missing OID")
-    }
-
-    var blobOID = entryOID.pointee
-    var blob: OpaquePointer?
-    defer { if let blob { git_blob_free(blob) } }
-    XCTAssertEqual(git_blob_lookup(&blob, repo, &blobOID), 0)
-
-    let size = Int(git_blob_rawsize(blob))
-    guard let raw = git_blob_rawcontent(blob) else { return "" }
-    return String(decoding: Data(bytes: raw, count: size), as: UTF8.self)
-}
-
-private enum GitFixtureState: String, CaseIterable {
-    case clean
-    case dirty
-    case diverged
-    case conflicted
-
-    var commitSHA: String {
-        switch self {
-        case .clean: "1111111111111111111111111111111111111111"
-        case .dirty: "2222222222222222222222222222222222222222"
-        case .diverged: "3333333333333333333333333333333333333333"
-        case .conflicted: "4444444444444444444444444444444444444444"
-        }
-    }
-
-    var expectedChangeCount: Int {
-        switch self {
-        case .clean: 0
-        case .dirty: 2
-        case .diverged: 3
-        case .conflicted: 4
-        }
-    }
-}
-
-private struct GitFixtureFactory {
-    static func make(state: GitFixtureState) throws -> GitFixture {
-        let fm = FileManager.default
-        let rootURL = fm.temporaryDirectory.appendingPathComponent("SyncMDTests-\(state.rawValue)-\(UUID().uuidString)", isDirectory: true)
-        let gitURL = rootURL.appendingPathComponent(".git", isDirectory: true)
-        try fm.createDirectory(at: gitURL, withIntermediateDirectories: true)
-
-        try "ref: refs/heads/main\n".write(
-            to: gitURL.appendingPathComponent("HEAD"),
-            atomically: true,
-            encoding: .utf8
-        )
-        try "state=\(state.rawValue)\n".write(
-            to: gitURL.appendingPathComponent("FIXTURE_STATE"),
-            atomically: true,
-            encoding: .utf8
-        )
-        try "# Inbox\n- sync notes\n".write(
-            to: rootURL.appendingPathComponent("Inbox.md"),
-            atomically: true,
-            encoding: .utf8
-        )
-
-        switch state {
-        case .clean:
-            break
-        case .dirty:
-            try "# Local edits\n- changed\n".write(
-                to: rootURL.appendingPathComponent("LocalEdits.md"),
-                atomically: true,
-                encoding: .utf8
-            )
-            try "staged=1\nuntracked=1\n".write(
-                to: gitURL.appendingPathComponent("STATUS"),
-                atomically: true,
-                encoding: .utf8
-            )
-        case .diverged:
-            try "local=ahead\nremote=ahead\n".write(
-                to: gitURL.appendingPathComponent("DIVERGED"),
-                atomically: true,
-                encoding: .utf8
-            )
-            try "# Diverged\nlocal branch differs\n".write(
-                to: rootURL.appendingPathComponent("Diverged.md"),
-                atomically: true,
-                encoding: .utf8
-            )
-        case .conflicted:
-            try "<<<<<<< ours\nlocal\n=======\nremote\n>>>>>>> theirs\n".write(
-                to: rootURL.appendingPathComponent("Conflict.md"),
-                atomically: true,
-                encoding: .utf8
-            )
-            try "conflicts=1\n".write(
-                to: gitURL.appendingPathComponent("MERGE_STATE"),
-                atomically: true,
-                encoding: .utf8
-            )
-        }
-
-        let repoID = UUID()
-        let repoConfig = RepoConfig(
-            id: repoID,
-            repoURL: "https://example.com/syncmd-fixture.git",
-            branch: "main",
-            authorName: "Fixture",
-            authorEmail: "fixture@example.com",
-            vaultFolderName: rootURL.lastPathComponent,
-            customVaultBookmarkData: nil,
-            customLocationIsParent: false,
-            gitState: GitState(
-                commitSHA: state.commitSHA,
-                treeSHA: "",
-                branch: "main",
-                blobSHAs: [:],
-                lastSyncDate: Date(timeIntervalSince1970: 0)
-            )
-        )
-
-        let repoInfo = LocalRepoInfo(
-            branch: "main",
-            commitSHA: state.commitSHA,
-            changeCount: state.expectedChangeCount
-        )
-
-        return GitFixture(
-            rootURL: rootURL,
-            repoConfig: repoConfig,
-            repoInfo: repoInfo,
-            repository: FakeGitRepository(repoInfoResult: repoInfo)
-        )
-    }
-}
-
-private struct GitFixture {
-    let rootURL: URL
-    let repoConfig: RepoConfig
-    let repoInfo: LocalRepoInfo
-    let repository: FakeGitRepository
-
-    func cleanup() {
-        try? FileManager.default.removeItem(at: rootURL)
-    }
-
-    func snapshot() -> [String: String] {
-        let fm = FileManager.default
-        guard let enumerator = fm.enumerator(at: rootURL, includingPropertiesForKeys: [.isDirectoryKey]) else {
-            return [:]
-        }
-
-        var result: [String: String] = [:]
-        for case let fileURL as URL in enumerator {
-            let isDirectory = (try? fileURL.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
-            guard !isDirectory else { continue }
-
-            let relativePath = fileURL.path.replacingOccurrences(of: rootURL.path + "/", with: "")
-            let content = (try? String(contentsOf: fileURL, encoding: .utf8)) ?? "<binary>"
-            result[relativePath] = content
-        }
-        return result
-    }
-}
-
-private final class FakeGitRepository: GitRepositoryProtocol, @unchecked Sendable {
-    var hasGitDirectoryValue: Bool = true
-    var repoInfoResult: LocalRepoInfo
-    var pullPlanResult: PullPlan
-    var pullResult: Result<LocalPullResult, Error>
-    var rebaseResult: Result<LocalPullResult, Error>?
-    var continueRebaseResult: Result<LocalPullResult, Error>?
-    var didAbortRebase = false
-    var diffResult: UnifiedDiffResult = .empty
-    var commitHistoryResult: [GitCommitSummary] = []
-    var commitDetailResultByOID: [String: GitCommitDetail] = [:]
-    var stashEntriesResult: [GitStashEntry] = []
-    var savedStashes: [(message: String, includeUntracked: Bool)] = []
-    var appliedStashIndices: [Int] = []
-    var poppedStashIndices: [Int] = []
-    var droppedStashIndices: [Int] = []
-    var discardedPaths: [String] = []
-    var didDiscardAllChanges = false
-    var tagsResult: [GitTag] = []
-    var createdTags: [(name: String, message: String?)] = []
-    var deletedTagNames: [String] = []
-    var pushedTagNames: [String] = []
-    var branchInventoryResult: BranchInventory = .empty
-    var createdBranches: [String] = []
-    var switchedBranches: [String] = []
-    var deletedBranches: [String] = []
-    var mergeResult: MergeResult = MergeResult(kind: .upToDate, sourceBranch: "main", newCommitSHA: "")
-    var revertResult: RevertResult = RevertResult(kind: .reverted, targetOID: "", newCommitSHA: nil)
-    var mergeFinalizeResult: MergeFinalizeResult = MergeFinalizeResult(newCommitSHA: "")
-    var didPushCurrentBranch = false
-    var didAbortMerge = false
-    var conflictSessionResult: ConflictSession = .none
-    var resolvedConflicts: [(path: String, strategy: ConflictResolutionStrategy)] = []
-    var stagedPaths: [String] = []
-    var lfsAutoTrackStageFlags: [Bool] = []
-    var unstagedPaths: [String] = []
-    var lfsAutoTrackingCandidatesResult: [GitLFSAutoTrackingCandidate] = []
-    var lfsAutoTrackingCandidatePathRequests: [[String]?] = []
-    var cloneResults: [Result<LocalCloneResult, Error>] = []
-    var cloneRemoteURLs: [String] = []
-    var setRemoteURLCalls: [(name: String, url: String)] = []
-    var pullPlanError: Error?
-    var pullPlanCallCount = 0
-    var pushCurrentBranchResult: Result<Void, Error>?
-    var pushCurrentBranchCallCount = 0
-    var commitAndPushResult: Result<LocalPushResult, Error>?
-    var commitAndPushMessages: [String] = []
-    var commitAndPushFailureCommitSHA: String?
-
-    init(repoInfoResult: LocalRepoInfo) {
-        self.repoInfoResult = repoInfoResult
-        self.pullPlanResult = PullPlan(
-            action: .upToDate,
-            branch: repoInfoResult.branch,
-            localCommitSHA: repoInfoResult.commitSHA,
-            remoteCommitSHA: repoInfoResult.commitSHA,
-            hasLocalChanges: repoInfoResult.changeCount > 0,
-            aheadBy: 0,
-            behindBy: 0
-        )
-        self.pullResult = .success(LocalPullResult(updated: false, newCommitSHA: repoInfoResult.commitSHA))
-    }
-
-    var hasGitDirectory: Bool {
-        hasGitDirectoryValue
-    }
-
-    func clone(remoteURL: String, pat: String) async throws -> LocalCloneResult {
-        cloneRemoteURLs.append(remoteURL)
-        if !cloneResults.isEmpty {
-            switch cloneResults.removeFirst() {
-            case .success(let result):
-                return result
-            case .failure(let error):
-                throw error
-            }
-        }
-        return LocalCloneResult(commitSHA: repoInfoResult.commitSHA, branch: repoInfoResult.branch, fileCount: 1)
-    }
-
-    func setRemoteURL(name: String, url: String) async throws {
-        setRemoteURLCalls.append((name: name, url: url))
-    }
-
-    func pullPlan(pat: String) async throws -> PullPlan {
-        pullPlanCallCount += 1
-        if let pullPlanError { throw pullPlanError }
-        return pullPlanResult
-    }
-
-    func pull(pat: String) async throws -> LocalPullResult {
-        switch pullResult {
-        case .success(let result):
-            return result
-        case .failure(let error):
-            throw error
-        }
-    }
-
-    func pullFastForward(branch: String, pat: String) async throws -> LocalPullResult {
-        try await pull(pat: pat)
-    }
-
-    func pullRebase(branch: String, pat: String, authorName: String, authorEmail: String) async throws -> LocalPullResult {
-        switch rebaseResult ?? pullResult {
-        case .success(let result):
-            return result
-        case .failure(let error):
-            throw error
-        }
-    }
-
-    func unifiedDiff(path: String?) async throws -> UnifiedDiffResult {
-        diffResult
-    }
-
-    func listBranches() async throws -> BranchInventory {
-        branchInventoryResult
-    }
-
-    func createBranch(name: String) async throws {
-        createdBranches.append(name)
-    }
-
-    func switchBranch(name: String) async throws {
-        switchedBranches.append(name)
-    }
-
-    func deleteBranch(name: String) async throws {
-        deletedBranches.append(name)
-    }
-
-    func mergeBranch(name: String, authorName: String, authorEmail: String) async throws -> MergeResult {
-        mergeResult
-    }
-
-    func pushCurrentBranch(pat: String) async throws {
-        didPushCurrentBranch = true
-        pushCurrentBranchCallCount += 1
-        if let pushCurrentBranchResult {
-            switch pushCurrentBranchResult {
-            case .success:
-                return
-            case .failure(let error):
-                throw error
-            }
-        }
-    }
-
-    func fetchRemote(pat: String) async throws {}
-
-    func revertCommit(oid: String, message: String, authorName: String, authorEmail: String) async throws -> RevertResult {
-        revertResult
-    }
-
-    func completeMerge(message: String, authorName: String, authorEmail: String) async throws -> MergeFinalizeResult {
-        mergeFinalizeResult
-    }
-
-    func abortMerge() async throws {
-        didAbortMerge = true
-    }
-
-    func continueRebase(pat: String, authorName: String, authorEmail: String) async throws -> LocalPullResult {
-        switch continueRebaseResult ?? rebaseResult ?? pullResult {
-        case .success(let result):
-            return result
-        case .failure(let error):
-            throw error
-        }
-    }
-
-    func abortRebase() async throws {
-        didAbortRebase = true
-    }
-
-    func conflictSession() async throws -> ConflictSession {
-        conflictSessionResult
-    }
-
-    func resolveConflict(path: String, strategy: ConflictResolutionStrategy) async throws {
-        resolvedConflicts.append((path: path, strategy: strategy))
-    }
-
-    func conflictDetail(path: String) async throws -> ConflictFileDetail {
-        ConflictFileDetail(lookupPath: path, ancestor: nil, ours: nil, theirs: nil)
-    }
-
-    func resolveConflictWithContent(
-        path: String,
-        content: Data,
-        additionalPathsToRemove: [String]
-    ) async throws {
-        resolvedConflicts.append((path: path, strategy: .manual))
-    }
-
-    func commitLocal(message: String, authorName: String, authorEmail: String) async throws -> String {
-        repoInfoResult.commitSHA
-    }
-
-    func lfsAutoTrackingCandidates(paths: [String]?) async throws -> [GitLFSAutoTrackingCandidate] {
-        lfsAutoTrackingCandidatePathRequests.append(paths)
-        return lfsAutoTrackingCandidatesResult
-    }
-
-    func stageAll() async throws {
-        try await stageAll(lfsAutoTrack: false)
-    }
-
-    func stageAll(lfsAutoTrack: Bool) async throws {
-        stagedPaths.append("*")
-        lfsAutoTrackStageFlags.append(lfsAutoTrack)
-    }
-
-    func stage(path: String, oldPath: String?) async throws {
-        try await stage(path: path, oldPath: oldPath, lfsAutoTrack: false)
-    }
-
-    func stage(path: String, oldPath: String?, lfsAutoTrack: Bool) async throws {
-        stagedPaths.append(path)
-        if let oldPath { stagedPaths.append(oldPath) }
-        lfsAutoTrackStageFlags.append(lfsAutoTrack)
-    }
-
-    func unstage(path: String, oldPath: String?) async throws {
-        unstagedPaths.append(path)
-        if let oldPath { unstagedPaths.append(oldPath) }
-    }
-
-    func discardChanges(path: String) async throws {
-        discardedPaths.append(path)
-    }
-
-    func discardAllChanges() async throws {
-        didDiscardAllChanges = true
-    }
-
-    func commitAndPush(
-        message: String,
-        authorName: String,
-        authorEmail: String,
-        pat: String
-    ) async throws -> LocalPushResult {
-        commitAndPushMessages.append(message)
-        if let commitAndPushResult {
-            switch commitAndPushResult {
-            case .success(let result):
-                return result
-            case .failure(let error):
-                if let commitSHA = commitAndPushFailureCommitSHA {
-                    repoInfoResult = LocalRepoInfo(
-                        branch: repoInfoResult.branch,
-                        commitSHA: commitSHA,
-                        changeCount: 0,
-                        syncState: .ahead,
-                        statusEntries: []
-                    )
-                }
-                throw error
-            }
-        }
-        return LocalPushResult(commitSHA: repoInfoResult.commitSHA)
-    }
-
-    func listStashes() async throws -> [GitStashEntry] {
-        stashEntriesResult
-    }
-
-    func saveStash(message: String, authorName: String, authorEmail: String, includeUntracked: Bool) async throws -> GitStashEntry {
-        savedStashes.append((message: message, includeUntracked: includeUntracked))
-        let entry = GitStashEntry(index: stashEntriesResult.count, oid: UUID().uuidString.replacingOccurrences(of: "-", with: ""), message: message)
-        stashEntriesResult.insert(entry, at: 0)
-        return entry
-    }
-
-    func applyStash(index: Int, reinstateIndex: Bool) async throws -> StashApplyResult {
-        appliedStashIndices.append(index)
-        return StashApplyResult(kind: .applied, index: index)
-    }
-
-    func popStash(index: Int, reinstateIndex: Bool) async throws -> StashApplyResult {
-        poppedStashIndices.append(index)
-        if index < stashEntriesResult.count {
-            stashEntriesResult.remove(at: index)
-        }
-        return StashApplyResult(kind: .applied, index: index)
-    }
-
-    func dropStash(index: Int) async throws {
-        droppedStashIndices.append(index)
-        if index < stashEntriesResult.count {
-            stashEntriesResult.remove(at: index)
-        }
-    }
-
-    func listTags() async throws -> [GitTag] { tagsResult }
-
-    func createTag(name: String, targetOID: String?, message: String?, authorName: String, authorEmail: String) async throws -> GitTag {
-        createdTags.append((name: name, message: message))
-        let tag = GitTag(name: "refs/tags/\(name)", oid: UUID().uuidString.replacingOccurrences(of: "-", with: ""), kind: message == nil ? .lightweight : .annotated, message: message, targetOID: "deadbeef")
-        tagsResult.append(tag)
-        return tag
-    }
-
-    func deleteTag(name: String) async throws {
-        deletedTagNames.append(name)
-        tagsResult.removeAll { $0.shortName == name }
-    }
-
-    func pushTag(name: String, pat: String) async throws {
-        pushedTagNames.append(name)
-    }
-
-    func commitHistory(limit: Int, skip: Int) async throws -> [GitCommitSummary] {
-        guard limit > 0 else { return [] }
-        guard skip < commitHistoryResult.count else { return [] }
-        let upperBound = min(commitHistoryResult.count, skip + limit)
-        return Array(commitHistoryResult[skip..<upperBound])
-    }
-
-    func commitDetail(oid: String) async throws -> GitCommitDetail {
-        if let detail = commitDetailResultByOID[oid] {
-            return detail
-        }
-        throw LocalGitError.libgit2("Commit not found: \(oid)")
-    }
-
-    func repoInfo() async throws -> LocalRepoInfo {
-        repoInfoResult
-    }
-}
-
-final class HugoContentServiceTests: XCTestCase {
-    func testArticlePreviewDocumentParsesCommonFrontMatterAndBody() {
-        let markdown = """
-        ---
-        title: "Preview Title"
-        date: 2026-08-16
-        draft: false
-        tags: [swift, "iOS"]
-        cover: "images/cover.jpg"
-        ---
-
-        Preview body.
-        """
-
-        let document = HugoArticlePreviewDocument(markdown: markdown)
-
-        XCTAssertEqual(document.title, "Preview Title")
-        XCTAssertEqual(document.date, "2026-08-16")
-        XCTAssertFalse(document.draft)
-        XCTAssertEqual(document.tags, ["swift", "iOS"])
-        XCTAssertEqual(document.cover, "images/cover.jpg")
-        XCTAssertEqual(document.body, "Preview body.")
-    }
-
-    func testArticlePreviewSnapshotUsesCurrentContentAndMarksUnsavedChanges() {
-        let saved = "---\ntitle: \"Saved\"\n---\n\nOld body"
-        let current = "---\ntitle: \"Current\"\n---\n\nLive body"
-
-        let dirty = HugoArticlePreviewSnapshot(markdown: current, savedMarkdown: saved)
-        let clean = HugoArticlePreviewSnapshot(markdown: saved, savedMarkdown: saved)
-
-        XCTAssertEqual(dirty.document.title, "Current")
-        XCTAssertEqual(dirty.document.body, "Live body")
-        XCTAssertTrue(dirty.hasUnsavedChanges)
-        XCTAssertFalse(clean.hasUnsavedChanges)
-    }
-
-    func testPreviewParserRecognizesImagesCodeTablesAndShortcodes() {
-        let markdown = """
-        Intro with [link](../about.md).
-
-        ![Cover](images/cover.jpg)
-
-        ```swift
-        let answer = 42
-        ```
-
-        | Name | Value |
-        | --- | ---: |
-        | answer | 42 |
-
-        {{< figure src="images/photo.jpg" >}}
-        """
-
-        let blocks = HugoPreviewParser.blocks(from: markdown)
-
-        XCTAssertEqual(blocks, [
-            .markdown("Intro with [link](../about.md)."),
-            .image(alt: "Cover", path: "images/cover.jpg"),
-            .code(language: "swift", content: "let answer = 42"),
-            .table(headers: ["Name", "Value"], rows: [["answer", "42"]]),
-            .shortcode(#"{{< figure src="images/photo.jpg" >}}"#)
-        ])
-    }
-
-    func testPreviewParserRecognizesPaperStyleHeadingsQuotesAndDividers() {
-        let markdown = """
-        # Main Heading
-
-        > A quoted thought
-
-        ---
-
-        ## Section
-        """
-
-        XCTAssertEqual(HugoPreviewParser.blocks(from: markdown), [
-            .heading(level: 1, text: "Main Heading"),
-            .quote("A quoted thought"),
-            .divider,
-            .heading(level: 2, text: "Section")
-        ])
-    }
-
-    func testPreviewAssetResolutionAllowsRepositoryRelativePathsAndRejectsEscapes() {
-        let root = URL(fileURLWithPath: "/repo", isDirectory: true)
-        let bundle = root.appendingPathComponent("content/posts/example", isDirectory: true)
-
-        XCTAssertEqual(
-            HugoContentService.localPreviewAssetURL(
-                for: "images/cover%20photo.jpg?size=large#hero",
-                bundleURL: bundle,
-                repositoryRoot: root
-            )?.path,
-            "/repo/content/posts/example/images/cover photo.jpg"
-        )
-        XCTAssertEqual(
-            HugoContentService.localPreviewAssetURL(
-                for: "../../../static/shared.jpg",
-                bundleURL: bundle,
-                repositoryRoot: root
-            )?.path,
-            "/repo/static/shared.jpg"
-        )
-        XCTAssertNil(HugoContentService.localPreviewAssetURL(
-            for: "../../../../outside.jpg",
-            bundleURL: bundle,
-            repositoryRoot: root
-        ))
-        XCTAssertNil(HugoContentService.localPreviewAssetURL(
-            for: "https://example.com/image.jpg",
-            bundleURL: bundle,
-            repositoryRoot: root
-        ))
-    }
-
-    func testThemePreviewLoadsRepositoryStylesheetsAndImagesThroughIsolatedScheme() throws {
-        let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        let themeCSS = root.appendingPathComponent("themes/paper/assets/css/main.css")
-        let bundle = root.appendingPathComponent("content/posts/example", isDirectory: true)
-        defer { try? fileManager.removeItem(at: root) }
-        try fileManager.createDirectory(at: themeCSS.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try fileManager.createDirectory(at: bundle.appendingPathComponent("images"), withIntermediateDirectories: true)
-        try "article { color: maroon; }".write(to: themeCSS, atomically: true, encoding: .utf8)
-        try Data([0x01, 0x02]).write(to: bundle.appendingPathComponent("images/cover.png"))
-        let markdown = """
-        ---
-        title: "Theme <Preview>"
-        cover: images/cover.png
-        ---
-
-        # Hello
-
-        ![Cover](images/cover.png)
-        """
-
-        let page = HugoThemePreviewService.render(
-            markdown: markdown,
-            articleURL: bundle.appendingPathComponent("index.md"),
-            repositoryRoot: root,
-            configuration: HugoSiteConfiguration(
-                configurationFiles: ["hugo.toml"],
-                themes: ["paper"],
-                assetDirectories: ["assets"],
-                staticDirectories: ["static"],
-                resourceDirectories: ["resources"]
-            )
-        )
-
-        XCTAssertEqual(page.stylesheetPaths, ["themes/paper/assets/css/main.css"])
-        XCTAssertTrue(page.html.contains("gitsync-resource://local/themes/paper/assets/css/main.css"))
-        XCTAssertTrue(page.html.contains("gitsync-resource://local/content/posts/example/images/cover.png"))
-        XCTAssertTrue(page.html.contains("Theme &lt;Preview&gt;"))
-        XCTAssertTrue(page.html.contains("script-src 'none'"))
-        XCTAssertFalse(page.html.contains("file://"))
-    }
-
-    func testThemePreviewResourceSchemeRejectsEscapes() throws {
-        let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? fileManager.removeItem(at: root) }
-        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
-        let css = root.appendingPathComponent("static/site.css")
-        try fileManager.createDirectory(at: css.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try "body {}".write(to: css, atomically: true, encoding: .utf8)
-
-        let safeURL = try XCTUnwrap(URL(string: "gitsync-resource://local/static/site.css"))
-        let escapeURL = try XCTUnwrap(URL(string: "gitsync-resource://local/../outside.css"))
-
-        XCTAssertEqual(
-            HugoThemePreviewService.resourceFileURL(from: safeURL, repositoryRoot: root)?.path,
-            css.path
-        )
-        XCTAssertNil(HugoThemePreviewService.resourceFileURL(from: escapeURL, repositoryRoot: root))
-        XCTAssertEqual(HugoThemePreviewService.mimeType(for: css), "text/css")
-    }
-
-    func testHugoTemplateCompatibilityResolvesCommonVariablesAndMarksUnknownExpressions() {
-        let context = HugoTemplatePreviewContext(
-            title: "A <Title>",
-            date: "2026-08-16",
-            draft: false,
-            contentHTML: "<p>Rendered body</p>",
-            siteTitle: "Example Site",
-            language: "zh-Hans",
-            contentType: "posts",
-            section: "posts",
-            layout: "single",
-            permalink: "/posts/example/",
-            params: ["featured": "yes"]
-        )
-        let template = """
-        {{ define "main" }}
-        <article lang="{{ .Site.Language.Lang }}">
-          <h1>{{ .Title }}</h1>
-          {{ .Content | safeHTML }}
-          <span>{{ .Params.featured }}</span>
-          {{ partial "author.html" . }}
-        </article>
-        {{ end }}
-        """
-
-        let result = HugoTemplateCompatibilityService.renderTemplate(template, context: context)
-
-        XCTAssertTrue(result.html.contains("lang=\"zh-Hans\""))
-        XCTAssertTrue(result.html.contains("A &lt;Title&gt;"))
-        XCTAssertTrue(result.html.contains("<p>Rendered body</p>"))
-        XCTAssertTrue(result.html.contains("<span>yes</span>"))
-        XCTAssertTrue(result.html.contains("Unsupported Hugo template expression"))
-        XCTAssertEqual(result.issues.count, 1)
-    }
-
-    func testHugoShortcodeCompatibilityRendersFigureAndMarksUnsupportedShortcode() {
-        let figure = HugoTemplateCompatibilityService.renderShortcode(
-            #"{{< figure src="images/photo.jpg" title="Photo" >}}"#
-        ) { path in
-            path == "images/photo.jpg" ? "gitsync-resource://local/content/photo.jpg" : nil
-        }
-        let unsupported = HugoTemplateCompatibilityService.renderShortcode(
-            "{{< custom-widget >}}"
-        ) { _ in nil }
-
-        XCTAssertTrue(figure.html.contains("gitsync-resource://local/content/photo.jpg"))
-        XCTAssertTrue(figure.html.contains("<figcaption>Photo</figcaption>"))
-        XCTAssertTrue(figure.issues.isEmpty)
-        XCTAssertTrue(unsupported.html.contains("Unsupported Hugo shortcode"))
-        XCTAssertEqual(unsupported.issues.count, 1)
-    }
-
-    func testThemePreviewUsesRepositoryLayoutAndReportsCompatibilityIssues() throws {
-        let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        let layout = root.appendingPathComponent("layouts/_default/single.html")
-        let bundle = root.appendingPathComponent("content/posts/example", isDirectory: true)
-        defer { try? fileManager.removeItem(at: root) }
-        try fileManager.createDirectory(at: layout.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try fileManager.createDirectory(at: bundle, withIntermediateDirectories: true)
-        try "<main><h1>{{ .Title }}</h1>{{ .Content }}{{ mystery . }}</main>"
-            .write(to: layout, atomically: true, encoding: .utf8)
-
-        let page = HugoThemePreviewService.render(
-            markdown: "---\ntitle: \"Layout Title\"\n---\n\n{{< unknown >}}",
-            articleURL: bundle.appendingPathComponent("index.md"),
-            repositoryRoot: root,
-            configuration: HugoSiteConfiguration(configurationFiles: ["hugo.toml"])
-        )
-
-        XCTAssertEqual(page.layoutPath, "layouts/_default/single.html")
-        XCTAssertTrue(page.html.contains("<h1>Layout Title</h1>"))
-        XCTAssertEqual(page.compatibilityIssues.count, 2)
-        XCTAssertTrue(page.html.contains("Unsupported Hugo shortcode"))
-        XCTAssertTrue(page.html.contains("Unsupported Hugo template expression"))
-    }
-
-    func testThemePreviewDiscoversLayoutsContentTypesLanguagesAndVariants() throws {
-        let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        let layout = root.appendingPathComponent("layouts/posts/feature.html")
-        let bundle = root.appendingPathComponent("content/posts/example", isDirectory: true)
-        let article = bundle.appendingPathComponent("index.md")
-        let traditional = bundle.appendingPathComponent("index.zh-Hant.md")
-        defer { try? fileManager.removeItem(at: root) }
-        try fileManager.createDirectory(at: layout.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try fileManager.createDirectory(at: bundle, withIntermediateDirectories: true)
-        try "<article data-layout=\"{{ .Layout }}\" lang=\"{{ .Site.Language.Lang }}\">{{ .Content }}</article>"
-            .write(to: layout, atomically: true, encoding: .utf8)
-        try "English".write(to: article, atomically: true, encoding: .utf8)
-        try "繁體內容".write(to: traditional, atomically: true, encoding: .utf8)
-        let configuration = HugoSiteConfiguration(
-            configurationFiles: ["hugo.toml"],
-            defaultContentLanguage: "en",
-            languages: ["en", "zh-Hant"]
-        )
-
-        let choices = HugoThemePreviewService.discoverChoices(
-            repositoryRoot: root,
-            configuration: configuration,
-            articleURL: article
-        )
-        let page = HugoThemePreviewService.render(
-            markdown: "繁體內容",
-            articleURL: traditional,
-            repositoryRoot: root,
-            configuration: configuration,
-            options: HugoThemePreviewOptions(
-                layout: "feature",
-                contentType: "posts",
-                language: "zh-Hant",
-                device: .phone
-            )
-        )
-
-        XCTAssertEqual(choices.layouts, ["feature", "single"])
-        XCTAssertEqual(choices.contentTypes, ["page", "posts"])
-        XCTAssertEqual(choices.languages, ["en", "zh-Hant"])
-        XCTAssertEqual(choices.languageVariantURLs["zh-Hant"], traditional)
-        XCTAssertEqual(page.layoutPath, "layouts/posts/feature.html")
-        XCTAssertTrue(page.html.contains("data-layout=\"feature\""))
-        XCTAssertTrue(page.html.contains("lang=\"zh-Hant\""))
-        XCTAssertTrue(page.html.contains("繁體內容"))
-        XCTAssertEqual(HugoPreviewDevice.phone.width, 390)
-        XCTAssertEqual(HugoPreviewDevice.tablet.width, 768)
-        XCTAssertEqual(HugoPreviewDevice.desktop.width, 1200)
-    }
-
-    func testThemeTemplateSanitizerRemovesScriptsEventsAndFrames() {
-        let context = HugoTemplatePreviewContext(
-            title: "Safe",
-            date: "",
-            draft: false,
-            contentHTML: "<p>Body</p>",
-            siteTitle: "Site",
-            language: "en",
-            contentType: "page",
-            section: "",
-            layout: "single",
-            permalink: "/safe/",
-            params: [:]
-        )
-        let result = HugoTemplateCompatibilityService.renderTemplate(
-            #"<main onclick="steal()">{{ .Content }}<script>steal()</script><iframe src="https://example.com"></iframe><a href="javascript:steal()">bad</a></main>"#,
-            context: context
-        )
-
-        XCTAssertTrue(result.html.contains("<p>Body</p>"))
-        XCTAssertFalse(result.html.lowercased().contains("<script"))
-        XCTAssertFalse(result.html.lowercased().contains("onclick"))
-        XCTAssertFalse(result.html.lowercased().contains("<iframe"))
-        XCTAssertFalse(result.html.lowercased().contains("javascript:"))
-        XCTAssertTrue(result.html.contains("blocked:"))
-        XCTAssertTrue(result.issues.contains(String(localized: "Unsafe theme markup was removed from the preview.")))
-    }
-
-    func testThemeResourceSignatureChangesAndSchemeRejectsScripts() throws {
-        let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        let theme = root.appendingPathComponent("themes/paper", isDirectory: true)
-        let css = theme.appendingPathComponent("assets/main.css")
-        let script = theme.appendingPathComponent("assets/main.js")
-        defer { try? fileManager.removeItem(at: root) }
-        try fileManager.createDirectory(at: css.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try "body {}".write(to: css, atomically: true, encoding: .utf8)
-        try "alert(1)".write(to: script, atomically: true, encoding: .utf8)
-        let configuration = HugoSiteConfiguration(
-            configurationFiles: ["hugo.toml"],
-            themes: ["paper"]
-        )
-
-        let original = HugoThemePreviewService.siteResourceSignature(
-            repositoryRoot: root,
-            configuration: configuration
-        )
-        try "body { color: rebeccapurple; }".write(to: css, atomically: true, encoding: .utf8)
-        let updated = HugoThemePreviewService.siteResourceSignature(
-            repositoryRoot: root,
-            configuration: configuration
-        )
-        let scriptURL = try XCTUnwrap(URL(string: "gitsync-resource://local/themes/paper/assets/main.js"))
-
-        XCTAssertNotEqual(original, updated)
-        XCTAssertNil(HugoThemePreviewService.resourceFileURL(from: scriptURL, repositoryRoot: root))
-    }
-
-    func testThemePreviewSemanticSnapshotMatchesOfficialHugoBuild() throws {
-        let fixture = try XCTUnwrap(
-            Bundle(for: HugoContentServiceTests.self).url(
-                forResource: "HugoThemePreviewFixture",
-                withExtension: nil
-            )
-        )
-        let article = fixture.appendingPathComponent("content/posts/snapshot/index.md")
-        let markdown = try String(contentsOf: article, encoding: .utf8)
-        let reference = try String(
-            contentsOf: fixture.appendingPathComponent("expected.html"),
-            encoding: .utf8
-        )
-        let configuration = HugoSiteConfigurationService.discover(in: fixture)
-        let page = HugoThemePreviewService.render(
-            markdown: markdown,
-            articleURL: article,
-            repositoryRoot: fixture,
-            configuration: configuration,
-            options: HugoThemePreviewOptions(
-                layout: "snapshot",
-                contentType: "posts",
-                language: "en",
-                device: .desktop
-            )
-        )
-
-        let comparison = HugoThemeSnapshotService.compare(
-            previewHTML: page.html,
-            referenceHugoHTML: reference
-        )
-
-        XCTAssertEqual(page.layoutPath, "layouts/posts/snapshot.html")
-        XCTAssertTrue(page.compatibilityIssues.isEmpty, page.compatibilityIssues.joined(separator: "\n"))
-        XCTAssertTrue(comparison.isMatch, comparison.mismatches.joined(separator: "\n"))
-        XCTAssertEqual(comparison.preview.bodyText, comparison.reference.bodyText)
-    }
-
-    func testArticleSortSupportsPublicationModifiedTitleDirectoryAndDraftState() {
-        let older = HugoArticle(
-            fileURL: URL(fileURLWithPath: "/repo/content/z/index.md"),
-            relativePath: "content/z/index.md",
-            title: "Beta",
-            date: "2026-01-01",
-            draft: false,
-            coverURL: nil,
-            modifiedAt: Date(timeIntervalSince1970: 10)
-        )
-        let newerDraft = HugoArticle(
-            fileURL: URL(fileURLWithPath: "/repo/content/a/index.md"),
-            relativePath: "content/a/index.md",
-            title: "Alpha",
-            date: "2026-02-01",
-            draft: true,
-            coverURL: nil,
-            modifiedAt: Date(timeIntervalSince1970: 20)
-        )
-        let values = [older, newerDraft]
-
-        XCTAssertEqual(values.sorted(by: HugoArticleSort.publicationDate.areInIncreasingOrder).first?.title, "Alpha")
-        XCTAssertEqual(values.sorted(by: HugoArticleSort.modified.areInIncreasingOrder).first?.title, "Alpha")
-        XCTAssertEqual(values.sorted(by: HugoArticleSort.title.areInIncreasingOrder).first?.title, "Alpha")
-        XCTAssertEqual(values.sorted(by: HugoArticleSort.directory.areInIncreasingOrder).first?.title, "Alpha")
-        XCTAssertTrue(values.sorted(by: HugoArticleSort.draftStatus.areInIncreasingOrder).first?.draft == true)
-    }
-
-    func testLegacyHugoConfigurationDefaultsCustomFieldsToEmpty() throws {
-        let data = try XCTUnwrap(#"{"contentMappings":[{"directory":"content/posts","archetype":"archetypes/default.md"}]}"#.data(using: .utf8))
-
-        let configuration = try JSONDecoder().decode(HugoRepositoryConfiguration.self, from: data)
-
-        XCTAssertEqual(configuration.contentMappings.count, 1)
-        XCTAssertTrue(configuration.frontMatterFields.isEmpty)
-    }
-
-    func testHugoConfigurationRoundTripsCustomFieldsWithoutRuntimeID() throws {
-        let configuration = HugoRepositoryConfiguration(
-            frontMatterFields: [
-                HugoFrontMatterFieldConfiguration(key: "featured", label: "Featured", type: .boolean)
-            ]
-        )
-
-        let data = try JSONEncoder().encode(configuration)
-        let decoded = try JSONDecoder().decode(HugoRepositoryConfiguration.self, from: data)
-        let json = try XCTUnwrap(String(data: data, encoding: .utf8))
-
-        XCTAssertEqual(decoded.frontMatterFields.first?.key, "featured")
-        XCTAssertEqual(decoded.frontMatterFields.first?.type, .boolean)
-        XCTAssertFalse(json.contains("\"id\""))
-    }
-
-    func testHugoSiteConfigurationDiscoversTOMLSettings() throws {
-        let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? fileManager.removeItem(at: root) }
-        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
-        try """
-        theme = ["base", "paper"]
-        defaultContentLanguage = "zh-Hans"
-        assetDir = "frontend/assets"
-        staticDir = ["public-assets", "shared-static"]
-        resourceDir = "generated-resources"
-
-        [languages.en]
-        languageName = "English"
-
-        [languages.zh-Hans]
-        languageName = "简体中文"
-
-        [permalinks]
-        posts = "/articles/:slug/"
-        """.write(to: root.appendingPathComponent("hugo.toml"), atomically: true, encoding: .utf8)
-
-        let configuration = HugoSiteConfigurationService.discover(in: root)
-
-        XCTAssertEqual(configuration.configurationFiles, ["hugo.toml"])
-        XCTAssertEqual(configuration.themes, ["base", "paper"])
-        XCTAssertEqual(configuration.defaultContentLanguage, "zh-Hans")
-        XCTAssertEqual(configuration.languages, ["en", "zh-Hans"])
-        XCTAssertEqual(configuration.permalinks["posts"], "/articles/:slug/")
-        XCTAssertEqual(configuration.assetDirectories, ["frontend/assets"])
-        XCTAssertEqual(configuration.staticDirectories, ["public-assets", "shared-static"])
-        XCTAssertEqual(configuration.resourceDirectories, ["generated-resources"])
-    }
-
-    func testHugoSiteConfigurationMergesYAMLConfigFragments() throws {
-        let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        let config = root.appendingPathComponent("config/_default", isDirectory: true)
-        defer { try? fileManager.removeItem(at: root) }
-        try fileManager.createDirectory(at: config, withIntermediateDirectories: true)
-        try """
-        theme: newsroom
-        defaultContentLanguage: en
-        staticDir:
-          - site-static
-          - shared
-        """.write(to: config.appendingPathComponent("hugo.yaml"), atomically: true, encoding: .utf8)
-        try """
-        en:
-          languageName: English
-        zh-Hant:
-          languageName: 繁體中文
-        """.write(to: config.appendingPathComponent("languages.yaml"), atomically: true, encoding: .utf8)
-        try """
-        posts: /news/:year/:slug/
-        pages: /:slug/
-        """.write(to: config.appendingPathComponent("permalinks.yaml"), atomically: true, encoding: .utf8)
-
-        let configuration = HugoSiteConfigurationService.discover(in: root)
-
-        XCTAssertEqual(configuration.themes, ["newsroom"])
-        XCTAssertEqual(configuration.defaultContentLanguage, "en")
-        XCTAssertEqual(configuration.languages, ["en", "zh-Hant"])
-        XCTAssertEqual(configuration.permalinks["posts"], "/news/:year/:slug/")
-        XCTAssertEqual(configuration.permalinks["pages"], "/:slug/")
-        XCTAssertEqual(configuration.assetDirectories, ["assets"])
-        XCTAssertEqual(configuration.staticDirectories, ["site-static", "shared"])
-        XCTAssertEqual(configuration.resourceDirectories, ["resources"])
-    }
-
-    func testHugoSiteConfigurationRejectsResourcesOutsideRepository() throws {
-        let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? fileManager.removeItem(at: root) }
-        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
-        try """
-        assetDir = "../outside"
-        staticDir = "/private/static"
-        resourceDir = "https://example.com/resources"
-        """.write(to: root.appendingPathComponent("hugo.toml"), atomically: true, encoding: .utf8)
-
-        let configuration = HugoSiteConfigurationService.discover(in: root)
-
-        XCTAssertTrue(configuration.isDetected)
-        XCTAssertTrue(configuration.previewResourceDirectories.isEmpty)
-    }
-
-    func testFrontMatterFieldKeyValidationRejectsBuiltInAndUnsafeKeys() {
-        XCTAssertTrue(HugoContentService.isValidFrontMatterFieldKey("description"))
-        XCTAssertTrue(HugoContentService.isValidFrontMatterFieldKey("show_toc"))
-        XCTAssertFalse(HugoContentService.isValidFrontMatterFieldKey("draft"))
-        XCTAssertFalse(HugoContentService.isValidFrontMatterFieldKey("Title"))
-        XCTAssertFalse(HugoContentService.isValidFrontMatterFieldKey("bad key"))
-        XCTAssertFalse(HugoContentService.isValidFrontMatterFieldKey("../layout"))
-        XCTAssertTrue(HugoContentService.isValidFrontMatterNumber("-12.5"))
-        XCTAssertFalse(HugoContentService.isValidFrontMatterNumber("12px"))
-    }
-
-    func testMovingArticleBundlePreservesBundleImagesAndUpdatesExternalRelativeImages() throws {
-        let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? fileManager.removeItem(at: root) }
-        let sourceBundle = root.appendingPathComponent("content/posts/old-post", isDirectory: true)
-        let images = sourceBundle.appendingPathComponent("images", isDirectory: true)
-        let destinationParent = root.appendingPathComponent("content", isDirectory: true)
-        let sharedImages = root.appendingPathComponent("static/images", isDirectory: true)
-        try fileManager.createDirectory(at: images, withIntermediateDirectories: true)
-        try fileManager.createDirectory(at: sharedImages, withIntermediateDirectories: true)
-        try Data([0x01]).write(to: images.appendingPathComponent("cover.jpg"))
-        try Data([0x02]).write(to: sharedImages.appendingPathComponent("shared.jpg"))
-        let original = """
-        ---
-        title: "Post"
-        cover: images/cover.jpg
-        ---
-
-        ![Local](images/cover.jpg)
-        ![Shared](../../../static/images/shared.jpg)
-        """
-        let sourceFile = sourceBundle.appendingPathComponent("index.md")
-        try original.write(to: sourceFile, atomically: true, encoding: .utf8)
-
-        let result = try HugoContentService.moveArticleBundle(
-            indexFileURL: sourceFile,
-            toContentDirectory: destinationParent,
-            bundleName: "new-post",
-            repositoryRoot: root
-        )
-
-        let output = try String(contentsOf: result.destinationFileURL, encoding: .utf8)
-        XCTAssertFalse(fileManager.fileExists(atPath: sourceBundle.path))
-        XCTAssertTrue(fileManager.fileExists(
-            atPath: result.destinationFileURL.deletingLastPathComponent()
-                .appendingPathComponent("images/cover.jpg").path
-        ))
-        XCTAssertTrue(output.contains("cover: images/cover.jpg"))
-        XCTAssertTrue(output.contains("![Local](images/cover.jpg)"))
-        XCTAssertTrue(output.contains("![Shared](../../static/images/shared.jpg)"))
-        XCTAssertEqual(result.updatedImageReferenceCount, 1)
-    }
-
-    func testRelativeImageRewriteSupportsHTMLAndPreservesRemoteURLs() {
-        let root = URL(fileURLWithPath: "/repo")
-        let source = root.appendingPathComponent("content/posts/old")
-        let destination = root.appendingPathComponent("content/new")
-        let markdown = """
-        cover: ../../../static/cover.jpg
-        <img src="../../../static/photo.jpg">
-        ![Remote](https://example.com/photo.jpg)
-        ![Anchor](#diagram)
-        """
-
-        let result = HugoContentService.updatingRelativeImageReferences(
-            in: markdown,
-            sourceBundleURL: source,
-            destinationBundleURL: destination,
-            repositoryRoot: root
-        )
-
-        XCTAssertTrue(result.markdown.contains("cover: ../../static/cover.jpg"))
-        XCTAssertTrue(result.markdown.contains(#"<img src="../../static/photo.jpg">"#))
-        XCTAssertTrue(result.markdown.contains("https://example.com/photo.jpg"))
-        XCTAssertTrue(result.markdown.contains("![Anchor](#diagram)"))
-        XCTAssertEqual(result.updatedCount, 2)
-    }
-
-    func testMovingArticleBundleRejectsExistingDestination() throws {
-        let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? fileManager.removeItem(at: root) }
-        let content = root.appendingPathComponent("content", isDirectory: true)
-        let source = content.appendingPathComponent("old", isDirectory: true)
-        let destination = content.appendingPathComponent("existing", isDirectory: true)
-        try fileManager.createDirectory(at: source, withIntermediateDirectories: true)
-        try fileManager.createDirectory(at: destination, withIntermediateDirectories: true)
-        try "Body".write(
-            to: source.appendingPathComponent("index.md"),
-            atomically: true,
-            encoding: .utf8
-        )
-
-        XCTAssertThrowsError(try HugoContentService.moveArticleBundle(
-            indexFileURL: source.appendingPathComponent("index.md"),
-            toContentDirectory: content,
-            bundleName: "existing",
-            repositoryRoot: root
-        )) { error in
-            XCTAssertTrue(error is HugoArticleMoveError)
-        }
-        XCTAssertTrue(fileManager.fileExists(atPath: source.appendingPathComponent("index.md").path))
-    }
-
-    func testRendersLeafBundleArchetype() {
-        let template = """
-        ---
-        title: "{{ replace .File.ContentBaseName `-` ` ` | title }}"
-        date: {{ .Date }}
-        draft: true
-        ---
-        """
-        let rendered = HugoContentService.render(template: template, title: "My First Post", filename: "index.md", section: "posts", bundleName: "my-first-post", date: Date(timeIntervalSince1970: 0))
-        XCTAssertTrue(rendered.contains("title: \"My First Post\""))
-        XCTAssertTrue(rendered.contains("1970-01-01"))
-        XCTAssertFalse(rendered.contains("{{"))
-    }
-
-    func testYAMLFrontMatterPreservesUnknownFields() {
-        let original = "---\ntitle: \"Old\"\ndescription: keep me\ndraft: false\n---\n\nBody"
-        var matter = MarkdownFrontMatter(markdown: original)
-        matter.title = "New"
-        matter.body = "Updated"
-        let output = matter.applying(to: original)
-        XCTAssertTrue(output.contains("title: \"New\""))
-        XCTAssertTrue(output.contains("description: keep me"))
-        XCTAssertTrue(output.hasSuffix("Updated"))
-    }
-
-    func testTOMLFrontMatterPreservesUnknownFields() {
-        let original = "+++\ntitle = \"Old\"\nlayout = \"post\"\ndraft = true\n+++\n\nBody"
-        var matter = MarkdownFrontMatter(markdown: original)
-        matter.draft = false
-        let output = matter.applying(to: original)
-        XCTAssertTrue(output.contains("draft = false"))
-        XCTAssertTrue(output.contains("layout = \"post\""))
-    }
-
-    func testConfiguredYAMLTextFieldUpdatesWithoutDroppingOtherFields() {
-        let original = "---\ntitle: \"Post\"\nsummary: \"Old\"\nlayout: special\nnested:\n  child: true\n---\n\nBody"
-        let fields = [
-            HugoFrontMatterFieldConfiguration(key: "summary", label: "Summary", type: .text)
-        ]
-        var matter = MarkdownFrontMatter(markdown: original)
-        matter.customValues["summary"] = "New summary"
-
-        let output = matter.applying(to: original, customFields: fields)
-
-        XCTAssertTrue(output.contains("summary: \"New summary\""))
-        XCTAssertTrue(output.contains("layout: special"))
-        XCTAssertTrue(output.contains("nested:\n  child: true"))
-        XCTAssertTrue(output.hasSuffix("Body"))
-    }
-
-    func testConfiguredTOMLBooleanAndNumberFieldsUseNativeValues() {
-        let original = "+++\ntitle = \"Post\"\nfeatured = false\nrating = 3\n+++\n\nBody"
-        let fields = [
-            HugoFrontMatterFieldConfiguration(key: "featured", label: "Featured", type: .boolean),
-            HugoFrontMatterFieldConfiguration(key: "rating", label: "Rating", type: .number)
-        ]
-        var matter = MarkdownFrontMatter(markdown: original)
-        matter.customValues["featured"] = "true"
-        matter.customValues["rating"] = "4.5"
-
-        let output = matter.applying(to: original, customFields: fields)
-
-        XCTAssertTrue(output.contains("featured = true"))
-        XCTAssertTrue(output.contains("rating = 4.5"))
-    }
-
-    func testInvalidConfiguredNumberKeepsOriginalValue() {
-        let original = "---\ntitle: \"Post\"\nrating: 3\n---\n\nBody"
-        let fields = [
-            HugoFrontMatterFieldConfiguration(key: "rating", label: "Rating", type: .number)
-        ]
-        var matter = MarkdownFrontMatter(markdown: original)
-        matter.customValues["rating"] = "not-a-number"
-
-        let output = matter.applying(to: original, customFields: fields)
-
-        XCTAssertTrue(output.contains("rating: 3"))
-        XCTAssertFalse(output.contains("not-a-number"))
-    }
-
-    func testUnchangedConfiguredNestedFieldRemainsVerbatim() {
-        let original = "---\ntitle: \"Post\"\nparams:\n  color: blue\n---\n\nBody"
-        let fields = [
-            HugoFrontMatterFieldConfiguration(key: "params", label: "Params", type: .text)
-        ]
-        let matter = MarkdownFrontMatter(markdown: original)
-
-        let output = matter.applying(to: original, customFields: fields)
-
-        XCTAssertTrue(output.contains("params:\n  color: blue"))
-    }
-
-    func testUpdatingYAMLDraftStatusPreservesBodyAndUnknownFields() {
-        let original = "---\ntitle: \"Post\"\ndraft: true\nlayout: special\n---\n\nBody"
-
-        let output = HugoContentService.updatingDraftStatus(in: original, isDraft: false)
-
-        XCTAssertTrue(output.contains("draft: false"))
-        XCTAssertTrue(output.contains("layout: special"))
-        XCTAssertTrue(output.hasSuffix("Body"))
-    }
-
-    func testUpdatingTOMLDraftStatusPreservesDelimiterAndUnknownFields() {
-        let original = "+++\ntitle = \"Post\"\ndraft = false\nlayout = \"wide\"\n+++\n\nBody"
-
-        let output = HugoContentService.updatingDraftStatus(in: original, isDraft: true)
-
-        XCTAssertTrue(output.hasPrefix("+++\n"))
-        XCTAssertTrue(output.contains("draft = true"))
-        XCTAssertTrue(output.contains("layout = \"wide\""))
-        XCTAssertTrue(output.hasSuffix("Body"))
-    }
-
-    func testPublicationDateUpdatePreservesISOOffsetAndQuotedYAMLValue() throws {
-        let value = "2026-08-15T14:09:09+08:00"
-        let original = "---\ntitle: \"Post\"\ndate: '\(value)'\ndraft: false\n---\n\nBody"
-        let date = try XCTUnwrap(HugoContentService.publicationDate(from: value))
-
-        let output = HugoContentService.updatingPublicationDate(
-            in: original,
-            date: date.addingTimeInterval(24 * 60 * 60)
-        )
-
-        XCTAssertTrue(output.contains("date: '2026-08-16T14:09:09+08:00'"))
-        XCTAssertTrue(output.hasSuffix("Body"))
-    }
-
-    func testPublicationDateUpdatePreservesDateOnlyFormat() throws {
-        let date = try XCTUnwrap(HugoContentService.publicationDate(from: "2026-08-15"))
-
-        let value = HugoContentService.publicationDateValue(
-            for: date.addingTimeInterval(24 * 60 * 60),
-            preserving: "2026-08-15"
-        )
-
-        XCTAssertEqual(value, "2026-08-16")
-    }
-
-    func testClearingPublicationDatePreservesOtherFrontMatter() {
-        let original = "+++\ntitle = \"Post\"\ndate = 2026-08-15T14:09:09Z\nlayout = \"wide\"\n+++\n\nBody"
-
-        let output = HugoContentService.updatingPublicationDate(in: original, date: nil)
-
-        XCTAssertFalse(output.contains("date ="))
-        XCTAssertTrue(output.contains("layout = \"wide\""))
-        XCTAssertTrue(output.hasSuffix("Body"))
-    }
-
-    func testCoverFieldCanBeEditedWithoutDroppingCustomFields() {
-        let original = "---\ntitle: \"Post\"\ncover: \"images/old.jpg\"\nlayout: special\n---\n\nBody"
-        var matter = MarkdownFrontMatter(markdown: original)
-        XCTAssertEqual(matter.cover, "images/old.jpg")
-        matter.cover = "images/new.jpg"
-        let output = matter.applying(to: original)
-        XCTAssertTrue(output.contains("cover: \"images/new.jpg\""))
-        XCTAssertTrue(output.contains("layout: special"))
-    }
-
-    func testSlugifyUsesEnglishPathCharacters() {
-        XCTAssertEqual(HugoContentService.slugify("My First Post!"), "my-first-post")
-    }
 }

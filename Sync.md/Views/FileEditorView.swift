@@ -21,6 +21,12 @@ private enum MarkdownEditorMode: String, CaseIterable, Identifiable {
     var title: String { String(localized: String.LocalizationValue(rawValue)) }
 }
 
+private enum FileSaveOutcome: Equatable, Sendable {
+    case saved
+    case failed
+}
+
+@MainActor
 struct FileEditorView: View {
     @Environment(AppState.self) private var state
     @Environment(\.scenePhase) private var scenePhase
@@ -45,6 +51,7 @@ struct FileEditorView: View {
     @State private var showPhotoPicker = false
     @State private var showImageImporter = false
     @State private var imageMessage: String?
+    @State private var showImageAlert = false
     @State private var editorSelection = NSRange(location: 0, length: 0)
     @State private var images: [URL] = []
     @State private var showImageLibrary = false
@@ -69,7 +76,7 @@ struct FileEditorView: View {
     @State private var themePreviewChoices = HugoThemePreviewChoices()
     @State private var themeResourceRevision = 0
 
-    private let draftStore = FileEditorDraftStore()
+    private let draftStore = FileEditorDraftStore.shared
 
     init(repoID: UUID, fileURL: URL) {
         self.repoID = repoID
@@ -136,7 +143,9 @@ struct FileEditorView: View {
                     message: String(localized: "This will be reflected in git status as a deletion."),
                     confirmLabel: String(localized: "Delete"),
                     isDestructive: true,
-                    onConfirm: performDelete,
+                    onConfirm: {
+                        Task<Void, Never> { @MainActor in await performDelete() }
+                    },
                     onCancel: { showDeleteConfirm = false }
                 )
                 .transition(.opacity.combined(with: .scale(scale: 0.97)))
@@ -151,9 +160,14 @@ struct FileEditorView: View {
                     onConfirm: {
                         showDiscardConfirm = false
                         isDiscardingEdits = true
-                        draftSaveTask?.cancel()
-                        try? draftStore.remove(repoID: repoID, fileURL: liveURL)
-                        dismiss()
+                        Task<Void, Never> { @MainActor in
+                            let pendingTask = draftSaveTask
+                            draftSaveTask = nil
+                            pendingTask?.cancel()
+                            await pendingTask?.value
+                            try? await draftStore.remove(repoID: repoID, fileURL: liveURL)
+                            dismiss()
+                        }
                     },
                     onCancel: { showDiscardConfirm = false }
                 )
@@ -178,7 +192,7 @@ struct FileEditorView: View {
                     isPublishing: isQuickPublishing,
                     progress: isQuickPublishing ? state.syncProgress : persistenceMessage,
                     onPublish: {
-                        Task {
+                        Task<Void, Never> { @MainActor in
                             if canRetryPublish {
                                 await retryQuickPublish()
                             } else {
@@ -195,7 +209,9 @@ struct FileEditorView: View {
                 BRenameModal(
                     title: String(localized: "Rename File"),
                     text: $renameText,
-                    onConfirm: performRename,
+                    onConfirm: {
+                        Task<Void, Never> { @MainActor in await performRename() }
+                    },
                     onCancel: { showRenameModal = false; renameText = "" }
                 )
                 .transition(.opacity.combined(with: .scale(scale: 0.97)))
@@ -268,10 +284,14 @@ struct FileEditorView: View {
                         }
                     }
                     if !isBinary {
-                        Button("Save") { _ = performSave() }
-                            .font(.system(size: 12, weight: .bold, design: .monospaced))
-                            .foregroundStyle(isDirty ? Color.brutalAccent : Color.brutalTextFaint)
-                            .disabled(!isDirty)
+                        Button("Save") {
+                            Task<Void, Never> { @MainActor in
+                                _ = await performSave()
+                            }
+                        }
+                        .font(.system(size: 12, weight: .bold, design: .monospaced))
+                        .foregroundStyle(isDirty ? Color.brutalAccent : Color.brutalTextFaint)
+                        .disabled(!isDirty)
                     }
                     Button {
                         renameText = fileName
@@ -294,7 +314,7 @@ struct FileEditorView: View {
         .sheet(isPresented: $showImageLibrary) {
             HugoImageLibraryView(
                 images: $images,
-                isReferenced: { isImageReferenced($0.lastPathComponent) },
+                referencedImageNames: referencedImageNames,
                 onInsert: { insertMarkdownImage(named: $0.lastPathComponent) },
                 onRename: renameImage,
                 onReplace: replaceImage,
@@ -323,13 +343,13 @@ struct FileEditorView: View {
         }
         .onChange(of: selectedPhoto) { _, item in
             guard let item else { return }
-            Task { await importPhoto(item) }
+            Task<Void, Never> { @MainActor in await importPhoto(item) }
         }
-        .alert("Error", isPresented: Binding(
-            get: { imageMessage != nil },
-            set: { if !$0 { imageMessage = nil } }
-        )) {
-            Button("OK", role: .cancel) { imageMessage = nil }
+        .alert("Error", isPresented: $showImageAlert) {
+            Button("OK", role: .cancel) {
+                showImageAlert = false
+                imageMessage = nil
+            }
         } message: {
             Text(imageMessage ?? "")
         }
@@ -340,7 +360,7 @@ struct FileEditorView: View {
             customFrontMatterFields = HugoContentService.loadConfiguration(
                 from: state.vaultURL(for: repoID)
             ).frontMatterFields
-            loadContent()
+            Task<Void, Never> { @MainActor in await loadContent() }
             loadThemePreviewChoices()
             loadImages()
             state.detectChanges(repoID: repoID)
@@ -396,15 +416,10 @@ struct FileEditorView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Date")
-            Picker("", selection: Binding(
-                get: { isArticleDraft },
-                set: updateArticleDraft
-            )) {
-                Text("Draft").tag(true)
-                Text("Published").tag(false)
+            HStack(spacing: 0) {
+                articleStatusButton(title: "Draft", isDraft: true)
+                articleStatusButton(title: "Published", isDraft: false)
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
             .frame(maxWidth: 220)
             .accessibilityLabel(Text(isArticleDraft ? String(localized: "Draft") : String(localized: "Published")))
         }
@@ -421,6 +436,21 @@ struct FileEditorView: View {
             content = HugoContentService.updatingDraftStatus(in: content, isDraft: isDraft)
         }
         persistenceMessage = isDraft ? String(localized: "Draft") : String(localized: "Published")
+    }
+
+    private func articleStatusButton(title: LocalizedStringKey, isDraft: Bool) -> some View {
+        let isSelected = isArticleDraft == isDraft
+        return Button {
+            updateArticleDraft(isDraft)
+        } label: {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .frame(maxWidth: .infinity, minHeight: 30)
+                .foregroundStyle(isSelected ? Color.white : Color.brutalText)
+                .background(isSelected ? Color.brutalAccent : Color.brutalSurface)
+        }
+        .buttonStyle(.plain)
+        .overlay { Rectangle().stroke(Color.brutalBorder, lineWidth: 1) }
     }
 
     private func updateArticlePublicationDate(_ date: Date?) {
@@ -532,14 +562,20 @@ struct FileEditorView: View {
                 Text(label)
             }
         case .boolean:
-            Toggle(label, isOn: Binding(
-                get: {
-                    ["true", "yes", "1"].contains(
-                        frontMatter.customValues[field.key]?.lowercased() ?? ""
-                    )
-                },
-                set: { frontMatter.customValues[field.key] = $0 ? "true" : "false" }
-            ))
+            let isEnabled = ["true", "yes", "1"].contains(
+                frontMatter.customValues[field.key]?.lowercased() ?? ""
+            )
+            Button {
+                frontMatter.customValues[field.key] = isEnabled ? "false" : "true"
+            } label: {
+                HStack {
+                    Text(label)
+                    Spacer()
+                    Image(systemName: isEnabled ? "checkmark.square.fill" : "square")
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityValue(isEnabled ? "On" : "Off")
         case .number:
             TextField(text: customFrontMatterNumberBinding(for: field.key)) {
                 Text(label)
@@ -568,6 +604,11 @@ struct FileEditorView: View {
                 }
             }
         )
+    }
+
+    private func presentImageMessage(_ message: String) {
+        imageMessage = message
+        showImageAlert = true
     }
 
     private var markdownPreview: some View {
@@ -910,23 +951,47 @@ struct FileEditorView: View {
 
     // MARK: - Operations
 
-    private func loadContent() {
-        guard let data = try? Data(contentsOf: liveURL),
-              let text = String(data: data, encoding: .utf8) else {
+    private func validatedLiveFileURL() throws -> URL {
+        try RepositoryFileDestinationValidator.existingFileURL(
+            liveURL,
+            in: liveURL.deletingLastPathComponent(),
+            repositoryRootURL: state.vaultURL(for: repoID)
+        )
+    }
+
+    private func loadContent() async {
+        do {
+            let safeURL = try validatedLiveFileURL()
+            let data = try Data(contentsOf: safeURL)
+            guard let text = String(data: data, encoding: .utf8) else {
+                isBinary = true
+                return
+            }
+            liveURL = safeURL
+            content = text
+            originalContent = text
+            do {
+                if let draft = try await draftStore.draft(repoID: repoID, fileURL: liveURL), draft.content != text {
+                    pendingRecoveredDraft = draft.content
+                    showDraftRecovery = true
+                    persistenceMessage = String(localized: "Unsaved draft found")
+                } else {
+                    try await draftStore.remove(repoID: repoID, fileURL: liveURL)
+                    persistenceMessage = String(localized: "File loaded")
+                }
+            } catch {
+                persistenceMessage = String(localized: "File loaded")
+                DebugLogger.shared.error(
+                    "editor", "Draft recovery failed", detail: error.localizedDescription,
+                    repoID: repoID, repoName: logRepoName
+                )
+            }
+            if isMarkdown { frontMatter = MarkdownFrontMatter(markdown: content) }
+        } catch {
             isBinary = true
-            return
+            persistenceMessage = error.localizedDescription
+            presentImageMessage(error.localizedDescription)
         }
-        content = text
-        originalContent = text
-        if let draft = draftStore.draft(repoID: repoID, fileURL: liveURL), draft.content != text {
-            pendingRecoveredDraft = draft.content
-            showDraftRecovery = true
-            persistenceMessage = String(localized: "Unsaved draft found")
-        } else {
-            try? draftStore.remove(repoID: repoID, fileURL: liveURL)
-            persistenceMessage = String(localized: "File loaded")
-        }
-        if isMarkdown { frontMatter = MarkdownFrontMatter(markdown: content) }
     }
 
     private func restorePendingDraft() {
@@ -945,7 +1010,13 @@ struct FileEditorView: View {
     private func discardPendingDraft() {
         pendingRecoveredDraft = nil
         showDraftRecovery = false
-        try? draftStore.remove(repoID: repoID, fileURL: liveURL)
+        let previousTask = draftSaveTask
+        previousTask?.cancel()
+        let targetURL = liveURL
+        draftSaveTask = Task { @MainActor in
+            await previousTask?.value
+            try? await draftStore.remove(repoID: repoID, fileURL: targetURL)
+        }
         persistenceMessage = String(localized: "Using saved file")
         DebugLogger.shared.info(
             "editor", "Discarded recovered draft", detail: fileName,
@@ -954,19 +1025,22 @@ struct FileEditorView: View {
     }
 
     private func scheduleDraftSave(_ value: String) {
-        draftSaveTask?.cancel()
-        guard value != originalContent else {
-            try? draftStore.remove(repoID: repoID, fileURL: liveURL)
-            return
-        }
-        persistenceMessage = String(localized: "Saving draft…")
+        let previousTask = draftSaveTask
+        previousTask?.cancel()
         let targetURL = liveURL
+        let shouldRemoveDraft = value == originalContent
         let delaySeconds = EditorDraftAutosaveSettings.normalizedDelaySeconds(draftAutosaveDelaySeconds)
         draftSaveTask = Task { @MainActor in
+            await previousTask?.value
+            if shouldRemoveDraft {
+                try? await draftStore.remove(repoID: repoID, fileURL: targetURL)
+                return
+            }
+            persistenceMessage = String(localized: "Saving draft…")
             try? await Task.sleep(for: .seconds(delaySeconds))
             guard !Task.isCancelled else { return }
             do {
-                try draftStore.save(content: value, repoID: repoID, fileURL: targetURL)
+                try await draftStore.save(content: value, repoID: repoID, fileURL: targetURL)
                 persistenceMessage = String(localized: "Draft saved locally")
             } catch {
                 persistenceMessage = String(localized: "Draft save failed")
@@ -980,14 +1054,21 @@ struct FileEditorView: View {
 
     private func saveDraftImmediately() {
         guard isDirty else { return }
-        do {
-            try draftStore.save(content: pendingContent, repoID: repoID, fileURL: liveURL)
-        } catch {
-            persistenceMessage = String(localized: "Draft save failed")
-            DebugLogger.shared.error(
-                "editor", "Immediate draft save failed", detail: error.localizedDescription,
-                repoID: repoID, repoName: logRepoName
-            )
+        let previousTask = draftSaveTask
+        previousTask?.cancel()
+        let value = pendingContent
+        let targetURL = liveURL
+        draftSaveTask = Task { @MainActor in
+            await previousTask?.value
+            do {
+                try await draftStore.save(content: value, repoID: repoID, fileURL: targetURL)
+            } catch {
+                persistenceMessage = String(localized: "Draft save failed")
+                DebugLogger.shared.error(
+                    "editor", "Immediate draft save failed", detail: error.localizedDescription,
+                    repoID: repoID, repoName: logRepoName
+                )
+            }
         }
     }
 
@@ -995,7 +1076,7 @@ struct FileEditorView: View {
         guard let data = try? await item.loadTransferable(type: Data.self) else {
             await MainActor.run {
                 selectedPhoto = nil
-                imageMessage = String(localized: "Could not read the selected image.")
+                presentImageMessage(String(localized: "Could not read the selected image."))
             }
             return
         }
@@ -1010,24 +1091,36 @@ struct FileEditorView: View {
         let accessing = source.startAccessingSecurityScopedResource()
         defer { if accessing { source.stopAccessingSecurityScopedResource() } }
         guard let data = try? Data(contentsOf: source) else {
-            imageMessage = String(localized: "Could not read the selected image.")
+            presentImageMessage(String(localized: "Could not read the selected image."))
             return
         }
         storeImage(data: data, preferredName: source.lastPathComponent)
     }
 
     private func storeImage(data: Data, preferredName: String) {
-        let directory = liveURL.deletingLastPathComponent().appendingPathComponent("images", isDirectory: true)
         do {
+            let repositoryRoot = state.vaultURL(for: repoID)
+            let directory = try RepositoryFileDestinationValidator.validatedDirectoryURL(
+                imageDirectory,
+                repositoryRootURL: repositoryRoot
+            )
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let source = URL(fileURLWithPath: preferredName)
             let stem = HugoContentService.slugify(source.deletingPathExtension().lastPathComponent)
             let base = stem.isEmpty ? "image" : stem
             let ext = source.pathExtension.isEmpty ? "jpg" : source.pathExtension.lowercased()
-            var destination = directory.appendingPathComponent("\(base).\(ext)")
+            var destination = try RepositoryFileDestinationValidator.destinationURL(
+                for: "\(base).\(ext)",
+                in: directory,
+                repositoryRootURL: repositoryRoot
+            )
             var suffix = 2
             while FileManager.default.fileExists(atPath: destination.path) {
-                destination = directory.appendingPathComponent("\(base)-\(suffix).\(ext)")
+                destination = try RepositoryFileDestinationValidator.destinationURL(
+                    for: "\(base)-\(suffix).\(ext)",
+                    in: directory,
+                    repositoryRootURL: repositoryRoot
+                )
                 suffix += 1
             }
             try data.write(to: destination, options: .atomic)
@@ -1035,9 +1128,9 @@ struct FileEditorView: View {
             loadImages()
             insertMarkdownImage(named: destination.lastPathComponent)
             state.detectChanges(repoID: repoID)
-            imageMessage = String(localized: "Image added to images/ and inserted into Markdown.")
+            presentImageMessage(String(localized: "Image added to images/ and inserted into Markdown."))
         } catch {
-            imageMessage = error.localizedDescription
+            presentImageMessage(error.localizedDescription)
         }
     }
 
@@ -1060,61 +1153,114 @@ struct FileEditorView: View {
     }
 
     private func loadImages() {
+        let repositoryRoot = state.vaultURL(for: repoID)
+        guard let directory = try? RepositoryFileDestinationValidator.validatedDirectoryURL(
+            imageDirectory,
+            repositoryRootURL: repositoryRoot
+        ) else {
+            images = []
+            return
+        }
         images = ((try? FileManager.default.contentsOfDirectory(
-            at: imageDirectory,
-            includingPropertiesForKeys: nil,
+            at: directory,
+            includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey],
             options: .skipsHiddenFiles
-        )) ?? []).filter(HugoContentService.isSupportedArticleImage)
-            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+        )) ?? []).compactMap { url in
+            guard HugoContentService.isSupportedArticleImage(url) else { return nil }
+            return try? RepositoryFileDestinationValidator.existingFileURL(
+                url,
+                in: directory,
+                repositoryRootURL: repositoryRoot
+            )
+        }.sorted {
+            $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending
+        }
     }
 
-    private func isImageReferenced(_ name: String) -> Bool {
-        content.contains("images/\(name)") || frontMatter.body.contains("images/\(name)")
+    private var referencedImageNames: Set<String> {
+        var names = Set<String>()
+        for image in images {
+            let name = image.lastPathComponent
+            if content.contains("images/\(name)") || frontMatter.body.contains("images/\(name)") {
+                names.insert(name)
+            }
+        }
+        return names
     }
 
     private func renameImage(_ image: URL, _ requestedName: String) {
-        let raw = URL(fileURLWithPath: requestedName)
-        let ext = raw.pathExtension.isEmpty ? image.pathExtension : raw.pathExtension.lowercased()
-        let stem = HugoContentService.slugify(raw.deletingPathExtension().lastPathComponent)
-        guard !stem.isEmpty else { return }
-        let destination = imageDirectory.appendingPathComponent("\(stem).\(ext)")
-        guard destination != image, !FileManager.default.fileExists(atPath: destination.path) else { return }
         do {
-            try FileManager.default.moveItem(at: image, to: destination)
+            let repositoryRoot = state.vaultURL(for: repoID)
+            let safeImage = try RepositoryFileDestinationValidator.existingFileURL(
+                image,
+                in: imageDirectory,
+                repositoryRootURL: repositoryRoot
+            )
+            let raw = URL(fileURLWithPath: requestedName)
+            let ext = raw.pathExtension.isEmpty ? safeImage.pathExtension : raw.pathExtension.lowercased()
+            let stem = HugoContentService.slugify(raw.deletingPathExtension().lastPathComponent)
+            guard !stem.isEmpty else { return }
+            let destination = try RepositoryFileDestinationValidator.destinationURL(
+                for: "\(stem).\(ext)",
+                in: imageDirectory,
+                repositoryRootURL: repositoryRoot
+            )
+            guard destination != safeImage,
+                  !FileManager.default.fileExists(atPath: destination.path) else { return }
+            try FileManager.default.moveItem(at: safeImage, to: destination)
             invalidatePublishRetry()
-            replaceImageReference(from: image.lastPathComponent, to: destination.lastPathComponent)
+            replaceImageReference(from: safeImage.lastPathComponent, to: destination.lastPathComponent)
             loadImages()
             state.detectChanges(repoID: repoID)
-        } catch { imageMessage = error.localizedDescription }
+        } catch { presentImageMessage(error.localizedDescription) }
     }
 
     private func replaceImage(_ image: URL, _ source: URL) {
         let accessing = source.startAccessingSecurityScopedResource()
         defer { if accessing { source.stopAccessingSecurityScopedResource() } }
         do {
+            let repositoryRoot = state.vaultURL(for: repoID)
+            let safeImage = try RepositoryFileDestinationValidator.existingFileURL(
+                image,
+                in: imageDirectory,
+                repositoryRootURL: repositoryRoot
+            )
             let data = try Data(contentsOf: source)
             let sourceExtension = source.pathExtension.lowercased()
-            let destination = sourceExtension.isEmpty || sourceExtension == image.pathExtension.lowercased()
-                ? image
-                : image.deletingPathExtension().appendingPathExtension(sourceExtension)
+            let destination: URL
+            if sourceExtension.isEmpty || sourceExtension == safeImage.pathExtension.lowercased() {
+                destination = safeImage
+            } else {
+                destination = try RepositoryFileDestinationValidator.destinationURL(
+                    for: safeImage.deletingPathExtension().lastPathComponent + "." + sourceExtension,
+                    in: imageDirectory,
+                    repositoryRootURL: repositoryRoot
+                )
+            }
             try data.write(to: destination, options: .atomic)
             invalidatePublishRetry()
-            if destination != image {
-                try FileManager.default.removeItem(at: image)
-                replaceImageReference(from: image.lastPathComponent, to: destination.lastPathComponent)
+            if destination != safeImage {
+                try FileManager.default.removeItem(at: safeImage)
+                replaceImageReference(from: safeImage.lastPathComponent, to: destination.lastPathComponent)
             }
             loadImages()
             state.detectChanges(repoID: repoID)
-        } catch { imageMessage = error.localizedDescription }
+        } catch { presentImageMessage(error.localizedDescription) }
     }
 
     private func deleteImage(_ image: URL) {
         do {
-            try FileManager.default.removeItem(at: image)
+            let repositoryRoot = state.vaultURL(for: repoID)
+            let safeImage = try RepositoryFileDestinationValidator.existingFileURL(
+                image,
+                in: imageDirectory,
+                repositoryRootURL: repositoryRoot
+            )
+            try FileManager.default.removeItem(at: safeImage)
             invalidatePublishRetry()
             loadImages()
             state.detectChanges(repoID: repoID)
-        } catch { imageMessage = error.localizedDescription }
+        } catch { presentImageMessage(error.localizedDescription) }
     }
 
     private func replaceImageReference(from oldName: String, to newName: String) {
@@ -1128,18 +1274,23 @@ struct FileEditorView: View {
     }
 
     @discardableResult
-    private func performSave(operationID: String? = nil, removeDraft: Bool = true) -> Bool {
+    private func performSave(operationID: String? = nil, removeDraft: Bool = true) async -> FileSaveOutcome {
         content = pendingContent
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-        guard let data = content.data(using: .utf8) else { return false }
+        guard let data = content.data(using: .utf8) else { return .failed }
         do {
-            try data.write(to: liveURL, options: .atomic)
+            let safeURL = try validatedLiveFileURL()
+            try data.write(to: safeURL, options: .atomic)
+            liveURL = safeURL
             originalContent = content
-            draftSaveTask?.cancel()
+            let pendingTask = draftSaveTask
+            draftSaveTask = nil
+            pendingTask?.cancel()
+            await pendingTask?.value
             if removeDraft {
-                try? draftStore.remove(repoID: repoID, fileURL: liveURL)
+                try? await draftStore.remove(repoID: repoID, fileURL: liveURL)
             } else {
-                try? draftStore.save(content: content, repoID: repoID, fileURL: liveURL)
+                try? await draftStore.save(content: content, repoID: repoID, fileURL: liveURL)
             }
             state.detectChanges(repoID: repoID)
             persistenceMessage = String(localized: "File saved · not committed")
@@ -1153,23 +1304,24 @@ struct FileEditorView: View {
                     showSaveToast = false
                 }
             }
-            return true
+            return .saved
         } catch {
-            imageMessage = error.localizedDescription
+            presentImageMessage(error.localizedDescription)
             persistenceMessage = String(localized: "Save failed · draft preserved")
             DebugLogger.shared.error(
                 "editor", "File save failed", detail: error.localizedDescription,
                 repoID: repoID, repoName: logRepoName, operationID: operationID
             )
             saveDraftImmediately()
-            return false
+            return .failed
         }
     }
 
     private func prepareQuickPublish() {
         publishValidation = HugoContentService.validateArticleBundle(
             markdown: pendingContent,
-            fileURL: liveURL
+            fileURL: liveURL,
+            repositoryRoot: state.vaultURL(for: repoID)
         )
         if !isDirty,
            !state.hasArticleBundleChanges(repoID: repoID, fileURL: liveURL),
@@ -1189,7 +1341,8 @@ struct FileEditorView: View {
         )
         let validation = HugoContentService.validateArticleBundle(
             markdown: pendingContent,
-            fileURL: liveURL
+            fileURL: liveURL,
+            repositoryRoot: state.vaultURL(for: repoID)
         )
         publishValidation = validation
         guard validation.isValid else {
@@ -1201,25 +1354,33 @@ struct FileEditorView: View {
             )
             return
         }
-        guard performSave(operationID: operationID, removeDraft: false) else { return }
+        guard await performSave(operationID: operationID, removeDraft: false) == .saved else { return }
         isQuickPublishing = true
         persistenceMessage = String(localized: "Saving file…")
 
-        let staged = await state.stageArticleBundle(repoID: repoID, fileURL: liveURL, operationID: operationID)
-        guard staged else {
+        let stageOutcome = await state.stageArticleBundleOutcome(
+            repoID: repoID,
+            fileURL: liveURL,
+            operationID: operationID
+        )
+        guard stageOutcome == .succeeded else {
             isQuickPublishing = false
             persistenceMessage = String(localized: "No article changes to commit")
-            try? draftStore.remove(repoID: repoID, fileURL: liveURL)
+            try? await draftStore.remove(repoID: repoID, fileURL: liveURL)
             return
         }
 
         persistenceMessage = String(localized: "Article staged · pushing…")
-        let pushed = await state.push(repoID: repoID, message: quickCommitMessage, operationID: operationID)
+        let pushOutcome = await state.pushOutcome(
+            repoID: repoID,
+            message: quickCommitMessage,
+            operationID: operationID
+        )
         isQuickPublishing = false
-        if pushed {
-            finishSuccessfulPublish()
+        if pushOutcome == .succeeded {
+            await finishSuccessfulPublish()
         } else {
-            preserveFailedPublish()
+            await preserveFailedPublish()
         }
     }
 
@@ -1228,28 +1389,28 @@ struct FileEditorView: View {
         let operationID = String(UUID().uuidString.prefix(8)).lowercased()
         isQuickPublishing = true
         persistenceMessage = String(localized: "Retrying push…")
-        let pushed = await state.retryPush(
+        let pushOutcome = await state.retryPushOutcome(
             repoID: repoID,
             message: quickCommitMessage,
             operationID: operationID
         )
         isQuickPublishing = false
-        if pushed {
-            finishSuccessfulPublish()
+        if pushOutcome == .succeeded {
+            await finishSuccessfulPublish()
         } else {
-            preserveFailedPublish()
+            await preserveFailedPublish()
         }
     }
 
-    private func preserveFailedPublish() {
-        try? draftStore.save(content: content, repoID: repoID, fileURL: liveURL)
+    private func preserveFailedPublish() async {
+        try? await draftStore.save(content: content, repoID: repoID, fileURL: liveURL)
         canRetryPublish = true
         publishFailureMessage = state.lastError ?? String(localized: "Push failed · file remains saved")
         persistenceMessage = String(localized: "Push failed · retry available")
     }
 
-    private func finishSuccessfulPublish() {
-        try? draftStore.remove(repoID: repoID, fileURL: liveURL)
+    private func finishSuccessfulPublish() async {
+        try? await draftStore.remove(repoID: repoID, fileURL: liveURL)
         canRetryPublish = false
         publishFailureMessage = nil
         quickCommitMessage = ""
@@ -1257,31 +1418,59 @@ struct FileEditorView: View {
         persistenceMessage = String(localized: "Pushed to GitHub")
     }
 
-    private func performDelete() {
-        try? draftStore.remove(repoID: repoID, fileURL: liveURL)
-        try? FileManager.default.removeItem(at: liveURL)
-        state.detectChanges(repoID: repoID)
-        dismiss()
+    private func performDelete() async {
+        showDeleteConfirm = false
+        let pendingTask = draftSaveTask
+        draftSaveTask = nil
+        pendingTask?.cancel()
+        await pendingTask?.value
+        do {
+            let safeURL = try validatedLiveFileURL()
+            try FileManager.default.removeItem(at: safeURL)
+            try? await draftStore.remove(repoID: repoID, fileURL: liveURL)
+            state.detectChanges(repoID: repoID)
+            dismiss()
+        } catch {
+            persistenceMessage = error.localizedDescription
+            saveDraftImmediately()
+        }
     }
 
-    private func performRename() {
+    private func performRename() async {
         let trimmed = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
         showRenameModal = false
         renameText = ""
         guard !trimmed.isEmpty, trimmed != liveURL.lastPathComponent else { return }
-        let dest = liveURL.deletingLastPathComponent().appendingPathComponent(trimmed)
-        guard !FileManager.default.fileExists(atPath: dest.path) else { return }
+        let pendingTask = draftSaveTask
+        draftSaveTask = nil
+        pendingTask?.cancel()
+        await pendingTask?.value
         do {
-            let previousURL = liveURL
-            try FileManager.default.moveItem(at: previousURL, to: dest)
-            invalidatePublishRetry()
-            if isDirty {
-                try? draftStore.save(content: pendingContent, repoID: repoID, fileURL: dest)
+            let source = try validatedLiveFileURL()
+            let dest = try RepositoryFileDestinationValidator.destinationURL(
+                forRenaming: source,
+                to: trimmed,
+                repositoryRootURL: state.vaultURL(for: repoID)
+            )
+            guard dest != source else { return }
+            guard !FileManager.default.fileExists(atPath: dest.path) else {
+                throw CocoaError(.fileWriteFileExists)
             }
-            try? draftStore.remove(repoID: repoID, fileURL: previousURL)
+            let previousURL = liveURL
+            try FileManager.default.moveItem(at: source, to: dest)
+            invalidatePublishRetry()
+            let renamedContent = pendingContent
+            let shouldPreserveDraft = isDirty
+            if shouldPreserveDraft {
+                try? await draftStore.save(content: renamedContent, repoID: repoID, fileURL: dest)
+            }
+            try? await draftStore.remove(repoID: repoID, fileURL: previousURL)
             liveURL = dest
             state.detectChanges(repoID: repoID)
-        } catch {}
+        } catch {
+            persistenceMessage = error.localizedDescription
+            saveDraftImmediately()
+        }
     }
 }
 
@@ -1671,7 +1860,7 @@ private struct HugoMarkdownPreview: View {
 private struct HugoImageLibraryView: View {
     @Environment(\.dismiss) private var dismiss
     @Binding var images: [URL]
-    let isReferenced: (URL) -> Bool
+    let referencedImageNames: Set<String>
     let onInsert: (URL) -> Void
     let onRename: (URL, String) -> Void
     let onReplace: (URL, URL) -> Void
@@ -1679,7 +1868,9 @@ private struct HugoImageLibraryView: View {
 
     @State private var renameTarget: URL?
     @State private var renameName = ""
+    @State private var showRenameAlert = false
     @State private var deleteTarget: URL?
+    @State private var showDeleteAlert = false
     @State private var replaceTarget: URL?
     @State private var showReplacementImporter = false
 
@@ -1714,32 +1905,34 @@ private struct HugoImageLibraryView: View {
                 }
             }
         }
-        .alert("Rename Image", isPresented: Binding(
-            get: { renameTarget != nil },
-            set: { if !$0 { renameTarget = nil } }
-        )) {
+        .alert("Rename Image", isPresented: $showRenameAlert) {
             TextField("image-name.jpg", text: $renameName)
                 .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)
             Button("Rename") {
                 if let target = renameTarget { onRename(target, renameName) }
+                showRenameAlert = false
                 renameTarget = nil
             }
-            Button("Cancel", role: .cancel) { renameTarget = nil }
+            Button("Cancel", role: .cancel) {
+                showRenameAlert = false
+                renameTarget = nil
+            }
         } message: {
             Text("Use an English file name. Markdown references will be updated automatically.")
         }
-        .alert("Delete Image?", isPresented: Binding(
-            get: { deleteTarget != nil },
-            set: { if !$0 { deleteTarget = nil } }
-        )) {
+        .alert("Delete Image?", isPresented: $showDeleteAlert) {
             Button("Delete", role: .destructive) {
                 if let target = deleteTarget { onDelete(target) }
+                showDeleteAlert = false
                 deleteTarget = nil
             }
-            Button("Cancel", role: .cancel) { deleteTarget = nil }
+            Button("Cancel", role: .cancel) {
+                showDeleteAlert = false
+                deleteTarget = nil
+            }
         } message: {
-            if let target = deleteTarget, isReferenced(target) {
+            if let target = deleteTarget, referencedImageNames.contains(target.lastPathComponent) {
                 Text("This image is referenced by the article. Deleting it will leave a broken Markdown link.")
             } else {
                 Text("This removes the image from the article bundle.")
@@ -1788,6 +1981,7 @@ private struct HugoImageLibraryView: View {
                     Button {
                         renameTarget = imageURL
                         renameName = imageURL.lastPathComponent
+                        showRenameAlert = true
                     } label: { Label("Rename", systemImage: "pencil") }
                     Button {
                         replaceTarget = imageURL
@@ -1795,6 +1989,7 @@ private struct HugoImageLibraryView: View {
                     } label: { Label("Replace", systemImage: "arrow.triangle.2.circlepath") }
                     Button(role: .destructive) {
                         deleteTarget = imageURL
+                        showDeleteAlert = true
                     } label: { Label("Delete", systemImage: "trash") }
                 } label: {
                     Image(systemName: "ellipsis.circle")

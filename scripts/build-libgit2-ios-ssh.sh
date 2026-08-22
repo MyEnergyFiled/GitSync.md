@@ -13,8 +13,12 @@ WORK_DIR="${WORK_DIR:-"$ROOT_DIR/.build/libgit2-ios-ssh"}"
 OUT_DIR="$ROOT_DIR/libgit2.xcframework"
 
 LIBGIT2_VERSION="${LIBGIT2_VERSION:-1.9.2}"
+LIBGIT2_COMMIT="${LIBGIT2_COMMIT:-ca225744b992bf2bf24e9a2eb357ddef78179667}"
+LIBGIT2_SHA256="${LIBGIT2_SHA256:-3d2d817b1461fef0651f9966b91a5a818303ceef39cae5a7ff84c04f249de508}"
 LIBSSH2_VERSION="${LIBSSH2_VERSION:-1.11.1}"
+LIBSSH2_SHA256="${LIBSSH2_SHA256:-d9ec76cbe34db98eec3539fe2c899d26b0c837cb3eb466a56b0f109cabf658f7}"
 OPENSSL_VERSION="${OPENSSL_VERSION:-3.3.2}"
+OPENSSL_SHA256="${OPENSSL_SHA256:-2e8a40b01979afe8be0bbfb3de5dc1c6709fedb46d6c89c10da114ab5fc3d281}"
 IOS_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET:-16.0}"
 JOBS="${JOBS:-$(sysctl -n hw.ncpu)}"
 
@@ -25,6 +29,7 @@ log() { printf '\n==> %s\n' "$*"; }
 fetch_and_extract() {
   local name="$1"
   local url="$2"
+  local expected_sha256="$3"
   local archive="$WORK_DIR/src/$name.archive"
   local dest="$WORK_DIR/src/$name"
 
@@ -34,6 +39,20 @@ fetch_and_extract() {
 
   log "Downloading $name"
   curl -L --fail -o "$archive" "$url"
+
+  if [[ ! "$expected_sha256" =~ ^[0-9a-f]{64}$ ]]; then
+    echo "Invalid SHA-256 for $name: expected 64 lowercase hexadecimal characters" >&2
+    exit 1
+  fi
+  local actual_sha256
+  actual_sha256="$(shasum -a 256 "$archive" | awk '{print $1}')"
+  if [[ "$actual_sha256" != "$expected_sha256" ]]; then
+    echo "SHA-256 mismatch for $name" >&2
+    echo "Expected: $expected_sha256" >&2
+    echo "Actual:   $actual_sha256" >&2
+    exit 1
+  fi
+  log "Verified SHA-256 for $name"
 
   log "Extracting $name"
   mkdir -p "$dest.tmp"
@@ -184,9 +203,19 @@ MODULEMAP
   printf '%s\n' "$platform_variant" > "$slice_out/platform-variant.txt"
 }
 
-fetch_and_extract "libgit2" "https://github.com/libgit2/libgit2/archive/refs/tags/v$LIBGIT2_VERSION.tar.gz"
-fetch_and_extract "libssh2" "https://github.com/libssh2/libssh2/releases/download/libssh2-$LIBSSH2_VERSION/libssh2-$LIBSSH2_VERSION.tar.gz"
-fetch_and_extract "openssl" "https://github.com/openssl/openssl/releases/download/openssl-$OPENSSL_VERSION/openssl-$OPENSSL_VERSION.tar.gz"
+log "Using libgit2 $LIBGIT2_VERSION ($LIBGIT2_COMMIT)"
+fetch_and_extract \
+  "libgit2" \
+  "https://github.com/libgit2/libgit2/archive/$LIBGIT2_COMMIT.tar.gz" \
+  "$LIBGIT2_SHA256"
+fetch_and_extract \
+  "libssh2" \
+  "https://github.com/libssh2/libssh2/releases/download/libssh2-$LIBSSH2_VERSION/libssh2-$LIBSSH2_VERSION.tar.gz" \
+  "$LIBSSH2_SHA256"
+fetch_and_extract \
+  "openssl" \
+  "https://github.com/openssl/openssl/releases/download/openssl-$OPENSSL_VERSION/openssl-$OPENSSL_VERSION.tar.gz" \
+  "$OPENSSL_SHA256"
 
 build_slice "ios-arm64" "iphoneos" "" "ios64-xcrun" "-mios-version-min=$IOS_DEPLOYMENT_TARGET"
 build_slice "ios-arm64-simulator" "iphonesimulator" "simulator" "iossimulator-arm64-xcrun" "-mios-simulator-version-min=$IOS_DEPLOYMENT_TARGET"

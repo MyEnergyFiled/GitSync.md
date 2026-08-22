@@ -3,8 +3,8 @@ import Foundation
 import UIKit
 
 struct GitRepositoryEntity: AppEntity, Identifiable {
-    static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Repository")
-    static var defaultQuery = GitRepositoryEntityQuery()
+    static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "Repository")
+    static let defaultQuery = GitRepositoryEntityQuery()
 
     let id: String
 
@@ -46,19 +46,20 @@ struct GitRepositoryEntity: AppEntity, Identifiable {
 
 struct GitRepositoryEntityQuery: EntityStringQuery {
     func entities(for identifiers: [GitRepositoryEntity.ID]) async throws -> [GitRepositoryEntity] {
-        let entitiesByID = Dictionary(uniqueKeysWithValues: Self.allRepositories().map { ($0.id, $0) })
+        let repositories = await Self.allRepositories()
+        let entitiesByID = Dictionary(uniqueKeysWithValues: repositories.map { ($0.id, $0) })
         return identifiers.compactMap { entitiesByID[$0] }
     }
 
     func suggestedEntities() async throws -> [GitRepositoryEntity] {
-        Self.allRepositories().filter(\.isCloned)
+        await Self.allRepositories().filter(\.isCloned)
     }
 
     func entities(matching string: String) async throws -> [GitRepositoryEntity] {
         let query = string.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return try await suggestedEntities() }
 
-        return Self.allRepositories().filter { entity in
+        return await Self.allRepositories().filter { entity in
             entity.isCloned
                 && (entity.name.localizedCaseInsensitiveContains(query)
                     || entity.repoURL.localizedCaseInsensitiveContains(query)
@@ -66,6 +67,7 @@ struct GitRepositoryEntityQuery: EntityStringQuery {
         }
     }
 
+    @MainActor
     private static func allRepositories() -> [GitRepositoryEntity] {
         AppState.loadPersistedRepos()
             .map(GitRepositoryEntity.init(repo:))
@@ -76,9 +78,9 @@ struct GitRepositoryEntityQuery: EntityStringQuery {
 }
 
 struct PullAllRepositoriesIntent: AppIntent {
-    static var title: LocalizedStringResource = "Pull All Repositories"
-    static var description = IntentDescription("Fetch and fast-forward every cloned HugoInk repository. Use this in a Personal Automation that runs when HugoInk opens to auto-pull on launch.")
-    static var openAppWhenRun = false
+    static let title: LocalizedStringResource = "Pull All Repositories"
+    static let description = IntentDescription("Fetch and fast-forward every cloned HugoInk repository. Use this in a Personal Automation that runs when HugoInk opens to auto-pull on launch.")
+    static let openAppWhenRun = false
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
@@ -88,9 +90,9 @@ struct PullAllRepositoriesIntent: AppIntent {
 }
 
 struct PullRepositoryIntent: AppIntent {
-    static var title: LocalizedStringResource = "Pull Repository"
-    static var description = IntentDescription("Fetch and fast-forward one cloned HugoInk repository.")
-    static var openAppWhenRun = false
+    static let title: LocalizedStringResource = "Pull Repository"
+    static let description = IntentDescription("Fetch and fast-forward one cloned HugoInk repository.")
+    static let openAppWhenRun = false
 
     @Parameter(title: "Repository", requestValueDialog: "Which repository should HugoInk pull?")
     var repository: GitRepositoryEntity
@@ -137,7 +139,7 @@ struct SyncMDAppShortcutsProvider: AppShortcutsProvider {
         )
     }
 
-    static var shortcutTileColor: ShortcutTileColor = .blue
+    static let shortcutTileColor: ShortcutTileColor = .blue
 }
 
 @MainActor

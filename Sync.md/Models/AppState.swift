@@ -96,8 +96,62 @@ struct SSHHostKeyTrustRequest: Identifiable, Equatable {
     }
 }
 
+protocol RepoPersistenceWriting {
+    func persist(_ repos: [RepoConfig]) -> Result<Void, PersistenceDependencyFailure>
+}
+
+struct DefaultRepoPersistenceWriter: RepoPersistenceWriting {
+    func persist(_ repos: [RepoConfig]) -> Result<Void, PersistenceDependencyFailure> {
+        do {
+            try AppState.persistRepos(repos)
+            return .success(())
+        } catch {
+            return .failure(PersistenceDependencyFailure(diagnostic: persistenceErrorDiagnostic(error)))
+        }
+    }
+}
+
+protocol RepositoryFileRemoving {
+    func removeItem(at url: URL) -> Result<Void, PersistenceDependencyFailure>
+}
+
+struct DefaultRepositoryFileRemover: RepositoryFileRemoving {
+    func removeItem(at url: URL) -> Result<Void, PersistenceDependencyFailure> {
+        do {
+            try FileManager.default.removeItem(at: url)
+            return .success(())
+        } catch {
+            return .failure(PersistenceDependencyFailure(diagnostic: persistenceErrorDiagnostic(error)))
+        }
+    }
+}
+
+struct PersistenceDependencyFailure: Error, Equatable {
+    let diagnostic: String
+}
+
+enum RepoPersistenceError: LocalizedError, Equatable {
+    case saveFailed
+
+    var message: String {
+        String(localized: "Repository settings could not be saved. Check available storage and try again.")
+    }
+
+    var errorDescription: String? {
+        message
+    }
+}
+
+func persistenceErrorDiagnostic(_ error: Error) -> String {
+    if let keychainError = error as? KeychainServiceError {
+        return keychainError.diagnosticDescription
+    }
+    return "type=\(String(reflecting: type(of: error)))"
+}
+
 // MARK: - App State
 
+@MainActor
 @Observable
 final class AppState {
 
@@ -106,6 +160,10 @@ final class AppState {
     var repos: [RepoConfig] = []
     private(set) var duplicateReposCleanedCount = 0
     var changeCounts: [UUID: Int] = [:]
+
+    func recordDuplicateReposCleaned(_ count: Int) {
+        duplicateReposCleanedCount = count
+    }
     var statusEntriesByRepo: [UUID: [GitStatusEntry]] = [:]
     var syncStateByRepo: [UUID: RepoSyncState] = [:]
     var pullOutcomeByRepo: [UUID: PullOutcomeState] = [:]
@@ -121,6 +179,10 @@ final class AppState {
 
     func isIndexMutationInProgress(repoID: UUID) -> Bool {
         indexMutationRepoIDs.contains(repoID)
+    }
+
+    func isRepositoryOperationInProgress(repoID: UUID) -> Bool {
+        (isSyncing && syncingRepoID == repoID) || isIndexMutationInProgress(repoID: repoID)
     }
 
     // MARK: - Sync State
@@ -197,420 +259,33 @@ final class AppState {
     private var pushRetryRequiresCurrentBranch: Set<UUID> = []
     private var pushRetryRequiresCommit: Set<UUID> = []
     private var lastPushFailureByRepo: [UUID: String] = [:]
-    private var gitHubTokenRefreshTasks: [String: Task<GitHubOAuthCredential, Error>] = [:]
-
-    // MARK: - PAT / GitHub Accounts
-
-    var pat: String {
-        get {
-            if let token = gitHubToken(for: activeGitHubAccountLogin), !token.isEmpty {
-                return token
-            }
-            return KeychainService.load(key: "github_pat") ?? ""
-        }
-        set {
-            if newValue.isEmpty {
-                if !activeGitHubAccountLogin.isEmpty {
-                    deleteGitHubCredential(for: activeGitHubAccountLogin)
-                }
-                KeychainService.delete(key: "github_pat")
-            } else if !activeGitHubAccountLogin.isEmpty {
-                saveGitHubCredential(GitHubOAuthCredential(accessToken: newValue), for: activeGitHubAccountLogin)
-            } else {
-                KeychainService.save(key: "github_pat", value: newValue)
-            }
-        }
-    }
-
-    var activeGitHubAccount: GitHubAccount? {
-        gitHubAccounts.first { $0.login.caseInsensitiveCompare(activeGitHubAccountLogin) == .orderedSame }
-    }
-
-    var visibleRepos: [RepoConfig] {
-        repos.filter { shouldShowRepoForActiveAccount($0) }
-    }
-
-    private static func gitHubTokenKey(for login: String) -> String {
-        "github_pat_\(login.lowercased())"
-    }
-
-    private static func gitHubOAuthCredentialKey(for login: String) -> String {
-        "github_oauth_credential_\(login.lowercased())"
-    }
-
-    private func gitHubCredential(for login: String?) -> GitHubOAuthCredential? {
-        guard let login = login?.trimmingCharacters(in: .whitespacesAndNewlines), !login.isEmpty else {
-            return nil
-        }
-        if let encoded = KeychainService.load(key: Self.gitHubOAuthCredentialKey(for: login)),
-           let data = encoded.data(using: .utf8),
-           let credential = try? JSONDecoder().decode(GitHubOAuthCredential.self, from: data) {
-            return credential
-        }
-        guard let accessToken = KeychainService.load(key: Self.gitHubTokenKey(for: login)),
-              !accessToken.isEmpty else { return nil }
-        return GitHubOAuthCredential(accessToken: accessToken)
-    }
-
-    private func saveGitHubCredential(_ credential: GitHubOAuthCredential, for login: String) {
-        KeychainService.save(key: Self.gitHubTokenKey(for: login), value: credential.accessToken)
-        if let data = try? JSONEncoder().encode(credential),
-           let encoded = String(data: data, encoding: .utf8) {
-            KeychainService.save(key: Self.gitHubOAuthCredentialKey(for: login), value: encoded)
-        }
-    }
-
-    private func deleteGitHubCredential(for login: String) {
-        KeychainService.delete(key: Self.gitHubTokenKey(for: login))
-        KeychainService.delete(key: Self.gitHubOAuthCredentialKey(for: login))
-    }
-
-    func gitHubToken(for login: String?) -> String? {
-        gitHubCredential(for: login)?.accessToken
-    }
-
-    private func shouldShowRepoForActiveAccount(_ repo: RepoConfig) -> Bool {
-        if let ownerLogin = repo.gitHubAccountLogin?.trimmingCharacters(in: .whitespacesAndNewlines), !ownerLogin.isEmpty {
-            return isSignedIn && ownerLogin.caseInsensitiveCompare(activeGitHubAccountLogin) == .orderedSame
-        }
-        if repo.authMethod == .gitHubPAT, GitRemoteURL.parse(repo.repoURL)?.isGitHub == true {
-            return isSignedIn
-        }
-        return true
-    }
-
-    // MARK: - Per-Repo Remote Credentials
-
-    private static func repoCredentialKey(_ repoID: UUID, _ suffix: String) -> String {
-        "repo_\(repoID.uuidString)_\(suffix)"
-    }
-
-    private static func firstNonEmpty(_ values: String?...) -> String? {
-        values
-            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .first { !$0.isEmpty }
-    }
-
-    func saveRemoteCredentials(_ credentials: GitRemoteCredentials, for repoID: UUID) {
-        clearRemoteCredentials(for: repoID)
-
-        let username = credentials.username.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !username.isEmpty {
-            KeychainService.save(key: Self.repoCredentialKey(repoID, "username"), value: username)
-        }
-        if !credentials.password.isEmpty {
-            KeychainService.save(key: Self.repoCredentialKey(repoID, "password"), value: credentials.password)
-        }
-        if !credentials.privateKey.isEmpty {
-            KeychainService.save(key: Self.repoCredentialKey(repoID, "ssh_private_key"), value: credentials.privateKey)
-        }
-        if !credentials.publicKey.isEmpty {
-            KeychainService.save(key: Self.repoCredentialKey(repoID, "ssh_public_key"), value: credentials.publicKey)
-        }
-        if !credentials.passphrase.isEmpty {
-            KeychainService.save(key: Self.repoCredentialKey(repoID, "ssh_passphrase"), value: credentials.passphrase)
-        }
-    }
-
-    func clearRemoteCredentials(for repoID: UUID) {
-        KeychainService.delete(key: Self.repoCredentialKey(repoID, "username"))
-        KeychainService.delete(key: Self.repoCredentialKey(repoID, "password"))
-        KeychainService.delete(key: Self.repoCredentialKey(repoID, "ssh_private_key"))
-        KeychainService.delete(key: Self.repoCredentialKey(repoID, "ssh_public_key"))
-        KeychainService.delete(key: Self.repoCredentialKey(repoID, "ssh_passphrase"))
-    }
-
-    func remoteCredentials(for repo: RepoConfig) -> GitRemoteCredentials {
-        switch repo.authMethod {
-        case .gitHubPAT:
-            let token = gitHubToken(for: repo.gitHubAccountLogin) ?? pat
-            return token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .none : .gitHubPAT(token)
-        case .none:
-            return .none
-        case .httpsToken:
-            let username = Self.firstNonEmpty(
-                KeychainService.load(key: Self.repoCredentialKey(repo.id, "username")),
-                repo.authUsername,
-                GitRemoteURL.parse(repo.repoURL)?.username
-            ) ?? ""
-            let password = KeychainService.load(key: Self.repoCredentialKey(repo.id, "password")) ?? ""
-            return .httpsToken(username: username, password: password)
-        case .sshKey:
-            let username = Self.firstNonEmpty(
-                KeychainService.load(key: Self.repoCredentialKey(repo.id, "username")),
-                repo.authUsername,
-                GitRemoteURL.parse(repo.repoURL)?.username
-            ) ?? "git"
-            return .sshKey(
-                username: username,
-                privateKey: KeychainService.load(key: Self.repoCredentialKey(repo.id, "ssh_private_key")) ?? "",
-                publicKey: KeychainService.load(key: Self.repoCredentialKey(repo.id, "ssh_public_key")) ?? "",
-                passphrase: KeychainService.load(key: Self.repoCredentialKey(repo.id, "ssh_passphrase")) ?? ""
-            )
-        }
-    }
-
-    @MainActor
-    private func validGitHubToken(for login: String?) async throws -> String {
-        let requestedLogin = login?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let resolvedLogin = requestedLogin.isEmpty ? activeGitHubAccountLogin : requestedLogin
-        guard let credential = gitHubCredential(for: resolvedLogin), !credential.accessToken.isEmpty else {
-            throw OAuthError.failed(String(localized: "GitHub authentication is missing. Sign in again."))
-        }
-        guard credential.requiresRefresh() else { return credential.accessToken }
-        guard let refreshToken = credential.usableRefreshToken() else {
-            throw OAuthError.failed(String(localized: "Your GitHub session expired. Sign in again to continue."))
-        }
-
-        do {
-            let refreshTask: Task<GitHubOAuthCredential, Error>
-            if let existingTask = gitHubTokenRefreshTasks[resolvedLogin] {
-                refreshTask = existingTask
-            } else {
-                let newTask = Task {
-                    try await OAuthService.shared.refresh(refreshToken: refreshToken)
-                }
-                gitHubTokenRefreshTasks[resolvedLogin] = newTask
-                refreshTask = newTask
-            }
-            let refreshed = try await refreshTask.value
-            gitHubTokenRefreshTasks.removeValue(forKey: resolvedLogin)
-            saveGitHubCredential(refreshed, for: resolvedLogin)
-            DebugLogger.shared.info("auth", "Refreshed GitHub access token", detail: resolvedLogin)
-            return refreshed.accessToken
-        } catch {
-            gitHubTokenRefreshTasks.removeValue(forKey: resolvedLogin)
-            DebugLogger.shared.error("auth", "GitHub token refresh failed", detail: error.localizedDescription)
-            throw OAuthError.failed(
-                String(localized: "Could not refresh the GitHub session. Check the network or sign in again.")
-            )
-        }
-    }
-
-    @MainActor
-    func authPayload(for repo: RepoConfig) async throws -> String {
-        guard repo.authMethod == .gitHubPAT else {
-            return remoteCredentials(for: repo).transportPayload
-        }
-        let token = try await validGitHubToken(for: repo.gitHubAccountLogin)
-        return GitRemoteCredentials.gitHubPAT(token).transportPayload
-    }
+    var gitHubTokenRefreshTasks: [String: Task<GitHubOAuthCredential, Error>] = [:]
 
     // MARK: - Dependencies
 
     private let gitRepositoryFactory: (URL) -> any GitRepositoryProtocol
     private let sshHostKeyTrustStore: any GitLFSSSHHostKeyTrustStore
+    private let gitOperationCoordinator: GitOperationCoordinator
+    let reposPersistenceWriter: any RepoPersistenceWriting
+    private let repositoryFileRemover: any RepositoryFileRemoving
 
     // MARK: - Init
 
     init(
         gitRepositoryFactory: @escaping (URL) -> any GitRepositoryProtocol = { LocalGitService(localURL: $0) },
         sshHostKeyTrustStore: any GitLFSSSHHostKeyTrustStore = GitLFSSSHHostKeyFileTrustStore.default,
+        gitOperationCoordinator: GitOperationCoordinator = .shared,
+        reposPersistenceWriter: any RepoPersistenceWriting = DefaultRepoPersistenceWriter(),
+        repositoryFileRemover: any RepositoryFileRemoving = DefaultRepositoryFileRemover(),
         loadPersistedState: Bool = true
     ) {
         self.gitRepositoryFactory = gitRepositoryFactory
         self.sshHostKeyTrustStore = sshHostKeyTrustStore
+        self.gitOperationCoordinator = gitOperationCoordinator
+        self.reposPersistenceWriter = reposPersistenceWriter
+        self.repositoryFileRemover = repositoryFileRemover
         if loadPersistedState {
             loadState()
-        }
-    }
-
-    // MARK: - Persistence
-
-    static var persistedReposFileURL: URL {
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let dir = support.appendingPathComponent("SyncMD", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent("repos.json")
-    }
-
-    private static var reposFileURL: URL {
-        persistedReposFileURL
-    }
-
-    static func loadPersistedRepos() -> [RepoConfig] {
-        guard let data = try? Data(contentsOf: persistedReposFileURL) else { return [] }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return (try? decoder.decode([RepoConfig].self, from: data)) ?? []
-    }
-
-    private func loadState() {
-        let defaults = UserDefaults.standard
-        gitHubUsername = defaults.string(forKey: "gitHubUsername") ?? ""
-        gitHubDisplayName = defaults.string(forKey: "gitHubDisplayName") ?? ""
-        gitHubAvatarURL = defaults.string(forKey: "gitHubAvatarURL") ?? ""
-        defaultAuthorName = defaults.string(forKey: "authorName") ?? ""
-        defaultAuthorEmail = defaults.string(forKey: "authorEmail") ?? ""
-        hasCompletedOnboarding = defaults.bool(forKey: "hasCompletedOnboarding")
-        hasSeenOnboarding = defaults.bool(forKey: "hasSeenOnboarding")
-
-        if let accountData = defaults.data(forKey: "gitHubAccounts"),
-           let decodedAccounts = try? JSONDecoder().decode([GitHubAccount].self, from: accountData) {
-            gitHubAccounts = decodedAccounts
-        }
-        activeGitHubAccountLogin = defaults.string(forKey: "activeGitHubAccountLogin") ?? ""
-        migrateLegacyGitHubAccountIfNeeded()
-        restoreActiveGitHubAccount()
-
-        // Load default save location bookmark
-        defaultSaveLocationBookmarkData = defaults.data(forKey: "defaultSaveLocationBookmark")
-        resolveDefaultSaveBookmark()
-
-        // Try to load multi-repo state
-        if let data = try? Data(contentsOf: Self.reposFileURL) {
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
-            if let decoded = try? decoder.decode([RepoConfig].self, from: data) {
-                repos = Self.deduplicatedRepos(decoded)
-                duplicateReposCleanedCount = decoded.count - repos.count
-                if duplicateReposCleanedCount > 0 {
-                    saveRepos()
-                    DebugLogger.shared.info(
-                        "repository",
-                        "Merged duplicate repository records",
-                        detail: "\(duplicateReposCleanedCount) records; local files preserved"
-                    )
-                }
-            }
-        } else {
-            // Migration from single-repo state
-            migrateFromLegacy()
-        }
-
-        migrateRepoAccountOwnershipIfNeeded()
-
-        // Resolve custom vault bookmarks
-        for repo in repos {
-            resolveVaultBookmark(for: repo.id)
-        }
-
-        // Validate that cloned repos still exist on disk
-        validateClonedRepos()
-
-        // Do not scan Git status synchronously during app construction. Large
-        // vaults (especially hydrated Git LFS files) can make launch appear as
-        // a black screen or trigger iOS watchdog kills. The first refresh is
-        // scheduled after the initial UI frame in ContentView.onAppear.
-    }
-
-    private func migrateFromLegacy() {
-        let defaults = UserDefaults.standard
-        let legacyRepoURL = defaults.string(forKey: "repoURL") ?? ""
-        let legacyIsSetUp = defaults.bool(forKey: "isSetUp")
-
-        guard legacyIsSetUp, !legacyRepoURL.isEmpty else { return }
-
-        let legacyGitState = GitState.loadLegacy() ?? .empty
-
-        let config = RepoConfig(
-            repoURL: legacyRepoURL,
-            branch: defaults.string(forKey: "branch") ?? "main",
-            authorName: defaults.string(forKey: "authorName") ?? "",
-            authorEmail: defaults.string(forKey: "authorEmail") ?? "",
-            vaultFolderName: defaults.string(forKey: "vaultFolderName") ?? "vault",
-            customVaultBookmarkData: defaults.data(forKey: "vaultBookmark"),
-            gitHubAccountLogin: activeGitHubAccountLogin.isEmpty ? nil : activeGitHubAccountLogin,
-            gitState: legacyGitState
-        )
-
-        repos = [config]
-        saveRepos()
-
-        // Clean up legacy keys
-        GitState.deleteLegacy()
-        defaults.removeObject(forKey: "isSetUp")
-        defaults.removeObject(forKey: "repoURL")
-        defaults.removeObject(forKey: "branch")
-        defaults.removeObject(forKey: "vaultFolderName")
-        defaults.removeObject(forKey: "vaultBookmark")
-    }
-
-    private func migrateLegacyGitHubAccountIfNeeded() {
-        guard gitHubAccounts.isEmpty,
-              let legacyToken = KeychainService.load(key: "github_pat"),
-              !legacyToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              !gitHubUsername.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        else { return }
-
-        let account = GitHubAccount(
-            login: gitHubUsername,
-            displayName: gitHubDisplayName.isEmpty ? gitHubUsername : gitHubDisplayName,
-            avatarURL: gitHubAvatarURL,
-            email: defaultAuthorEmail
-        )
-        gitHubAccounts = [account]
-        activeGitHubAccountLogin = account.login
-        KeychainService.save(key: Self.gitHubTokenKey(for: account.login), value: legacyToken)
-    }
-
-    private func restoreActiveGitHubAccount() {
-        if activeGitHubAccountLogin.isEmpty || gitHubToken(for: activeGitHubAccountLogin)?.isEmpty != false {
-            activeGitHubAccountLogin = gitHubAccounts.first(where: { gitHubToken(for: $0.login)?.isEmpty == false })?.login ?? ""
-        }
-
-        guard let account = activeGitHubAccount,
-              gitHubToken(for: account.login)?.isEmpty == false
-        else {
-            isSignedIn = false
-            activeGitHubAccountLogin = ""
-            gitHubRepos = []
-            return
-        }
-
-        isSignedIn = true
-        applyGitHubAccount(account)
-    }
-
-    private func migrateRepoAccountOwnershipIfNeeded() {
-        guard !activeGitHubAccountLogin.isEmpty else { return }
-        var didChange = false
-        for idx in repos.indices {
-            guard repos[idx].gitHubAccountLogin?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false,
-                  repos[idx].authMethod == .gitHubPAT,
-                  GitRemoteURL.parse(repos[idx].repoURL)?.isGitHub == true
-            else { continue }
-            repos[idx].gitHubAccountLogin = activeGitHubAccountLogin
-            didChange = true
-        }
-        if didChange { saveRepos() }
-    }
-
-    private func applyGitHubAccount(_ account: GitHubAccount) {
-        gitHubUsername = account.login
-        gitHubDisplayName = account.displayName
-        gitHubAvatarURL = account.avatarURL
-        defaultAuthorName = account.displayName.isEmpty ? account.login : account.displayName
-        defaultAuthorEmail = account.email
-    }
-
-    func saveRepos() {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = .prettyPrinted
-        if let data = try? encoder.encode(repos) {
-            try? data.write(to: Self.reposFileURL, options: .atomic)
-        }
-    }
-
-    func saveGlobalSettings() {
-        let defaults = UserDefaults.standard
-        defaults.set(gitHubUsername, forKey: "gitHubUsername")
-        defaults.set(gitHubDisplayName, forKey: "gitHubDisplayName")
-        defaults.set(gitHubAvatarURL, forKey: "gitHubAvatarURL")
-        defaults.set(defaultAuthorName, forKey: "authorName")
-        defaults.set(defaultAuthorEmail, forKey: "authorEmail")
-        defaults.set(hasCompletedOnboarding, forKey: "hasCompletedOnboarding")
-        defaults.set(hasSeenOnboarding, forKey: "hasSeenOnboarding")
-        defaults.set(activeGitHubAccountLogin, forKey: "activeGitHubAccountLogin")
-        if let accountData = try? JSONEncoder().encode(gitHubAccounts) {
-            defaults.set(accountData, forKey: "gitHubAccounts")
-        }
-
-        if let bookmarkData = defaultSaveLocationBookmarkData {
-            defaults.set(bookmarkData, forKey: "defaultSaveLocationBookmark")
-        } else {
-            defaults.removeObject(forKey: "defaultSaveLocationBookmark")
         }
     }
 
@@ -654,7 +329,7 @@ final class AppState {
         resolvedDefaultSaveURL != nil
     }
 
-    private func resolveDefaultSaveBookmark() {
+    func resolveDefaultSaveBookmark() {
         guard let bookmarkData = defaultSaveLocationBookmarkData else { return }
 
         var isStale = false
@@ -768,6 +443,9 @@ final class AppState {
     /// `accessingSecurityScope`. On failure the caller is responsible for
     /// releasing it.
     func moveVaultLocation(for repoID: UUID, to newParentURL: URL, bookmark: Data) throws {
+        guard !isRepositoryOperationInProgress(repoID: repoID) else {
+            throw MoveVaultError.operationInProgress
+        }
         guard let idx = repoIndex(id: repoID) else {
             throw MoveVaultError.repoNotFound
         }
@@ -804,21 +482,24 @@ final class AppState {
         detectChanges(repoID: repoID)
     }
 
-    enum MoveVaultError: LocalizedError {
+    enum MoveVaultError: LocalizedError, Equatable {
         case repoNotFound
         case destinationExists
         case bookmarkFailed
+        case operationInProgress
 
         var errorDescription: String? {
             switch self {
             case .repoNotFound: String(localized: "Repository not found")
             case .destinationExists: String(localized: "A folder with the same name already exists at the chosen location")
             case .bookmarkFailed: String(localized: "Could not access the selected folder")
+            case .operationInProgress:
+                String(localized: "Wait for the current Git operation to finish before moving or removing this repository.")
             }
         }
     }
 
-    private func resolveVaultBookmark(for repoID: UUID) {
+    func resolveVaultBookmark(for repoID: UUID) {
         guard let repo = repo(id: repoID),
               let bookmarkData = repo.customVaultBookmarkData else { return }
 
@@ -909,8 +590,12 @@ final class AppState {
         }
     }
 
-    func detectChanges(repoID: UUID, skipIfRecentlyStartedWithin interval: TimeInterval? = nil) {
-        guard let repo = repo(id: repoID), repo.isCloned else { return }
+    @discardableResult
+    func detectChanges(
+        repoID: UUID,
+        skipIfRecentlyStartedWithin interval: TimeInterval? = nil
+    ) -> Task<Void, Never>? {
+        guard let repo = repo(id: repoID), repo.isCloned else { return nil }
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
 
@@ -930,19 +615,19 @@ final class AppState {
             commitHistoryHasMoreByRepo[repoID] = false
             commitDetailByRepo[repoID] = [:]
             stashesByRepo[repoID] = []
-            return
+            return nil
         }
 
         let now = Date()
         if let interval,
            let lastStartedAt = lastChangeDetectionStartedAt[repoID],
            now.timeIntervalSince(lastStartedAt) < interval {
-            return
+            return nil
         }
 
         if changeDetectionInFlight.contains(repoID) {
             pendingChangeDetection.insert(repoID)
-            return
+            return nil
         }
         changeDetectionInFlight.insert(repoID)
         lastChangeDetectionStartedAt[repoID] = now
@@ -950,7 +635,7 @@ final class AppState {
         let startedAt = now
         let startedGeneration = repoMutationGeneration[repoID] ?? 0
         let repoName = repo.displayName
-        Task(priority: .utility) {
+        return Task(priority: .utility) {
             do {
                 let info = try await gitService.repoInfo()
                 let isStale = startedGeneration != (repoMutationGeneration[repoID] ?? 0)
@@ -1137,7 +822,7 @@ final class AppState {
     /// rather create a real commit + merge (so any conflicts surface in the
     /// conflict editor) than block them with no in-app way forward.
     func commitLocalAndAttemptMerge(repoID: UUID, message: String) async {
-        guard let idx = repoIndex(id: repoID), repos[idx].isCloned else { return }
+        guard let repo = repo(id: repoID), repo.isCloned else { return }
 
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
@@ -1147,7 +832,6 @@ final class AppState {
             return
         }
 
-        let repo = repos[idx]
         let currentBranch = repo.gitState.branch.isEmpty ? "main" : repo.gitState.branch
         let upstreamName = "origin/\(currentBranch)"
         let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1176,9 +860,12 @@ final class AppState {
                 authorName: repo.authorName,
                 authorEmail: repo.authorEmail
             )
-            repos[idx].gitState.commitSHA = newSHA
-            repos[idx].gitState.lastSyncDate = Date()
-            saveRepos()
+            if mutateRepoIfPresent(id: repoID, mutate: { currentRepo in
+                currentRepo.gitState.commitSHA = newSHA
+                currentRepo.gitState.lastSyncDate = Date()
+            }) {
+                saveRepos()
+            }
             clearCommitHistoryCache(for: repoID)
             didCommit = true
             DebugLogger.shared.info("merge", "Auto-committed local changes", detail: "SHA: \(newSHA)")
@@ -1223,9 +910,12 @@ final class AppState {
                 }
 
             case .fastForwarded, .mergeCommitted:
-                repos[idx].gitState.commitSHA = result.newCommitSHA
-                repos[idx].gitState.lastSyncDate = Date()
-                saveRepos()
+                if mutateRepoIfPresent(id: repoID, mutate: { currentRepo in
+                    currentRepo.gitState.commitSHA = result.newCommitSHA
+                    currentRepo.gitState.lastSyncDate = Date()
+                }) {
+                    saveRepos()
+                }
                 clearCommitHistoryCache(for: repoID)
                 detectChanges(repoID: repoID)
                 await loadBranches(repoID: repoID)
@@ -1531,7 +1221,7 @@ final class AppState {
     }
 
     func switchBranch(repoID: UUID, name: String) async {
-        guard let idx = repoIndex(id: repoID), repos[idx].isCloned else { return }
+        guard let repo = repo(id: repoID), repo.isCloned else { return }
 
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
@@ -1549,9 +1239,12 @@ final class AppState {
             try await gitService.switchBranch(name: name)
             let info = try await gitService.repoInfo()
 
-            repos[idx].gitState.branch = info.branch
-            repos[idx].gitState.commitSHA = info.commitSHA
-            saveRepos()
+            if mutateRepoIfPresent(id: repoID, mutate: { currentRepo in
+                currentRepo.gitState.branch = info.branch
+                currentRepo.gitState.commitSHA = info.commitSHA
+            }) {
+                saveRepos()
+            }
             clearCommitHistoryCache(for: repoID)
 
             detectChanges(repoID: repoID)
@@ -1584,7 +1277,7 @@ final class AppState {
     }
 
     func mergeBranch(repoID: UUID, from branchName: String) async {
-        guard let idx = repoIndex(id: repoID), repos[idx].isCloned else { return }
+        guard let repo = repo(id: repoID), repo.isCloned else { return }
 
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
@@ -1599,15 +1292,17 @@ final class AppState {
         syncProgress = String(localized: "Merging branch...")
 
         do {
-            let repo = repos[idx]
             let result = try await gitService.mergeBranch(
                 name: branchName,
                 authorName: repo.authorName,
                 authorEmail: repo.authorEmail
             )
-            repos[idx].gitState.commitSHA = result.newCommitSHA
-            repos[idx].gitState.lastSyncDate = Date()
-            saveRepos()
+            if mutateRepoIfPresent(id: repoID, mutate: { currentRepo in
+                currentRepo.gitState.commitSHA = result.newCommitSHA
+                currentRepo.gitState.lastSyncDate = Date()
+            }) {
+                saveRepos()
+            }
             clearCommitHistoryCache(for: repoID)
 
             detectChanges(repoID: repoID)
@@ -1623,7 +1318,7 @@ final class AppState {
     }
 
     func mergeWithRemote(repoID: UUID) async {
-        guard let idx = repoIndex(id: repoID), repos[idx].isCloned else { return }
+        guard let repo = repo(id: repoID), repo.isCloned else { return }
 
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
@@ -1633,7 +1328,6 @@ final class AppState {
             return
         }
 
-        let repo = repos[idx]
         let currentBranch = repo.gitState.branch.isEmpty ? "main" : repo.gitState.branch
         let upstreamName = "origin/\(currentBranch)"
 
@@ -1657,9 +1351,12 @@ final class AppState {
                 )
 
             case .fastForwarded, .mergeCommitted:
-                repos[idx].gitState.commitSHA = result.newCommitSHA
-                repos[idx].gitState.lastSyncDate = Date()
-                saveRepos()
+                if mutateRepoIfPresent(id: repoID, mutate: { currentRepo in
+                    currentRepo.gitState.commitSHA = result.newCommitSHA
+                    currentRepo.gitState.lastSyncDate = Date()
+                }) {
+                    saveRepos()
+                }
                 clearCommitHistoryCache(for: repoID)
                 detectChanges(repoID: repoID)
                 await loadBranches(repoID: repoID)
@@ -1694,7 +1391,7 @@ final class AppState {
     }
 
     func revertCommit(repoID: UUID, oid: String, message: String = "") async {
-        guard let idx = repoIndex(id: repoID), repos[idx].isCloned else { return }
+        guard let repo = repo(id: repoID), repo.isCloned else { return }
 
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
@@ -1709,7 +1406,6 @@ final class AppState {
         syncProgress = String(localized: "Reverting commit...")
 
         do {
-            let repo = repos[idx]
             DebugLogger.shared.info("revert", "Reverting commit", detail: "OID: \(oid)")
             let result = try await gitService.revertCommit(
                 oid: oid,
@@ -1721,9 +1417,12 @@ final class AppState {
             switch result.kind {
             case .reverted:
                 if let newCommitSHA = result.newCommitSHA {
-                    repos[idx].gitState.commitSHA = newCommitSHA
-                    repos[idx].gitState.lastSyncDate = Date()
-                    saveRepos()
+                    if mutateRepoIfPresent(id: repoID, mutate: { currentRepo in
+                        currentRepo.gitState.commitSHA = newCommitSHA
+                        currentRepo.gitState.lastSyncDate = Date()
+                    }) {
+                        saveRepos()
+                    }
                     clearCommitHistoryCache(for: repoID)
                 }
                 syncProgress = String(localized: "Revert complete")
@@ -1745,7 +1444,7 @@ final class AppState {
     }
 
     func completeMerge(repoID: UUID, message: String = "") async {
-        guard let idx = repoIndex(id: repoID), repos[idx].isCloned else { return }
+        guard let repo = repo(id: repoID), repo.isCloned else { return }
 
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
@@ -1760,7 +1459,6 @@ final class AppState {
         syncProgress = String(localized: "Finalizing merge...")
 
         do {
-            let repo = repos[idx]
             let commitMessage = message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 ? String(localized: "Merge branch")
                 : message
@@ -1771,9 +1469,12 @@ final class AppState {
                 authorEmail: repo.authorEmail
             )
 
-            repos[idx].gitState.commitSHA = result.newCommitSHA
-            repos[idx].gitState.lastSyncDate = Date()
-            saveRepos()
+            if mutateRepoIfPresent(id: repoID, mutate: { currentRepo in
+                currentRepo.gitState.commitSHA = result.newCommitSHA
+                currentRepo.gitState.lastSyncDate = Date()
+            }) {
+                saveRepos()
+            }
             clearCommitHistoryCache(for: repoID)
 
             detectChanges(repoID: repoID)
@@ -1899,7 +1600,20 @@ final class AppState {
     }
 
     func stageFile(repoID: UUID, path: String, oldPath: String? = nil) async {
-        await stageFile(repoID: repoID, path: path, oldPath: oldPath, lfsAutoTrack: false, promptForLFS: true)
+        _ = await stageFile(repoID: repoID, path: path, oldPath: oldPath, lfsAutoTrack: false, promptForLFS: true)
+    }
+
+    func stageFileForAutomation(repoID: UUID, path: String, oldPath: String? = nil) async -> Bool {
+        await gitOperationCoordinator.beginOperation(repoID: repoID)
+        let result = await stageFile(
+            repoID: repoID,
+            path: path,
+            oldPath: oldPath,
+            lfsAutoTrack: false,
+            promptForLFS: false
+        )
+        await gitOperationCoordinator.endOperation(repoID: repoID)
+        return result
     }
 
     private func stageFile(
@@ -1908,9 +1622,9 @@ final class AppState {
         oldPath: String?,
         lfsAutoTrack: Bool,
         promptForLFS: Bool
-    ) async {
-        guard let repo = repo(id: repoID), repo.isCloned else { return }
-        guard indexMutationRepoIDs.insert(repoID).inserted else { return }
+    ) async -> Bool {
+        guard let repo = repo(id: repoID), repo.isCloned else { return false }
+        guard indexMutationRepoIDs.insert(repoID).inserted else { return false }
         defer { indexMutationRepoIDs.remove(repoID) }
 
         let vaultDir = vaultURL(for: repoID)
@@ -1918,7 +1632,7 @@ final class AppState {
 
         guard gitService.hasGitDirectory else {
             showError(message: LocalGitError.notCloned.localizedDescription)
-            return
+            return false
         }
 
         do {
@@ -1930,7 +1644,7 @@ final class AppState {
                         action: .stageFile(path: path, oldPath: oldPath),
                         candidates: candidates
                     )
-                    return
+                    return false
                 }
             }
 
@@ -1947,8 +1661,10 @@ final class AppState {
                 )
             }
             detectChanges(repoID: repoID)
+            return true
         } catch {
             showError(message: error.localizedDescription)
+            return false
         }
     }
 
@@ -2039,13 +1755,36 @@ final class AppState {
         }
     }
 
-    func stageAllChanges(repoID: UUID) async {
-        await stageAllChanges(repoID: repoID, lfsAutoTrack: false, promptForLFS: true)
+    func stageArticleBundleOutcome(
+        repoID: UUID,
+        fileURL: URL,
+        operationID: String? = nil
+    ) async -> GitOperationOutcome {
+        GitOperationOutcome(
+            succeeded: await stageArticleBundle(
+                repoID: repoID,
+                fileURL: fileURL,
+                operationID: operationID
+            )
+        )
     }
 
-    private func stageAllChanges(repoID: UUID, lfsAutoTrack: Bool, promptForLFS: Bool) async {
-        guard let repo = repo(id: repoID), repo.isCloned else { return }
-        guard indexMutationRepoIDs.insert(repoID).inserted else { return }
+    func stageAllChanges(repoID: UUID) async {
+        _ = await stageAllChanges(repoID: repoID, lfsAutoTrack: false, promptForLFS: true)
+    }
+
+    /// Stages without presenting UI so App Intents and x-callback requests can
+    /// use the same injected repository and per-repository operation queue.
+    func stageAllChangesForAutomation(repoID: UUID) async -> Bool {
+        await gitOperationCoordinator.beginOperation(repoID: repoID)
+        let result = await stageAllChanges(repoID: repoID, lfsAutoTrack: false, promptForLFS: false)
+        await gitOperationCoordinator.endOperation(repoID: repoID)
+        return result
+    }
+
+    private func stageAllChanges(repoID: UUID, lfsAutoTrack: Bool, promptForLFS: Bool) async -> Bool {
+        guard let repo = repo(id: repoID), repo.isCloned else { return false }
+        guard indexMutationRepoIDs.insert(repoID).inserted else { return false }
         defer { indexMutationRepoIDs.remove(repoID) }
 
         let vaultDir = vaultURL(for: repoID)
@@ -2053,7 +1792,7 @@ final class AppState {
 
         guard gitService.hasGitDirectory else {
             showError(message: LocalGitError.notCloned.localizedDescription)
-            return
+            return false
         }
 
         do {
@@ -2069,7 +1808,7 @@ final class AppState {
                         action: .stageAll,
                         candidates: candidates
                     )
-                    return
+                    return false
                 }
             }
 
@@ -2086,8 +1825,10 @@ final class AppState {
                 )
             }
             detectChanges(repoID: repoID)
+            return true
         } catch {
             showError(message: error.localizedDescription)
+            return false
         }
     }
 
@@ -2098,9 +1839,22 @@ final class AppState {
 
         switch request.action {
         case .stageFile(let path, let oldPath):
-            await stageFile(repoID: request.repoID, path: path, oldPath: oldPath, lfsAutoTrack: true, promptForLFS: false)
+            _ = await stageFile(repoID: request.repoID, path: path, oldPath: oldPath, lfsAutoTrack: true, promptForLFS: false)
         case .stageAll:
-            await stageAllChanges(repoID: request.repoID, lfsAutoTrack: true, promptForLFS: false)
+            _ = await stageAllChanges(repoID: request.repoID, lfsAutoTrack: true, promptForLFS: false)
+        }
+    }
+
+    func repositoryInfoForAutomation(repoID: UUID) async throws -> LocalRepoInfo {
+        guard let repo = repo(id: repoID), repo.isCloned else {
+            throw LocalGitError.notCloned
+        }
+        let gitService = gitRepositoryFactory(vaultURL(for: repoID))
+        return try await gitOperationCoordinator.withThrowingOperation(repoID: repoID) {
+            guard gitService.hasGitDirectory else {
+                throw LocalGitError.notCloned
+            }
+            return try await gitService.repoInfo()
         }
     }
 
@@ -2279,7 +2033,13 @@ final class AppState {
     }
 
     func clone(repoID: UUID) async {
-        guard let idx = repoIndex(id: repoID) else {
+        await gitOperationCoordinator.withOperation(repoID: repoID) { [self] in
+            await performClone(repoID: repoID)
+        }
+    }
+
+    private func performClone(repoID: UUID) async {
+        guard let startingRepo = repo(id: repoID) else {
             showError(message: String(localized: "Repository not found"))
             return
         }
@@ -2294,11 +2054,13 @@ final class AppState {
             // If the user configured a default save location after this repo
             // was first added, adopt it now so the (re-)clone lands in the
             // chosen folder instead of the in-app Documents directory.
-            if repos[idx].customVaultBookmarkData == nil,
+            if startingRepo.customVaultBookmarkData == nil,
                let defaultBookmark = defaultSaveLocationBookmarkData {
-                let staleVaultDir = repos[idx].defaultVaultURL
-                repos[idx].customVaultBookmarkData = defaultBookmark
-                repos[idx].customLocationIsParent = true
+                let staleVaultDir = startingRepo.defaultVaultURL
+                _ = mutateRepoIfPresent(id: repoID) { currentRepo in
+                    currentRepo.customVaultBookmarkData = defaultBookmark
+                    currentRepo.customLocationIsParent = true
+                }
                 saveRepos()
                 resolveVaultBookmark(for: repoID)
                 if fm.fileExists(atPath: staleVaultDir.path),
@@ -2307,7 +2069,9 @@ final class AppState {
                 }
             }
 
-            var repo = repos[idx]
+            guard let repo = repo(id: repoID) else {
+                throw LocalGitError.notCloned
+            }
             let vaultDir = vaultURL(for: repoID)
 
             // Never delete an existing non-empty destination. It may contain
@@ -2349,20 +2113,20 @@ final class AppState {
             }
             updateLongGitOperation(.finalizing)
 
-            // Update branch from what was actually checked out
-            if repo.branch.isEmpty {
-                repo.branch = result.branch
+            guard mutateRepoIfPresent(id: repoID, mutate: { currentRepo in
+                if currentRepo.branch.isEmpty {
+                    currentRepo.branch = result.branch
+                }
+                currentRepo.gitState = GitState(
+                    commitSHA: result.commitSHA,
+                    treeSHA: "",
+                    branch: result.branch,
+                    blobSHAs: [:],
+                    lastSyncDate: Date()
+                )
+            }) else {
+                throw LocalGitError.notCloned
             }
-
-            repo.gitState = GitState(
-                commitSHA: result.commitSHA,
-                treeSHA: "",
-                branch: result.branch,
-                blobSHAs: [:],
-                lastSyncDate: Date()
-            )
-
-            repos[idx] = repo
             saveRepos()
             clearCommitHistoryCache(for: repoID)
             detectChanges(repoID: repoID)
@@ -2394,7 +2158,14 @@ final class AppState {
 
     @discardableResult
     func pull(repoID: UUID, showsProgressDelay: Bool = true) async -> Bool {
-        guard let idx = repoIndex(id: repoID) else {
+        await gitOperationCoordinator.beginOperation(repoID: repoID)
+        let result = await performPull(repoID: repoID, showsProgressDelay: showsProgressDelay)
+        await gitOperationCoordinator.endOperation(repoID: repoID)
+        return result
+    }
+
+    private func performPull(repoID: UUID, showsProgressDelay: Bool) async -> Bool {
+        guard let repo = repo(id: repoID) else {
             showError(message: String(localized: "Repository not found"))
             return false
         }
@@ -2405,7 +2176,6 @@ final class AppState {
         pullOutcomeByRepo.removeValue(forKey: repoID)
 
         do {
-            var repo = repos[idx]
             let vaultDir = vaultURL(for: repoID)
             let gitService = gitRepositoryFactory(vaultDir)
 
@@ -2468,10 +2238,12 @@ final class AppState {
                         message: String(localized: "Already up to date")
                     )
                 } else {
-                    repo.gitState.commitSHA = result.newCommitSHA
-                    repo.gitState.lastSyncDate = Date()
-
-                    repos[idx] = repo
+                    guard mutateRepoIfPresent(id: repoID, mutate: { currentRepo in
+                        currentRepo.gitState.commitSHA = result.newCommitSHA
+                        currentRepo.gitState.lastSyncDate = Date()
+                    }) else {
+                        throw LocalGitError.notCloned
+                    }
                     saveRepos()
                     clearCommitHistoryCache(for: repoID)
                     detectChanges(repoID: repoID)
@@ -2557,7 +2329,14 @@ final class AppState {
 
     @discardableResult
     func pullWithRebase(repoID: UUID, showsProgressDelay: Bool = true) async -> Bool {
-        guard let idx = repoIndex(id: repoID) else {
+        await gitOperationCoordinator.beginOperation(repoID: repoID)
+        let result = await performPullWithRebase(repoID: repoID, showsProgressDelay: showsProgressDelay)
+        await gitOperationCoordinator.endOperation(repoID: repoID)
+        return result
+    }
+
+    private func performPullWithRebase(repoID: UUID, showsProgressDelay: Bool) async -> Bool {
+        guard let repo = repo(id: repoID) else {
             showError(message: String(localized: "Repository not found"))
             return false
         }
@@ -2568,7 +2347,6 @@ final class AppState {
         pullOutcomeByRepo.removeValue(forKey: repoID)
 
         do {
-            var repo = repos[idx]
             let vaultDir = vaultURL(for: repoID)
             let gitService = gitRepositoryFactory(vaultDir)
 
@@ -2638,9 +2416,12 @@ final class AppState {
             }
 
             if result.updated {
-                repo.gitState.commitSHA = result.newCommitSHA
-                repo.gitState.lastSyncDate = Date()
-                repos[idx] = repo
+                guard mutateRepoIfPresent(id: repoID, mutate: { currentRepo in
+                    currentRepo.gitState.commitSHA = result.newCommitSHA
+                    currentRepo.gitState.lastSyncDate = Date()
+                }) else {
+                    throw LocalGitError.notCloned
+                }
                 saveRepos()
                 clearCommitHistoryCache(for: repoID)
                 detectChanges(repoID: repoID)
@@ -2698,7 +2479,7 @@ final class AppState {
     }
 
     func continueRebase(repoID: UUID) async {
-        guard let idx = repoIndex(id: repoID), repos[idx].isCloned else { return }
+        guard let repo = repo(id: repoID), repo.isCloned else { return }
 
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
@@ -2713,14 +2494,17 @@ final class AppState {
         syncProgress = String(localized: "Continuing rebase...")
 
         do {
-            let repo = repos[idx]
             let result = try await gitService.continueRebase(
                 pat: try await authPayload(for: repo),
                 authorName: repo.authorName,
                 authorEmail: repo.authorEmail
             )
-            repos[idx].gitState.commitSHA = result.newCommitSHA
-            repos[idx].gitState.lastSyncDate = Date()
+            guard mutateRepoIfPresent(id: repoID, mutate: { currentRepo in
+                currentRepo.gitState.commitSHA = result.newCommitSHA
+                currentRepo.gitState.lastSyncDate = Date()
+            }) else {
+                throw LocalGitError.notCloned
+            }
             saveRepos()
             clearCommitHistoryCache(for: repoID)
             detectChanges(repoID: repoID)
@@ -2785,7 +2569,14 @@ final class AppState {
 
     @discardableResult
     func pushCurrentBranch(repoID: UUID) async -> Bool {
-        guard let idx = repoIndex(id: repoID), repos[idx].isCloned else { return false }
+        await gitOperationCoordinator.beginOperation(repoID: repoID)
+        let result = await performPushCurrentBranch(repoID: repoID)
+        await gitOperationCoordinator.endOperation(repoID: repoID)
+        return result
+    }
+
+    private func performPushCurrentBranch(repoID: UUID) async -> Bool {
+        guard let repo = repo(id: repoID), repo.isCloned else { return false }
 
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
@@ -2799,21 +2590,27 @@ final class AppState {
         defer { finishLongGitOperation() }
 
         do {
-            let repo = repos[idx]
             updateLongGitOperation(.connecting)
             await Task.yield()
             try checkLongGitOperationCancellation()
             updateLongGitOperation(.uploading)
             try await gitService.pushCurrentBranch(pat: try await authPayload(for: repo))
 
-            if let info = try? await gitService.repoInfo() {
-                repos[idx].gitState.branch = info.branch
-                repos[idx].gitState.commitSHA = info.commitSHA
+            let info = try? await gitService.repoInfo()
+            guard mutateRepoIfPresent(id: repoID, mutate: { currentRepo in
+                if let info {
+                    currentRepo.gitState.branch = info.branch
+                    currentRepo.gitState.commitSHA = info.commitSHA
+                }
+                currentRepo.gitState.lastSyncDate = Date()
+            }) else {
+                throw LocalGitError.notCloned
+            }
+            if let info {
                 changeCounts[repoID] = info.changeCount
                 statusEntriesByRepo[repoID] = info.statusEntries
                 syncStateByRepo[repoID] = info.syncState
             }
-            repos[idx].gitState.lastSyncDate = Date()
             saveRepos()
             clearCommitHistoryCache(for: repoID)
             pushRetryRequiresCurrentBranch.remove(repoID)
@@ -2837,7 +2634,24 @@ final class AppState {
 
     @discardableResult
     func push(repoID: UUID, message: String, operationID suppliedOperationID: String? = nil) async -> Bool {
-        guard let idx = repoIndex(id: repoID) else {
+        await gitOperationCoordinator.beginOperation(repoID: repoID)
+        let result = await performPush(repoID: repoID, message: message, operationID: suppliedOperationID)
+        await gitOperationCoordinator.endOperation(repoID: repoID)
+        return result
+    }
+
+    func pushOutcome(
+        repoID: UUID,
+        message: String,
+        operationID: String? = nil
+    ) async -> GitOperationOutcome {
+        GitOperationOutcome(
+            succeeded: await push(repoID: repoID, message: message, operationID: operationID)
+        )
+    }
+
+    private func performPush(repoID: UUID, message: String, operationID suppliedOperationID: String?) async -> Bool {
+        guard let repo = repo(id: repoID) else {
             showError(message: String(localized: "Repository not found"))
             return false
         }
@@ -2866,7 +2680,6 @@ final class AppState {
         var startingCommitSHA: String?
 
         do {
-            var repo = repos[idx]
             let vaultDir = vaultURL(for: repoID)
             let gitService = gitRepositoryFactory(vaultDir)
 
@@ -2892,10 +2705,12 @@ final class AppState {
                 pat: try await authPayload(for: repo)
             )
 
-            repo.gitState.commitSHA = result.commitSHA
-            repo.gitState.lastSyncDate = Date()
-
-            repos[idx] = repo
+            guard mutateRepoIfPresent(id: repoID, mutate: { currentRepo in
+                currentRepo.gitState.commitSHA = result.commitSHA
+                currentRepo.gitState.lastSyncDate = Date()
+            }) else {
+                throw LocalGitError.notCloned
+            }
             saveRepos()
             clearCommitHistoryCache(for: repoID)
             pushRetryRequiresCurrentBranch.remove(repoID)
@@ -2920,9 +2735,11 @@ final class AppState {
             pushRetryRequiresCurrentBranch.remove(repoID)
             pushRetryRequiresCommit.insert(repoID)
             if let info = try? await gitService.repoInfo() {
-                let previousCommitSHA = startingCommitSHA ?? repos[idx].gitState.commitSHA
-                repos[idx].gitState.branch = info.branch
-                repos[idx].gitState.commitSHA = info.commitSHA
+                let previousCommitSHA = startingCommitSHA ?? self.repo(id: repoID)?.gitState.commitSHA ?? ""
+                let didUpdateRepo = mutateRepoIfPresent(id: repoID) { currentRepo in
+                    currentRepo.gitState.branch = info.branch
+                    currentRepo.gitState.commitSHA = info.commitSHA
+                }
                 changeCounts[repoID] = info.changeCount
                 statusEntriesByRepo[repoID] = info.statusEntries
                 syncStateByRepo[repoID] = info.syncState
@@ -2933,7 +2750,7 @@ final class AppState {
                     pushRetryRequiresCurrentBranch.remove(repoID)
                     pushRetryRequiresCommit.insert(repoID)
                 }
-                saveRepos()
+                if didUpdateRepo { saveRepos() }
             }
             if !handleSSHHostKeyTrustIfNeeded(error, repoID: repoID, operation: .pushCommit(message: message)) {
                 showError(
@@ -2963,6 +2780,16 @@ final class AppState {
             return await pushCurrentBranch(repoID: repoID)
         }
         return await push(repoID: repoID, message: message, operationID: operationID)
+    }
+
+    func retryPushOutcome(
+        repoID: UUID,
+        message: String,
+        operationID: String? = nil
+    ) async -> GitOperationOutcome {
+        GitOperationOutcome(
+            succeeded: await retryPush(repoID: repoID, message: message, operationID: operationID)
+        )
     }
 
 
@@ -3128,22 +2955,51 @@ final class AppState {
         return nil
     }
 
-    func removeRepo(id: UUID, deleteLocalFiles: Bool = false) {
-        guard let repo = repo(id: id) else { return }
+    @discardableResult
+    func removeRepo(id: UUID, deleteLocalFiles: Bool = false) -> Bool {
+        guard let originalIndex = repoIndex(id: id) else { return false }
+        let repo = repos[originalIndex]
+        guard !isRepositoryOperationInProgress(repoID: id) else {
+            showError(
+                message: String(localized: "Wait for the current Git operation to finish before moving or removing this repository.")
+            )
+            return false
+        }
         let vaultDir = vaultURL(for: id)
 
         // Existing local repositories are user-owned folders that may also be
         // managed by another app. Removing HugoInk's bookmark must never
         // delete those files.
-        if deleteLocalFiles && repo.isGitSyncManagedStorage {
-            try? FileManager.default.removeItem(at: vaultDir)
+        if deleteLocalFiles,
+           repo.isGitSyncManagedStorage,
+           FileManager.default.fileExists(atPath: vaultDir.path) {
+            if case .failure(let failure) = repositoryFileRemover.removeItem(at: vaultDir) {
+                showError(
+                    message: String(localized: "Local repository files could not be deleted. The repository was not removed."),
+                    category: "persistence",
+                    repoID: id
+                )
+                DebugLogger.shared.error(
+                    "persistence",
+                    "Local repository deletion failed; record preserved",
+                    detail: failure.diagnostic,
+                    repoID: id,
+                    repoName: repo.displayName
+                )
+                return false
+            }
+        }
+
+        repos.remove(at: originalIndex)
+        guard case .success = saveRepos() else {
+            repos.insert(repo, at: min(originalIndex, repos.endIndex))
+            return false
         }
 
         clearCustomLocation(for: id)
         clearRemoteCredentials(for: id)
         clearCachedRepoState(for: id)
-        repos.removeAll { $0.id == id }
-        saveRepos()
+        return true
     }
 
     private func clearCachedRepoState(for repoID: UUID) {
@@ -3161,9 +3017,20 @@ final class AppState {
         tagsByRepo.removeValue(forKey: repoID)
     }
 
+    /// Looks the repository up at mutation time so callers never retain an
+    /// array index across an `await` suspension point.
+    @discardableResult
+    private func mutateRepoIfPresent(
+        id: UUID,
+        mutate: (inout RepoConfig) -> Void
+    ) -> Bool {
+        guard let index = repoIndex(id: id) else { return false }
+        mutate(&repos[index])
+        return true
+    }
+
     func updateRepo(id: UUID, mutate: (inout RepoConfig) -> Void) {
-        guard let idx = repoIndex(id: id) else { return }
-        mutate(&repos[idx])
+        guard mutateRepoIfPresent(id: id, mutate: mutate) else { return }
         saveRepos()
     }
 
@@ -3201,13 +3068,20 @@ final class AppState {
             }
         }
 
-        repos[idx].repoURL = trimmedRepoURL
-        repos[idx].branch = branch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "main" : branch.trimmingCharacters(in: .whitespacesAndNewlines)
-        repos[idx].authorName = authorName.trimmingCharacters(in: .whitespacesAndNewlines)
-        repos[idx].authorEmail = authorEmail.trimmingCharacters(in: .whitespacesAndNewlines)
-        repos[idx].authMethod = authMethod
-        repos[idx].authUsername = credentials.username.trimmingCharacters(in: .whitespacesAndNewlines)
-        repos[idx].gitHubAccountLogin = authMethod == .gitHubPAT ? activeGitHubAccountLogin : nil
+        guard mutateRepoIfPresent(id: id, mutate: { currentRepo in
+            currentRepo.repoURL = trimmedRepoURL
+            currentRepo.branch = branch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? "main"
+                : branch.trimmingCharacters(in: .whitespacesAndNewlines)
+            currentRepo.authorName = authorName.trimmingCharacters(in: .whitespacesAndNewlines)
+            currentRepo.authorEmail = authorEmail.trimmingCharacters(in: .whitespacesAndNewlines)
+            currentRepo.authMethod = authMethod
+            currentRepo.authUsername = credentials.username.trimmingCharacters(in: .whitespacesAndNewlines)
+            currentRepo.gitHubAccountLogin = authMethod == .gitHubPAT ? activeGitHubAccountLogin : nil
+        }) else {
+            showError(message: String(localized: "Repository not found"))
+            return false
+        }
 
         switch authMethod {
         case .httpsToken, .sshKey:
@@ -3300,7 +3174,7 @@ final class AppState {
 
         activeGitHubAccountLogin = account.login
         saveGitHubCredential(credential, for: account.login)
-        KeychainService.delete(key: "github_pat")
+        deleteKeychainValue(for: "github_pat")
         isSignedIn = true
         applyGitHubAccount(account)
 
@@ -3368,7 +3242,7 @@ final class AppState {
 
         let login = activeGitHubAccountLogin
         if login.isEmpty {
-            KeychainService.delete(key: "github_pat")
+            deleteKeychainValue(for: "github_pat")
             clearGitHubSession()
         } else {
             removeGitHubAccount(login: login)
@@ -3428,7 +3302,7 @@ final class AppState {
         return message
     }
 
-    private func showError(
+    func showError(
         message: String,
         category: String = "general",
         repoID: UUID? = nil,

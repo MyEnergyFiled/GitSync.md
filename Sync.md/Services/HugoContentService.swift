@@ -95,6 +95,31 @@ struct HugoArticleMoveResult: Equatable {
     let updatedImageReferenceCount: Int
 }
 
+enum HugoArticleCreationError: LocalizedError, Equatable {
+    case invalidDestination
+    case destinationExists
+    case invalidArchetype
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidDestination:
+            return String(localized: "Choose a directory below content/.")
+        case .destinationExists:
+            return String(localized: "A content bundle with this folder name already exists.")
+        case .invalidArchetype:
+            return String(localized: "Choose an existing archetype template.")
+        }
+    }
+}
+
+enum HugoArticleAccessError: LocalizedError, Equatable {
+    case invalidArticle
+
+    var errorDescription: String? {
+        String(localized: "The selected article is not a valid Hugo leaf bundle.")
+    }
+}
+
 enum HugoArticleMoveError: LocalizedError {
     case invalidSource
     case invalidDestination
@@ -132,6 +157,120 @@ enum HugoContentService {
         value.range(of: #"^-?(?:\d+(?:\.\d+)?|\.\d+)$"#, options: .regularExpression) != nil
     }
 
+    static func newArticleBundleDirectory(
+        contentDirectory: String,
+        bundleName: String,
+        repositoryRoot: URL
+    ) throws -> URL {
+        let relativeDirectory = contentDirectory.trimmingCharacters(
+            in: CharacterSet(charactersIn: "/")
+        )
+        guard isValidBundleName(bundleName),
+              relativeDirectory == "content" || relativeDirectory.hasPrefix("content/"),
+              !relativeDirectory.contains(".."),
+              !relativeDirectory.contains("\\"),
+              relativeDirectory.rangeOfCharacter(from: .controlCharacters) == nil else {
+            throw HugoArticleCreationError.invalidDestination
+        }
+
+        let fileManager = FileManager.default
+        let root = repositoryRoot.standardizedFileURL
+        let contentRoot = root.appendingPathComponent("content", isDirectory: true).standardizedFileURL
+        let directory = root.appendingPathComponent(relativeDirectory, isDirectory: true).standardizedFileURL
+        let bundleDirectory = directory
+            .appendingPathComponent(bundleName, isDirectory: true)
+            .standardizedFileURL
+        let resolvedRoot = root.resolvingSymlinksInPath()
+        let resolvedContentRoot = contentRoot.resolvingSymlinksInPath()
+        let resolvedDirectory = directory.resolvingSymlinksInPath()
+        let resolvedBundleDirectory = resolvedDirectory
+            .appendingPathComponent(bundleName, isDirectory: true)
+            .standardizedFileURL
+
+        guard isURL(resolvedContentRoot, containedIn: resolvedRoot),
+              isURL(resolvedDirectory, containedIn: resolvedContentRoot),
+              isURL(resolvedBundleDirectory, containedIn: resolvedContentRoot) else {
+            throw HugoArticleCreationError.invalidDestination
+        }
+        guard !fileManager.fileExists(atPath: bundleDirectory.path) else {
+            throw HugoArticleCreationError.destinationExists
+        }
+        return bundleDirectory
+    }
+
+    static func archetypeURL(for relativePath: String, in repositoryRoot: URL) throws -> URL {
+        let prefix = "archetypes/"
+        guard relativePath.hasPrefix(prefix) else {
+            throw HugoArticleCreationError.invalidArchetype
+        }
+        let name = String(relativePath.dropFirst(prefix.count))
+        guard !name.isEmpty,
+              !name.contains("/"),
+              !name.contains("\\"),
+              name != ".",
+              name != "..",
+              name.rangeOfCharacter(from: .controlCharacters) == nil,
+              ["md", "markdown"].contains((name as NSString).pathExtension.lowercased()) else {
+            throw HugoArticleCreationError.invalidArchetype
+        }
+
+        let root = repositoryRoot.standardizedFileURL
+        let archetypesRoot = root.appendingPathComponent("archetypes", isDirectory: true).standardizedFileURL
+        let candidate = archetypesRoot.appendingPathComponent(name).standardizedFileURL
+        let resolvedRoot = root.resolvingSymlinksInPath()
+        let resolvedArchetypesRoot = archetypesRoot.resolvingSymlinksInPath()
+        let resolvedCandidate = candidate.resolvingSymlinksInPath()
+        guard isURL(resolvedArchetypesRoot, containedIn: resolvedRoot),
+              isURL(resolvedCandidate, containedIn: resolvedArchetypesRoot),
+              let values = try? resolvedCandidate.resourceValues(forKeys: [.isRegularFileKey]),
+              values.isRegularFile == true else {
+            throw HugoArticleCreationError.invalidArchetype
+        }
+        return candidate
+    }
+
+    static func articleIndexURL(_ fileURL: URL, in repositoryRoot: URL) throws -> URL {
+        let root = repositoryRoot.standardizedFileURL
+        let contentRoot = root.appendingPathComponent("content", isDirectory: true).standardizedFileURL
+        let candidate = fileURL.standardizedFileURL
+        let resolvedRoot = root.resolvingSymlinksInPath()
+        let resolvedContentRoot = contentRoot.resolvingSymlinksInPath()
+        let resolvedCandidate = candidate.resolvingSymlinksInPath()
+
+        guard candidate.lastPathComponent == "index.md",
+              isURL(resolvedContentRoot, containedIn: resolvedRoot),
+              isURL(resolvedCandidate, containedIn: resolvedContentRoot),
+              let values = try? resolvedCandidate.resourceValues(forKeys: [.isRegularFileKey]),
+              values.isRegularFile == true else {
+            throw HugoArticleAccessError.invalidArticle
+        }
+        return candidate
+    }
+
+    static func articleIndexFiles(in repositoryRoot: URL) -> [URL] {
+        let root = repositoryRoot.standardizedFileURL
+        let contentRoot = root.appendingPathComponent("content", isDirectory: true).standardizedFileURL
+        let resolvedRoot = root.resolvingSymlinksInPath()
+        let resolvedContentRoot = contentRoot.resolvingSymlinksInPath()
+        var contentIsDirectory: ObjCBool = false
+        guard isURL(resolvedContentRoot, containedIn: resolvedRoot),
+              FileManager.default.fileExists(
+                  atPath: contentRoot.path,
+                  isDirectory: &contentIsDirectory
+              ), contentIsDirectory.boolValue,
+              let enumerator = FileManager.default.enumerator(
+                  at: contentRoot,
+                  includingPropertiesForKeys: [.isRegularFileKey],
+                  options: [.skipsHiddenFiles]
+              ) else { return [] }
+
+        return enumerator.compactMap { value in
+            guard let url = value as? URL,
+                  url.lastPathComponent == "index.md" else { return nil }
+            return try? articleIndexURL(url, in: root)
+        }
+    }
+
     static func localPreviewAssetURL(
         for reference: String,
         bundleURL: URL,
@@ -147,7 +286,9 @@ enum HugoContentService {
         guard !pathWithoutQuery.isEmpty else { return nil }
         let decodedPath = pathWithoutQuery.removingPercentEncoding ?? pathWithoutQuery
         let target = bundleURL.appendingPathComponent(decodedPath).standardizedFileURL
-        guard isURL(target, containedIn: repositoryRoot.standardizedFileURL) else { return nil }
+        let resolvedRoot = repositoryRoot.standardizedFileURL.resolvingSymlinksInPath()
+        let resolvedTarget = target.resolvingSymlinksInPath()
+        guard isURL(resolvedTarget, containedIn: resolvedRoot) else { return nil }
         return target
     }
 
@@ -168,16 +309,28 @@ enum HugoContentService {
             .standardizedFileURL
         let destinationFileURL = destinationBundleURL.appendingPathComponent("index.md")
 
+        let resolvedRoot = root.resolvingSymlinksInPath()
+        let resolvedContentRoot = contentRoot.resolvingSymlinksInPath()
+        let resolvedSourceFileURL = sourceFileURL.resolvingSymlinksInPath()
+        let resolvedSourceBundleURL = sourceBundleURL.resolvingSymlinksInPath()
+        let resolvedDestinationParentURL = destinationParentURL.resolvingSymlinksInPath()
+        let resolvedDestinationBundleURL = resolvedDestinationParentURL
+            .appendingPathComponent(bundleName, isDirectory: true)
+            .standardizedFileURL
+
         guard sourceFileURL.lastPathComponent == "index.md",
-              isURL(sourceBundleURL, containedIn: contentRoot),
+              isURL(resolvedContentRoot, containedIn: resolvedRoot),
+              isURL(resolvedSourceBundleURL, containedIn: resolvedContentRoot),
+              isURL(resolvedSourceFileURL, containedIn: resolvedSourceBundleURL),
               fileManager.fileExists(atPath: sourceFileURL.path) else {
             throw HugoArticleMoveError.invalidSource
         }
         var destinationParentIsDirectory: ObjCBool = false
         guard isValidBundleName(bundleName),
-              isURL(destinationParentURL, containedIn: contentRoot),
-              !isURL(destinationParentURL, containedIn: sourceBundleURL),
-              destinationBundleURL != sourceBundleURL,
+              isURL(resolvedDestinationParentURL, containedIn: resolvedContentRoot),
+              isURL(resolvedDestinationBundleURL, containedIn: resolvedContentRoot),
+              !isURL(resolvedDestinationParentURL, containedIn: resolvedSourceBundleURL),
+              resolvedDestinationBundleURL != resolvedSourceBundleURL,
               fileManager.fileExists(
                   atPath: destinationParentURL.path,
                   isDirectory: &destinationParentIsDirectory
@@ -298,8 +451,17 @@ enum HugoContentService {
     }
 
     static func loadConfiguration(from root: URL) -> HugoRepositoryConfiguration {
-        let url = root.appendingPathComponent(configurationFile)
-        guard let data = try? Data(contentsOf: url),
+        let repositoryRoot = root.standardizedFileURL
+        guard let directory = try? RepositoryFileDestinationValidator.validatedDirectoryURL(
+            repositoryRoot,
+            repositoryRootURL: repositoryRoot
+        ),
+              let url = try? RepositoryFileDestinationValidator.existingFileURL(
+                  directory.appendingPathComponent(configurationFile),
+                  in: directory,
+                  repositoryRootURL: repositoryRoot
+              ),
+              let data = try? Data(contentsOf: url),
               let value = try? JSONDecoder().decode(HugoRepositoryConfiguration.self, from: data) else {
             return HugoRepositoryConfiguration()
         }
@@ -307,31 +469,77 @@ enum HugoContentService {
     }
 
     static func saveConfiguration(_ configuration: HugoRepositoryConfiguration, to root: URL) throws {
+        let repositoryRoot = root.standardizedFileURL
+        let directory = try RepositoryFileDestinationValidator.validatedDirectoryURL(
+            repositoryRoot,
+            repositoryRootURL: repositoryRoot
+        )
+        let url = try RepositoryFileDestinationValidator.destinationURL(
+            for: configurationFile,
+            in: directory,
+            repositoryRootURL: repositoryRoot
+        )
+        if FileManager.default.fileExists(atPath: url.path) {
+            _ = try RepositoryFileDestinationValidator.existingFileURL(
+                url,
+                in: directory,
+                repositoryRootURL: repositoryRoot
+            )
+        }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(configuration).write(
-            to: root.appendingPathComponent(configurationFile), options: .atomic
-        )
+        try encoder.encode(configuration).write(to: url, options: .atomic)
     }
 
     static func contentDirectories(in root: URL) -> [String] {
-        let content = root.appendingPathComponent("content", isDirectory: true)
+        guard let content = contentDirectoryURL(for: "content", in: root) else { return [] }
         let urls = (try? FileManager.default.contentsOfDirectory(
-            at: content, includingPropertiesForKeys: [.isDirectoryKey], options: .skipsHiddenFiles
+            at: content,
+            includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+            options: .skipsHiddenFiles
         )) ?? []
-        var result = urls.filter {
-            (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
-        }.map { "content/\($0.lastPathComponent)" }
-        if FileManager.default.fileExists(atPath: content.path) { result.insert("content", at: 0) }
+        var result = urls.compactMap { url -> String? in
+            let relativePath = "content/\(url.lastPathComponent)"
+            return contentDirectoryURL(for: relativePath, in: root) == nil ? nil : relativePath
+        }
+        result.insert("content", at: 0)
         return Array(Set(result)).sorted()
     }
 
+    static func contentDirectoryURL(for rawPath: String, in root: URL) -> URL? {
+        let path = rawPath.replacingOccurrences(of: "\\", with: "/")
+        let components = path.split(separator: "/", omittingEmptySubsequences: false)
+        guard components.first == "content",
+              components.allSatisfy({ component in
+                  !component.isEmpty
+                      && component != "."
+                      && component != ".."
+                      && component.lowercased() != ".git"
+                      && component.rangeOfCharacter(from: .controlCharacters) == nil
+              }) else { return nil }
+
+        let repositoryRoot = root.standardizedFileURL
+        let candidate = repositoryRoot.appendingPathComponent(path, isDirectory: true).standardizedFileURL
+        return try? RepositoryFileDestinationValidator.existingDirectoryURL(
+            candidate,
+            in: candidate.deletingLastPathComponent(),
+            repositoryRootURL: repositoryRoot
+        )
+    }
+
     static func archetypes(in root: URL) -> [String] {
-        let directory = root.appendingPathComponent("archetypes", isDirectory: true)
+        let resolvedRoot = root.standardizedFileURL.resolvingSymlinksInPath()
+        let directory = root.appendingPathComponent("archetypes", isDirectory: true).standardizedFileURL
+        guard isURL(directory.resolvingSymlinksInPath(), containedIn: resolvedRoot) else { return [] }
         return ((try? FileManager.default.contentsOfDirectory(
-            at: directory, includingPropertiesForKeys: nil, options: .skipsHiddenFiles
-        )) ?? []).filter { ["md", "markdown"].contains($0.pathExtension.lowercased()) }
-            .map { "archetypes/\($0.lastPathComponent)" }.sorted()
+            at: directory,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: .skipsHiddenFiles
+        )) ?? []).compactMap { url in
+            let relativePath = "archetypes/\(url.lastPathComponent)"
+            guard (try? archetypeURL(for: relativePath, in: root)) != nil else { return nil }
+            return relativePath
+        }.sorted()
     }
 
     static func suggestedArchetype(for directory: String, available: [String]) -> String? {
@@ -377,6 +585,7 @@ enum HugoContentService {
     static func validateArticleBundle(
         markdown: String,
         fileURL: URL,
+        repositoryRoot: URL,
         oversizedThreshold: Int64 = 10 * 1024 * 1024
     ) -> HugoArticleValidation {
         let matter = MarkdownFrontMatter(markdown: markdown)
@@ -392,7 +601,10 @@ enum HugoContentService {
             }
         }
 
-        let bundleURL = fileURL.deletingLastPathComponent()
+        let bundleURL = try? RepositoryFileDestinationValidator.validatedDirectoryURL(
+            fileURL.deletingLastPathComponent(),
+            repositoryRootURL: repositoryRoot
+        )
         let pattern = #"images/[^\s)\]\}"']+"#
         let regex = try? NSRegularExpression(pattern: pattern)
         let range = NSRange(markdown.startIndex..., in: markdown)
@@ -402,20 +614,41 @@ enum HugoContentService {
         } ?? []
         let uniqueReferences = Array(Set(references)).sorted()
         let missing = uniqueReferences.filter { path in
-            path.contains("..") || !FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent(path).path)
+            guard !path.contains(".."),
+                  let bundleURL,
+                  let imageURL = localPreviewAssetURL(
+                      for: path,
+                      bundleURL: bundleURL,
+                      repositoryRoot: repositoryRoot
+                  ) else { return true }
+            return !FileManager.default.fileExists(atPath: imageURL.path)
         }
 
-        let imagesURL = bundleURL.appendingPathComponent("images", isDirectory: true)
-        let imageFiles = (try? FileManager.default.contentsOfDirectory(
-            at: imagesURL,
-            includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey],
-            options: .skipsHiddenFiles
-        )) ?? []
+        let imagesURL = bundleURL.flatMap {
+            try? RepositoryFileDestinationValidator.existingDirectoryURL(
+                $0.appendingPathComponent("images", isDirectory: true),
+                in: $0,
+                repositoryRootURL: repositoryRoot
+            )
+        }
+        let imageFiles = imagesURL.flatMap {
+            try? FileManager.default.contentsOfDirectory(
+                at: $0,
+                includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey, .isSymbolicLinkKey],
+                options: .skipsHiddenFiles
+            )
+        } ?? []
         let oversized = imageFiles.compactMap { url -> String? in
-            guard let values = try? url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]),
+            guard let imagesURL,
+                  let safeURL = try? RepositoryFileDestinationValidator.existingFileURL(
+                      url,
+                      in: imagesURL,
+                      repositoryRootURL: repositoryRoot
+                  ),
+                  let values = try? safeURL.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]),
                   values.isRegularFile == true,
                   Int64(values.fileSize ?? 0) > oversizedThreshold else { return nil }
-            return url.lastPathComponent
+            return safeURL.lastPathComponent
         }.sorted()
 
         return HugoArticleValidation(

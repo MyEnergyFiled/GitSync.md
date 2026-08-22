@@ -72,6 +72,7 @@ enum SyntaxLanguage {
 
 // MARK: - Highlighter
 
+@MainActor
 enum SyntaxHighlighter {
 
     private static let maxBytes = 150_000

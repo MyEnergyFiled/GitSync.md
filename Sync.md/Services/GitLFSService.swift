@@ -113,7 +113,7 @@ private enum GitLFSCleanStatusCacheStore {
     }
 
     private static let lock = NSLock()
-    private static var memory: [String: Cache] = [:]
+    nonisolated(unsafe) private static var memory: [String: Cache] = [:]
 
     static func isKnownClean(repositoryURL: URL, path: String, pointer: GitLFSPointer, fileURL: URL) -> Bool {
         guard let metadata = metadata(for: fileURL), metadata.fileSize == pointer.size else { return false }
@@ -250,8 +250,14 @@ struct GitLFSAttributes: Sendable {
     }
 
     static func load(from repositoryURL: URL) -> GitLFSAttributes {
-        let attributesURL = repositoryURL.appendingPathComponent(".gitattributes")
-        let text = (try? String(contentsOf: attributesURL, encoding: .utf8)) ?? ""
+        let root = repositoryURL.standardizedFileURL
+        let attributesURL = root.appendingPathComponent(".gitattributes")
+        let safeURL = try? RepositoryFileDestinationValidator.existingFileURL(
+            attributesURL,
+            in: root,
+            repositoryRootURL: root
+        )
+        let text = safeURL.flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
         return GitLFSAttributes(text: text)
     }
 
@@ -585,17 +591,17 @@ struct GitLFSLock: Codable, Equatable, Sendable {
         return fractionalDateFormatter.date(from: string)
     }
 
-    private static let dateFormatter: ISO8601DateFormatter = {
+    private static var dateFormatter: ISO8601DateFormatter {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]
         return formatter
-    }()
+    }
 
-    private static let fractionalDateFormatter: ISO8601DateFormatter = {
+    private static var fractionalDateFormatter: ISO8601DateFormatter {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter
-    }()
+    }
 }
 
 struct GitLFSListLocksResult: Equatable, Sendable {
@@ -996,9 +1002,11 @@ final class GitLFSService: @unchecked Sendable {
             var result: [DiscoveredPointer] = []
             let normalizedPaths = Set(candidatePaths.map { $0.replacingOccurrences(of: "\\", with: "/") })
             for path in normalizedPaths.sorted() {
-                guard !path.isEmpty, path != ".git", !path.hasPrefix(".git/") else { continue }
-                let fileURL = localURL.appendingPathComponent(path)
-                if let pointer = try pointerFileCandidate(path: path, fileURL: fileURL) {
+                guard let candidate = try Self.validatedWorktreeFile(
+                    path: path,
+                    repositoryURL: localURL
+                ) else { continue }
+                if let pointer = try pointerFileCandidate(path: candidate.path, fileURL: candidate.fileURL) {
                     result.append(pointer)
                 }
             }
@@ -1019,7 +1027,18 @@ final class GitLFSService: @unchecked Sendable {
                 continue
             }
 
-            if let pointer = try pointerFileCandidate(path: relative, fileURL: fileURL) {
+            let candidate: (path: String, fileURL: URL)?
+            do {
+                candidate = try Self.validatedWorktreeFile(
+                    path: relative,
+                    repositoryURL: localURL
+                )
+            } catch {
+                continue
+            }
+            guard let candidate else { continue }
+
+            if let pointer = try pointerFileCandidate(path: candidate.path, fileURL: candidate.fileURL) {
                 result.append(pointer)
             }
         }
@@ -1230,10 +1249,14 @@ final class GitLFSService: @unchecked Sendable {
     }
 
     private func configuredLFSURL() -> URL? {
-        for url in [
-            localURL.appendingPathComponent(".lfsconfig"),
-            localURL.appendingPathComponent(".git/config")
-        ] {
+        let root = localURL.standardizedFileURL
+        let requestedWorktreeConfig = root.appendingPathComponent(".lfsconfig")
+        let worktreeConfig = try? RepositoryFileDestinationValidator.existingFileURL(
+            requestedWorktreeConfig,
+            in: root,
+            repositoryRootURL: root
+        )
+        for url in [worktreeConfig, root.appendingPathComponent(".git/config")].compactMap({ $0 }) {
             if let value = Self.gitConfigValue(fileURL: url, section: "lfs", key: "url"),
                let parsed = URL(string: value) {
                 return parsed
@@ -1246,7 +1269,7 @@ final class GitLFSService: @unchecked Sendable {
         guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
             throw LocalGitError.lfsFailed(String(localized: "Configured Git LFS URL must be HTTP(S) for this build: \(url.absoluteString)"))
         }
-        return GitLFSAccess(href: lfsBaseURL(from: url), headers: basicAuthHeaders())
+        return GitLFSAccess(href: lfsBaseURL(from: url), headers: basicAuthHeaders(for: url))
     }
 
     private func originRemoteURL() -> String? {
@@ -1420,6 +1443,28 @@ final class GitLFSService: @unchecked Sendable {
         return ["Authorization": "Basic \(token)"]
     }
 
+    private func basicAuthHeaders(for endpoint: URL) -> [String: String] {
+        guard credentials.method == .gitHubPAT || credentials.method == .httpsToken,
+              let endpointHost = endpoint.host?.lowercased(),
+              let remoteValue = originRemoteURL(),
+              let remote = GitRemoteURL.parse(remoteValue),
+              remote.host?.lowercased() == endpointHost else { return [:] }
+
+        if remote.isGitHubShortcut {
+            guard endpoint.scheme?.lowercased() == "https",
+                  (endpoint.port ?? 443) == 443 else { return [:] }
+            return basicAuthHeaders()
+        }
+
+        guard let remoteURL = URL(string: remoteValue),
+              let remoteScheme = remoteURL.scheme?.lowercased(),
+              remoteScheme == "http" || remoteScheme == "https",
+              endpoint.scheme?.lowercased() == remoteScheme else { return [:] }
+        let defaultPort = remoteScheme == "https" ? 443 : 80
+        guard (remoteURL.port ?? defaultPort) == (endpoint.port ?? defaultPort) else { return [:] }
+        return basicAuthHeaders()
+    }
+
     private func validateHTTP(_ response: HTTPURLResponse, context: String) throws {
         guard (200..<300).contains(response.statusCode) else {
             throw LocalGitError.lfsFailed(String(localized: "\(context) failed with HTTP \(response.statusCode)."))
@@ -1466,11 +1511,16 @@ extension GitLFSService {
         var candidates: [GitLFSAutoTrackingCandidate] = []
 
         for rawPath in paths {
-            let path = rawPath.replacingOccurrences(of: "\\", with: "/")
-            let fileURL = repositoryURL.appendingPathComponent(path)
-            var isDirectory: ObjCBool = false
-            guard FileManager.default.fileExists(atPath: fileURL.path, isDirectory: &isDirectory),
-                  !isDirectory.boolValue else { continue }
+            let candidate: (path: String, fileURL: URL)?
+            do {
+                candidate = try validatedWorktreeFile(path: rawPath, repositoryURL: repositoryURL)
+            } catch {
+                if candidatePaths != nil { throw error }
+                continue
+            }
+            guard let candidate else { continue }
+            let path = candidate.path
+            let fileURL = candidate.fileURL
             guard attributes.lfsTrackingDecision(path: path) == nil else { continue }
             guard let rule = try autoTrackingPolicy.rule(forPath: path, fileURL: fileURL) else { continue }
 
@@ -1502,15 +1552,16 @@ extension GitLFSService {
               let workdirPointer = git_repository_workdir(repo) else { return }
 
         let repositoryURL = URL(fileURLWithPath: String(cString: workdirPointer), isDirectory: true)
-        let attributesURL = repositoryURL.appendingPathComponent(".gitattributes")
+        let requestedAttributesURL = repositoryURL.appendingPathComponent(".gitattributes")
         let isAutoTrackingDisabled = autoTrackingPolicy.binaryExtensions.isEmpty
             && autoTrackingPolicy.largeFileThresholdBytes == .max
         if candidatePaths == nil,
            isAutoTrackingDisabled,
-           !FileManager.default.fileExists(atPath: attributesURL.path) {
+           !FileManager.default.fileExists(atPath: requestedAttributesURL.path) {
             return
         }
 
+        let attributesURL = try validatedGitattributesURL(repositoryURL: repositoryURL)
         var attributesText = (try? String(contentsOf: attributesURL, encoding: .utf8)) ?? ""
         var attributes = GitLFSAttributes(text: attributesText)
         let paths = try candidatePaths ?? enumerateWorktreeFiles(in: repositoryURL)
@@ -1518,11 +1569,16 @@ extension GitLFSService {
         var cleanCacheRecords: [GitLFSCleanStatusCacheStore.FileRecord] = []
 
         for rawPath in paths {
-            let path = rawPath.replacingOccurrences(of: "\\", with: "/")
-            let fileURL = repositoryURL.appendingPathComponent(path)
-            var isDirectory: ObjCBool = false
-            guard FileManager.default.fileExists(atPath: fileURL.path, isDirectory: &isDirectory),
-                  !isDirectory.boolValue else { continue }
+            let candidate: (path: String, fileURL: URL)?
+            do {
+                candidate = try validatedWorktreeFile(path: rawPath, repositoryURL: repositoryURL)
+            } catch {
+                if candidatePaths != nil { throw error }
+                continue
+            }
+            guard let candidate else { continue }
+            let path = candidate.path
+            let fileURL = candidate.fileURL
 
             let autoRule: GitLFSAutoTrackingPolicy.Rule?
             let shouldTrack: Bool
@@ -1568,6 +1624,27 @@ extension GitLFSService {
         if didModifyAttributes {
             try stageGitattributes(in: index)
         }
+    }
+
+    private static func validatedGitattributesURL(repositoryURL: URL) throws -> URL {
+        let root = repositoryURL.standardizedFileURL
+        let attributesURL = root.appendingPathComponent(".gitattributes")
+        let values = try? attributesURL.resourceValues(forKeys: [.isSymbolicLinkKey])
+        guard values?.isSymbolicLink != true else {
+            throw RepositoryFileDestinationError.outsideRepository
+        }
+        if FileManager.default.fileExists(atPath: attributesURL.path) {
+            return try RepositoryFileDestinationValidator.existingFileURL(
+                attributesURL,
+                in: root,
+                repositoryRootURL: root
+            )
+        }
+        return try RepositoryFileDestinationValidator.destinationURL(
+            for: ".gitattributes",
+            in: root,
+            repositoryRootURL: root
+        )
     }
 
     static func pointersInIndex(
@@ -1710,7 +1787,14 @@ extension GitLFSService {
         }
 
         guard let pointer = indexPointer(repo: repo, index: index, path: path) else { return false }
-        let fileURL = repositoryURL.appendingPathComponent(path)
+        let candidate: (path: String, fileURL: URL)?
+        do {
+            candidate = try validatedWorktreeFile(path: path, repositoryURL: repositoryURL)
+        } catch {
+            return false
+        }
+        guard let candidate else { return false }
+        let fileURL = candidate.fileURL
 
         // Hydrated LFS files are intentionally different from the pointer blob
         // stored in the Git index, so libgit2 reports them as WT_MODIFIED. Hashing
@@ -1794,6 +1878,50 @@ extension GitLFSService {
     private static func fileSize(at fileURL: URL) -> Int64 {
         let values = try? fileURL.resourceValues(forKeys: [.fileSizeKey])
         return Int64(values?.fileSize ?? 0)
+    }
+
+    private static func validatedWorktreeFile(
+        path rawPath: String,
+        repositoryURL: URL
+    ) throws -> (path: String, fileURL: URL)? {
+        let path = rawPath.replacingOccurrences(of: "\\", with: "/")
+        let components = path.split(separator: "/", omittingEmptySubsequences: false)
+        guard !path.isEmpty,
+              !path.hasPrefix("/"),
+              !components.isEmpty,
+              components.allSatisfy({ component in
+                  !component.isEmpty
+                      && component != "."
+                      && component != ".."
+                      && component.lowercased() != ".git"
+                      && component.rangeOfCharacter(from: .controlCharacters) == nil
+              }) else {
+            throw RepositoryFileDestinationError.outsideRepository
+        }
+
+        let root = repositoryURL.standardizedFileURL
+        let fileURL = root.appendingPathComponent(path).standardizedFileURL
+        _ = try RepositoryFileDestinationValidator.validatedDirectoryURL(
+            fileURL,
+            repositoryRootURL: root
+        )
+        _ = try RepositoryFileDestinationValidator.validatedDirectoryURL(
+            fileURL.deletingLastPathComponent(),
+            repositoryRootURL: root
+        )
+        let values = try? fileURL.resourceValues(forKeys: [.isSymbolicLinkKey])
+        guard values?.isSymbolicLink != true else {
+            throw RepositoryFileDestinationError.outsideRepository
+        }
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: fileURL.path, isDirectory: &isDirectory),
+              !isDirectory.boolValue else { return nil }
+        let safeURL = try RepositoryFileDestinationValidator.existingFileURL(
+            fileURL,
+            in: fileURL.deletingLastPathComponent(),
+            repositoryRootURL: root
+        )
+        return (path, safeURL)
     }
 
     private static func enumerateWorktreeFiles(in repositoryURL: URL) throws -> [String] {

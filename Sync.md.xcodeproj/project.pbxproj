@@ -9,6 +9,8 @@
 /* Begin PBXBuildFile section */
 		1273715551CDF043029317F6 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4CB8CE527D5D632A5D9E9D3D /* Foundation.framework */; };
 		336367C9178D693793FC2E54 /* SyncMDTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFF8C7BFA87748C739EB8101 /* SyncMDTests.swift */; };
+		B6D784100000000000000001 /* HugoContentServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6D784100000000000000002 /* HugoContentServiceTests.swift */; };
+		1FB75E800000000000000001 /* GitTestDoubles.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FB75E800000000000000002 /* GitTestDoubles.swift */; };
 		AA1640000000000000000001 /* HugoThemePreviewFixture in Resources */ = {isa = PBXBuildFile; fileRef = AA1640000000000000000002 /* HugoThemePreviewFixture */; };
 		62C953FE2F397E44001F79DF /* Clibgit2 in Frameworks */ = {isa = PBXBuildFile; productRef = 62C951C12F3A0001001F79DF /* Clibgit2 */; };
 		9B1CC33021E2FBF384971478 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4CB8CE527D5D632A5D9E9D3D /* Foundation.framework */; };
@@ -30,6 +32,8 @@
 		4CB8CE527D5D632A5D9E9D3D /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
 		62C951962F393029001F79DF /* Sync.md.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Sync.md.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		DFF8C7BFA87748C739EB8101 /* SyncMDTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SyncMDTests.swift; sourceTree = "<group>"; };
+		B6D784100000000000000002 /* HugoContentServiceTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HugoContentServiceTests.swift; sourceTree = "<group>"; };
+		1FB75E800000000000000002 /* GitTestDoubles.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GitTestDoubles.swift; sourceTree = "<group>"; };
 		AA1640000000000000000002 /* HugoThemePreviewFixture */ = {isa = PBXFileReference; lastKnownFileType = folder; path = HugoThemePreviewFixture; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -79,6 +83,8 @@
 			isa = PBXGroup;
 			children = (
 				DFF8C7BFA87748C739EB8101 /* SyncMDTests.swift */,
+				B6D784100000000000000002 /* HugoContentServiceTests.swift */,
+				1FB75E800000000000000002 /* GitTestDoubles.swift */,
 				AA1640000000000000000002 /* HugoThemePreviewFixture */,
 			);
 			name = SyncMDTests;
@@ -257,6 +263,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				336367C9178D693793FC2E54 /* SyncMDTests.swift in Sources */,
+				B6D784100000000000000001 /* HugoContentServiceTests.swift in Sources */,
+				1FB75E800000000000000001 /* GitTestDoubles.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -291,7 +299,8 @@
 				PRODUCT_BUNDLE_IDENTIFIER = "com.myenergyfiled.GitSyncMDTests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
-				SWIFT_VERSION = 5.0;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Sync.md.app/Sync.md";
 				TEST_TARGET_NAME = "Sync.md";
 				VALIDATE_PRODUCT = YES;
@@ -427,7 +436,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 202608162127;
+				CURRENT_PROJECT_VERSION = 202608222229;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -441,15 +450,14 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 2.5.4;
+				MARKETING_VERSION = 2.5.5;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.myenergyfiled.GitSyncMD";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
@@ -460,7 +468,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 202608162127;
+				CURRENT_PROJECT_VERSION = 202608222229;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -474,15 +482,14 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 2.5.4;
+				MARKETING_VERSION = 2.5.5;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.myenergyfiled.GitSyncMD";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
@@ -499,7 +506,8 @@
 				PRODUCT_BUNDLE_IDENTIFIER = "com.myenergyfiled.GitSyncMDTests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
-				SWIFT_VERSION = 5.0;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Sync.md.app/Sync.md";
 				TEST_TARGET_NAME = "Sync.md";
 			};

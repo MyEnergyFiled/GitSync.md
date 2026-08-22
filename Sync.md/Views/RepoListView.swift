@@ -105,9 +105,10 @@ struct RepoListView: View {
                         confirmLabel: String(localized: "Remove"),
                         isDestructive: true,
                         onConfirm: {
-                            state.removeRepo(id: repo.id, deleteLocalFiles: false)
-                            pendingRepoRemovalID = nil
-                            showRepoRemovalConfirm = false
+                            if state.removeRepo(id: repo.id, deleteLocalFiles: false) {
+                                pendingRepoRemovalID = nil
+                                showRepoRemovalConfirm = false
+                            }
                         },
                         onCancel: {
                             pendingRepoRemovalID = nil

@@ -238,20 +238,8 @@ struct HugoArticleListView: View {
     }
 
     private func loadArticles() {
-        let contentURL = root.appendingPathComponent("content", isDirectory: true)
-        guard let enumerator = FileManager.default.enumerator(
-            at: contentURL,
-            includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey],
-            options: [.skipsHiddenFiles]
-        ) else {
-            articles = []
-            return
-        }
-
-        articles = enumerator.compactMap { value -> HugoArticle? in
-            guard let url = value as? URL,
-                  url.lastPathComponent == "index.md",
-                  let markdown = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        articles = HugoContentService.articleIndexFiles(in: root).compactMap { url in
+            guard let markdown = try? String(contentsOf: url, encoding: .utf8) else { return nil }
             let matter = MarkdownFrontMatter(markdown: markdown)
             let modifiedAt = (try? url.resourceValues(
                 forKeys: [.contentModificationDateKey]
@@ -259,7 +247,11 @@ struct HugoArticleListView: View {
             let relativePath = url.path.replacingOccurrences(of: root.path + "/", with: "")
             let coverURL = matter.cover.isEmpty
                 ? nil
-                : url.deletingLastPathComponent().appendingPathComponent(matter.cover)
+                : HugoContentService.localPreviewAssetURL(
+                    for: matter.cover,
+                    bundleURL: url.deletingLastPathComponent(),
+                    repositoryRoot: root
+                )
             return HugoArticle(
                 fileURL: url,
                 relativePath: relativePath,
@@ -274,12 +266,13 @@ struct HugoArticleListView: View {
 
     private func togglePublicationStatus(for article: HugoArticle) {
         do {
-            let markdown = try String(contentsOf: article.fileURL, encoding: .utf8)
+            let fileURL = try HugoContentService.articleIndexURL(article.fileURL, in: root)
+            let markdown = try String(contentsOf: fileURL, encoding: .utf8)
             let updated = HugoContentService.updatingDraftStatus(
                 in: markdown,
                 isDraft: !article.draft
             )
-            try updated.write(to: article.fileURL, atomically: true, encoding: .utf8)
+            try updated.write(to: fileURL, atomically: true, encoding: .utf8)
             loadArticles()
             state.detectChanges(repoID: repoID)
         } catch {
@@ -314,13 +307,7 @@ private struct HugoArticleMoveView: View {
         let current = article.fileURL.deletingLastPathComponent().deletingLastPathComponent().path
             .replacingOccurrences(of: root.path + "/", with: "")
         return Array(Set(HugoContentService.contentDirectories(in: root) + configured + [current]))
-            .filter { path in
-                var isDirectory: ObjCBool = false
-                return FileManager.default.fileExists(
-                    atPath: root.appendingPathComponent(path).path,
-                    isDirectory: &isDirectory
-                ) && isDirectory.boolValue
-            }
+            .filter { HugoContentService.contentDirectoryURL(for: $0, in: root) != nil }
             .sorted()
     }
 

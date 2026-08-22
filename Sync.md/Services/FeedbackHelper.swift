@@ -3,6 +3,7 @@ import UIKit
 import MessageUI
 
 /// Lightweight feedback utilities for email + GitHub issues.
+@MainActor
 enum FeedbackHelper {
     static let supportEmail = "cody@isolated.tech"
 
@@ -52,6 +53,7 @@ enum FeedbackHelper {
 
 }
 
+@MainActor
 struct MailComposeView: UIViewControllerRepresentable {
     @Environment(\.dismiss) private var dismiss
 
@@ -67,7 +69,8 @@ struct MailComposeView: UIViewControllerRepresentable {
         Coordinator(self)
     }
 
-    final class Coordinator: NSObject, MFMailComposeViewControllerDelegate {
+    @MainActor
+    final class Coordinator: NSObject, @preconcurrency MFMailComposeViewControllerDelegate {
         let parent: MailComposeView
 
         init(_ parent: MailComposeView) {

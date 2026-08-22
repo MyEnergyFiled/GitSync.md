@@ -32,6 +32,7 @@ struct SettingsView: View {
 
     private var repo: RepoConfig? { state.repo(id: repoID) }
     private var canDeleteLocalFiles: Bool { repo?.isGitSyncManagedStorage == true }
+    private var isRepositoryBusy: Bool { state.isRepositoryOperationInProgress(repoID: repoID) }
     private var parsedRemote: GitRemoteURL? { GitRemoteURL.parse(repoURL) }
     private var canUseGitHubPAT: Bool { parsedRemote?.isGitHub == true && parsedRemote?.isSSH == false }
     private var repoPathForConfirmation: String {
@@ -187,6 +188,8 @@ struct SettingsView: View {
                                     .padding(.vertical, 13)
                                 }
                                 .buttonStyle(.plain)
+                                .disabled(isRepositoryBusy)
+                                .opacity(isRepositoryBusy ? 0.45 : 1)
                             }
                         }
 
@@ -252,11 +255,15 @@ struct SettingsView: View {
                             BDestructiveButton(title: String(localized: "Remove from HugoInk")) {
                                 showRemoveConfirm = true
                             }
+                            .disabled(isRepositoryBusy)
+                            .opacity(isRepositoryBusy ? 0.45 : 1)
 
                             if canDeleteLocalFiles {
                                 BDestructiveButton(title: String(localized: "Delete Local Files")) {
                                     showDeleteFilesConfirm = true
                                 }
+                                .disabled(isRepositoryBusy)
+                                .opacity(isRepositoryBusy ? 0.45 : 1)
                             }
                         }
                         .padding(.horizontal, 20)
@@ -642,13 +649,15 @@ struct SettingsView: View {
     // MARK: - Helpers
 
     private func removeRepository(deleteLocalFiles: Bool) {
-        if let repo {
-            let identifier = repo.repoURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let historyIdentifier = repo.map { repo in
+            repo.repoURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 ? repoPathForConfirmation
                 : repo.repoURL
-            repositoryHistory.recordRepoAdded(identifier: identifier)
         }
-        state.removeRepo(id: repoID, deleteLocalFiles: deleteLocalFiles)
+        guard state.removeRepo(id: repoID, deleteLocalFiles: deleteLocalFiles) else { return }
+        if let historyIdentifier {
+            repositoryHistory.recordRepoAdded(identifier: historyIdentifier)
+        }
         dismiss()
     }
 
