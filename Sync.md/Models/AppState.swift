@@ -97,20 +97,38 @@ struct SSHHostKeyTrustRequest: Identifiable, Equatable {
 }
 
 protocol RepoPersistenceWriting {
-    func persist(_ repos: [RepoConfig]) throws
+    func persist(_ repos: [RepoConfig]) -> Result<Void, PersistenceDependencyFailure>
 }
 
 struct DefaultRepoPersistenceWriter: RepoPersistenceWriting {
-    func persist(_ repos: [RepoConfig]) throws {
-        try AppState.persistRepos(repos)
+    func persist(_ repos: [RepoConfig]) -> Result<Void, PersistenceDependencyFailure> {
+        do {
+            try AppState.persistRepos(repos)
+            return .success(())
+        } catch {
+            return .failure(PersistenceDependencyFailure(diagnostic: persistenceErrorDiagnostic(error)))
+        }
     }
 }
 
 protocol RepositoryFileRemoving {
-    func removeItem(at url: URL) throws
+    func removeItem(at url: URL) -> Result<Void, PersistenceDependencyFailure>
 }
 
-extension FileManager: RepositoryFileRemoving {}
+struct DefaultRepositoryFileRemover: RepositoryFileRemoving {
+    func removeItem(at url: URL) -> Result<Void, PersistenceDependencyFailure> {
+        do {
+            try FileManager.default.removeItem(at: url)
+            return .success(())
+        } catch {
+            return .failure(PersistenceDependencyFailure(diagnostic: persistenceErrorDiagnostic(error)))
+        }
+    }
+}
+
+struct PersistenceDependencyFailure: Error, Equatable {
+    let diagnostic: String
+}
 
 enum RepoPersistenceError: LocalizedError, Equatable {
     case saveFailed
@@ -527,7 +545,7 @@ final class AppState {
         sshHostKeyTrustStore: any GitLFSSSHHostKeyTrustStore = GitLFSSSHHostKeyFileTrustStore.default,
         gitOperationCoordinator: GitOperationCoordinator = .shared,
         reposPersistenceWriter: any RepoPersistenceWriting = DefaultRepoPersistenceWriter(),
-        repositoryFileRemover: any RepositoryFileRemoving = FileManager.default,
+        repositoryFileRemover: any RepositoryFileRemoving = DefaultRepositoryFileRemover(),
         loadPersistedState: Bool = true
     ) {
         self.gitRepositoryFactory = gitRepositoryFactory
@@ -751,14 +769,14 @@ final class AppState {
 
     @discardableResult
     func saveRepos() -> Result<Void, RepoPersistenceError> {
-        do {
-            try reposPersistenceWriter.persist(repos)
+        switch reposPersistenceWriter.persist(repos) {
+        case .success:
             return .success(())
-        } catch {
+        case .failure(let failure):
             DebugLogger.shared.error(
                 "persistence",
                 "Could not save repository settings",
-                detail: persistenceErrorDiagnostic(error)
+                detail: failure.diagnostic
             )
             showError(message: RepoPersistenceError.saveFailed.message, category: "persistence")
             return .failure(.saveFailed)
@@ -3427,10 +3445,8 @@ final class AppState {
         // delete those files.
         if deleteLocalFiles,
            repo.isGitSyncManagedStorage,
-            FileManager.default.fileExists(atPath: vaultDir.path) {
-            do {
-                try repositoryFileRemover.removeItem(at: vaultDir)
-            } catch {
+           FileManager.default.fileExists(atPath: vaultDir.path) {
+            if case .failure(let failure) = repositoryFileRemover.removeItem(at: vaultDir) {
                 showError(
                     message: String(localized: "Local repository files could not be deleted. The repository was not removed."),
                     category: "persistence",
@@ -3439,7 +3455,7 @@ final class AppState {
                 DebugLogger.shared.error(
                     "persistence",
                     "Local repository deletion failed; record preserved",
-                    detail: persistenceErrorDiagnostic(error),
+                    detail: failure.diagnostic,
                     repoID: id,
                     repoName: repo.displayName
                 )

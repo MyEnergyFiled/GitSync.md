@@ -4999,10 +4999,6 @@ private actor AsyncTestGate {
     }
 }
 
-private func persistenceFixtureError() -> NSError {
-    NSError(domain: NSCocoaErrorDomain, code: NSFileWriteUnknownError)
-}
-
 private final class RepoPersistenceWriterStub: RepoPersistenceWriting {
     private let shouldFail: Bool
     private(set) var persistCallCount = 0
@@ -5011,11 +5007,12 @@ private final class RepoPersistenceWriterStub: RepoPersistenceWriting {
         self.shouldFail = shouldFail
     }
 
-    func persist(_ repos: [RepoConfig]) throws {
+    func persist(_ repos: [RepoConfig]) -> Result<Void, PersistenceDependencyFailure> {
         persistCallCount += 1
         if shouldFail {
-            throw persistenceFixtureError()
+            return .failure(PersistenceDependencyFailure(diagnostic: "fixture write failure"))
         }
+        return .success(())
     }
 }
 
@@ -5027,11 +5024,12 @@ private final class RepositoryFileRemoverStub: RepositoryFileRemoving {
         self.shouldFail = shouldFail
     }
 
-    func removeItem(at url: URL) throws {
+    func removeItem(at url: URL) -> Result<Void, PersistenceDependencyFailure> {
         removeCallCount += 1
         if shouldFail {
-            throw persistenceFixtureError()
+            return .failure(PersistenceDependencyFailure(diagnostic: "fixture removal failure"))
         }
+        return .success(())
     }
 }
 
