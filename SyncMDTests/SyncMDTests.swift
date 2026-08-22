@@ -825,6 +825,70 @@ final class SyncMDTests: XCTestCase {
     }
 
     @MainActor
+    func testAppStatePullUpdatesRepositoryByIDAfterArrayReordering() async throws {
+        let fixture = try GitFixtureFactory.make(state: .clean)
+        defer { fixture.cleanup() }
+
+        let newCommit = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        fixture.repository.pullPlanResult = PullPlan(
+            action: .fastForward,
+            branch: "main",
+            localCommitSHA: fixture.repoConfig.gitState.commitSHA,
+            remoteCommitSHA: newCommit,
+            hasLocalChanges: false,
+            aheadBy: 0,
+            behindBy: 1
+        )
+        fixture.repository.pullResult = .success(LocalPullResult(updated: true, newCommitSHA: newCommit))
+        let gate = AsyncTestGate()
+        fixture.repository.beforePullPlan = {
+            await gate.wait()
+        }
+
+        let untouchedCommit = "cccccccccccccccccccccccccccccccccccccccc"
+        let otherRepo = RepoConfig(
+            repoURL: "https://example.com/other.git",
+            branch: "main",
+            authorName: "Other User",
+            authorEmail: "other@example.com",
+            vaultFolderName: "SyncMD-Other-\(UUID().uuidString)",
+            authMethod: .none,
+            gitState: GitState(
+                commitSHA: untouchedCommit,
+                treeSHA: "",
+                branch: "main",
+                blobSHAs: [:],
+                lastSyncDate: .distantPast
+            )
+        )
+
+        let appState = AppState(
+            gitRepositoryFactory: { _ in fixture.repository },
+            gitOperationCoordinator: GitOperationCoordinator(),
+            loadPersistedState: false
+        )
+        appState.repos = [fixture.repoConfig, otherRepo]
+
+        let pullTask = Task {
+            await appState.pull(repoID: fixture.repoConfig.id, showsProgressDelay: false)
+        }
+        for _ in 0..<100 {
+            if await gate.isWaiting { break }
+            await Task.yield()
+        }
+        let operationDidSuspend = await gate.isWaiting
+        XCTAssertTrue(operationDidSuspend)
+
+        appState.repos.swapAt(0, 1)
+        await gate.open()
+        let pullSucceeded = await pullTask.value
+        XCTAssertTrue(pullSucceeded)
+
+        XCTAssertEqual(appState.repo(id: fixture.repoConfig.id)?.gitState.commitSHA, newCommit)
+        XCTAssertEqual(appState.repo(id: otherRepo.id)?.gitState.commitSHA, untouchedCommit)
+    }
+
+    @MainActor
     func testAppStatePushCurrentBranchPushesAheadCommitWithoutNewChanges() async throws {
         let fixture = try GitFixtureFactory.make(state: .clean)
         defer { fixture.cleanup() }
@@ -4835,6 +4899,26 @@ private actor GitOperationConcurrencyProbe {
     }
 }
 
+private actor AsyncTestGate {
+    private(set) var isWaiting = false
+    private var isOpen = false
+    private var continuation: CheckedContinuation<Void, Never>?
+
+    func wait() async {
+        guard !isOpen else { return }
+        isWaiting = true
+        await withCheckedContinuation { continuation in
+            self.continuation = continuation
+        }
+    }
+
+    func open() {
+        isOpen = true
+        continuation?.resume()
+        continuation = nil
+    }
+}
+
 private final class FakeGitRepository: GitRepositoryProtocol, @unchecked Sendable {
     var hasGitDirectoryValue: Bool = true
     var repoInfoResult: LocalRepoInfo
@@ -4877,6 +4961,7 @@ private final class FakeGitRepository: GitRepositoryProtocol, @unchecked Sendabl
     var cloneRemoteURLs: [String] = []
     var setRemoteURLCalls: [(name: String, url: String)] = []
     var pullPlanError: Error?
+    var beforePullPlan: (() async -> Void)?
     var pullPlanCallCount = 0
     var pushCurrentBranchResult: Result<Void, Error>?
     var pushCurrentBranchCallCount = 0
@@ -4921,6 +5006,7 @@ private final class FakeGitRepository: GitRepositoryProtocol, @unchecked Sendabl
 
     func pullPlan(pat: String) async throws -> PullPlan {
         pullPlanCallCount += 1
+        if let beforePullPlan { await beforePullPlan() }
         if let pullPlanError { throw pullPlanError }
         return pullPlanResult
     }

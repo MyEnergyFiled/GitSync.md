@@ -1150,7 +1150,7 @@ final class AppState {
     /// rather create a real commit + merge (so any conflicts surface in the
     /// conflict editor) than block them with no in-app way forward.
     func commitLocalAndAttemptMerge(repoID: UUID, message: String) async {
-        guard let idx = repoIndex(id: repoID), repos[idx].isCloned else { return }
+        guard let repo = repo(id: repoID), repo.isCloned else { return }
 
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
@@ -1160,7 +1160,6 @@ final class AppState {
             return
         }
 
-        let repo = repos[idx]
         let currentBranch = repo.gitState.branch.isEmpty ? "main" : repo.gitState.branch
         let upstreamName = "origin/\(currentBranch)"
         let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1189,9 +1188,12 @@ final class AppState {
                 authorName: repo.authorName,
                 authorEmail: repo.authorEmail
             )
-            repos[idx].gitState.commitSHA = newSHA
-            repos[idx].gitState.lastSyncDate = Date()
-            saveRepos()
+            if mutateRepoIfPresent(id: repoID, mutate: { currentRepo in
+                currentRepo.gitState.commitSHA = newSHA
+                currentRepo.gitState.lastSyncDate = Date()
+            }) {
+                saveRepos()
+            }
             clearCommitHistoryCache(for: repoID)
             didCommit = true
             DebugLogger.shared.info("merge", "Auto-committed local changes", detail: "SHA: \(newSHA)")
@@ -1236,9 +1238,12 @@ final class AppState {
                 }
 
             case .fastForwarded, .mergeCommitted:
-                repos[idx].gitState.commitSHA = result.newCommitSHA
-                repos[idx].gitState.lastSyncDate = Date()
-                saveRepos()
+                if mutateRepoIfPresent(id: repoID, mutate: { currentRepo in
+                    currentRepo.gitState.commitSHA = result.newCommitSHA
+                    currentRepo.gitState.lastSyncDate = Date()
+                }) {
+                    saveRepos()
+                }
                 clearCommitHistoryCache(for: repoID)
                 detectChanges(repoID: repoID)
                 await loadBranches(repoID: repoID)
@@ -1544,7 +1549,7 @@ final class AppState {
     }
 
     func switchBranch(repoID: UUID, name: String) async {
-        guard let idx = repoIndex(id: repoID), repos[idx].isCloned else { return }
+        guard let repo = repo(id: repoID), repo.isCloned else { return }
 
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
@@ -1562,9 +1567,12 @@ final class AppState {
             try await gitService.switchBranch(name: name)
             let info = try await gitService.repoInfo()
 
-            repos[idx].gitState.branch = info.branch
-            repos[idx].gitState.commitSHA = info.commitSHA
-            saveRepos()
+            if mutateRepoIfPresent(id: repoID, mutate: { currentRepo in
+                currentRepo.gitState.branch = info.branch
+                currentRepo.gitState.commitSHA = info.commitSHA
+            }) {
+                saveRepos()
+            }
             clearCommitHistoryCache(for: repoID)
 
             detectChanges(repoID: repoID)
@@ -1597,7 +1605,7 @@ final class AppState {
     }
 
     func mergeBranch(repoID: UUID, from branchName: String) async {
-        guard let idx = repoIndex(id: repoID), repos[idx].isCloned else { return }
+        guard let repo = repo(id: repoID), repo.isCloned else { return }
 
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
@@ -1612,15 +1620,17 @@ final class AppState {
         syncProgress = String(localized: "Merging branch...")
 
         do {
-            let repo = repos[idx]
             let result = try await gitService.mergeBranch(
                 name: branchName,
                 authorName: repo.authorName,
                 authorEmail: repo.authorEmail
             )
-            repos[idx].gitState.commitSHA = result.newCommitSHA
-            repos[idx].gitState.lastSyncDate = Date()
-            saveRepos()
+            if mutateRepoIfPresent(id: repoID, mutate: { currentRepo in
+                currentRepo.gitState.commitSHA = result.newCommitSHA
+                currentRepo.gitState.lastSyncDate = Date()
+            }) {
+                saveRepos()
+            }
             clearCommitHistoryCache(for: repoID)
 
             detectChanges(repoID: repoID)
@@ -1636,7 +1646,7 @@ final class AppState {
     }
 
     func mergeWithRemote(repoID: UUID) async {
-        guard let idx = repoIndex(id: repoID), repos[idx].isCloned else { return }
+        guard let repo = repo(id: repoID), repo.isCloned else { return }
 
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
@@ -1646,7 +1656,6 @@ final class AppState {
             return
         }
 
-        let repo = repos[idx]
         let currentBranch = repo.gitState.branch.isEmpty ? "main" : repo.gitState.branch
         let upstreamName = "origin/\(currentBranch)"
 
@@ -1670,9 +1679,12 @@ final class AppState {
                 )
 
             case .fastForwarded, .mergeCommitted:
-                repos[idx].gitState.commitSHA = result.newCommitSHA
-                repos[idx].gitState.lastSyncDate = Date()
-                saveRepos()
+                if mutateRepoIfPresent(id: repoID, mutate: { currentRepo in
+                    currentRepo.gitState.commitSHA = result.newCommitSHA
+                    currentRepo.gitState.lastSyncDate = Date()
+                }) {
+                    saveRepos()
+                }
                 clearCommitHistoryCache(for: repoID)
                 detectChanges(repoID: repoID)
                 await loadBranches(repoID: repoID)
@@ -1707,7 +1719,7 @@ final class AppState {
     }
 
     func revertCommit(repoID: UUID, oid: String, message: String = "") async {
-        guard let idx = repoIndex(id: repoID), repos[idx].isCloned else { return }
+        guard let repo = repo(id: repoID), repo.isCloned else { return }
 
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
@@ -1722,7 +1734,6 @@ final class AppState {
         syncProgress = String(localized: "Reverting commit...")
 
         do {
-            let repo = repos[idx]
             DebugLogger.shared.info("revert", "Reverting commit", detail: "OID: \(oid)")
             let result = try await gitService.revertCommit(
                 oid: oid,
@@ -1734,9 +1745,12 @@ final class AppState {
             switch result.kind {
             case .reverted:
                 if let newCommitSHA = result.newCommitSHA {
-                    repos[idx].gitState.commitSHA = newCommitSHA
-                    repos[idx].gitState.lastSyncDate = Date()
-                    saveRepos()
+                    if mutateRepoIfPresent(id: repoID, mutate: { currentRepo in
+                        currentRepo.gitState.commitSHA = newCommitSHA
+                        currentRepo.gitState.lastSyncDate = Date()
+                    }) {
+                        saveRepos()
+                    }
                     clearCommitHistoryCache(for: repoID)
                 }
                 syncProgress = String(localized: "Revert complete")
@@ -1758,7 +1772,7 @@ final class AppState {
     }
 
     func completeMerge(repoID: UUID, message: String = "") async {
-        guard let idx = repoIndex(id: repoID), repos[idx].isCloned else { return }
+        guard let repo = repo(id: repoID), repo.isCloned else { return }
 
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
@@ -1773,7 +1787,6 @@ final class AppState {
         syncProgress = String(localized: "Finalizing merge...")
 
         do {
-            let repo = repos[idx]
             let commitMessage = message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 ? String(localized: "Merge branch")
                 : message
@@ -1784,9 +1797,12 @@ final class AppState {
                 authorEmail: repo.authorEmail
             )
 
-            repos[idx].gitState.commitSHA = result.newCommitSHA
-            repos[idx].gitState.lastSyncDate = Date()
-            saveRepos()
+            if mutateRepoIfPresent(id: repoID, mutate: { currentRepo in
+                currentRepo.gitState.commitSHA = result.newCommitSHA
+                currentRepo.gitState.lastSyncDate = Date()
+            }) {
+                saveRepos()
+            }
             clearCommitHistoryCache(for: repoID)
 
             detectChanges(repoID: repoID)
@@ -2329,7 +2345,7 @@ final class AppState {
     }
 
     private func performClone(repoID: UUID) async {
-        guard let idx = repoIndex(id: repoID) else {
+        guard let startingRepo = repo(id: repoID) else {
             showError(message: String(localized: "Repository not found"))
             return
         }
@@ -2344,11 +2360,13 @@ final class AppState {
             // If the user configured a default save location after this repo
             // was first added, adopt it now so the (re-)clone lands in the
             // chosen folder instead of the in-app Documents directory.
-            if repos[idx].customVaultBookmarkData == nil,
+            if startingRepo.customVaultBookmarkData == nil,
                let defaultBookmark = defaultSaveLocationBookmarkData {
-                let staleVaultDir = repos[idx].defaultVaultURL
-                repos[idx].customVaultBookmarkData = defaultBookmark
-                repos[idx].customLocationIsParent = true
+                let staleVaultDir = startingRepo.defaultVaultURL
+                _ = mutateRepoIfPresent(id: repoID) { currentRepo in
+                    currentRepo.customVaultBookmarkData = defaultBookmark
+                    currentRepo.customLocationIsParent = true
+                }
                 saveRepos()
                 resolveVaultBookmark(for: repoID)
                 if fm.fileExists(atPath: staleVaultDir.path),
@@ -2357,7 +2375,9 @@ final class AppState {
                 }
             }
 
-            var repo = repos[idx]
+            guard let repo = repo(id: repoID) else {
+                throw LocalGitError.notCloned
+            }
             let vaultDir = vaultURL(for: repoID)
 
             // Never delete an existing non-empty destination. It may contain
@@ -2399,20 +2419,20 @@ final class AppState {
             }
             updateLongGitOperation(.finalizing)
 
-            // Update branch from what was actually checked out
-            if repo.branch.isEmpty {
-                repo.branch = result.branch
+            guard mutateRepoIfPresent(id: repoID, mutate: { currentRepo in
+                if currentRepo.branch.isEmpty {
+                    currentRepo.branch = result.branch
+                }
+                currentRepo.gitState = GitState(
+                    commitSHA: result.commitSHA,
+                    treeSHA: "",
+                    branch: result.branch,
+                    blobSHAs: [:],
+                    lastSyncDate: Date()
+                )
+            }) else {
+                throw LocalGitError.notCloned
             }
-
-            repo.gitState = GitState(
-                commitSHA: result.commitSHA,
-                treeSHA: "",
-                branch: result.branch,
-                blobSHAs: [:],
-                lastSyncDate: Date()
-            )
-
-            repos[idx] = repo
             saveRepos()
             clearCommitHistoryCache(for: repoID)
             detectChanges(repoID: repoID)
@@ -2450,7 +2470,7 @@ final class AppState {
     }
 
     private func performPull(repoID: UUID, showsProgressDelay: Bool) async -> Bool {
-        guard let idx = repoIndex(id: repoID) else {
+        guard let repo = repo(id: repoID) else {
             showError(message: String(localized: "Repository not found"))
             return false
         }
@@ -2461,7 +2481,6 @@ final class AppState {
         pullOutcomeByRepo.removeValue(forKey: repoID)
 
         do {
-            var repo = repos[idx]
             let vaultDir = vaultURL(for: repoID)
             let gitService = gitRepositoryFactory(vaultDir)
 
@@ -2524,10 +2543,12 @@ final class AppState {
                         message: String(localized: "Already up to date")
                     )
                 } else {
-                    repo.gitState.commitSHA = result.newCommitSHA
-                    repo.gitState.lastSyncDate = Date()
-
-                    repos[idx] = repo
+                    guard mutateRepoIfPresent(id: repoID, mutate: { currentRepo in
+                        currentRepo.gitState.commitSHA = result.newCommitSHA
+                        currentRepo.gitState.lastSyncDate = Date()
+                    }) else {
+                        throw LocalGitError.notCloned
+                    }
                     saveRepos()
                     clearCommitHistoryCache(for: repoID)
                     detectChanges(repoID: repoID)
@@ -2619,7 +2640,7 @@ final class AppState {
     }
 
     private func performPullWithRebase(repoID: UUID, showsProgressDelay: Bool) async -> Bool {
-        guard let idx = repoIndex(id: repoID) else {
+        guard let repo = repo(id: repoID) else {
             showError(message: String(localized: "Repository not found"))
             return false
         }
@@ -2630,7 +2651,6 @@ final class AppState {
         pullOutcomeByRepo.removeValue(forKey: repoID)
 
         do {
-            var repo = repos[idx]
             let vaultDir = vaultURL(for: repoID)
             let gitService = gitRepositoryFactory(vaultDir)
 
@@ -2700,9 +2720,12 @@ final class AppState {
             }
 
             if result.updated {
-                repo.gitState.commitSHA = result.newCommitSHA
-                repo.gitState.lastSyncDate = Date()
-                repos[idx] = repo
+                guard mutateRepoIfPresent(id: repoID, mutate: { currentRepo in
+                    currentRepo.gitState.commitSHA = result.newCommitSHA
+                    currentRepo.gitState.lastSyncDate = Date()
+                }) else {
+                    throw LocalGitError.notCloned
+                }
                 saveRepos()
                 clearCommitHistoryCache(for: repoID)
                 detectChanges(repoID: repoID)
@@ -2760,7 +2783,7 @@ final class AppState {
     }
 
     func continueRebase(repoID: UUID) async {
-        guard let idx = repoIndex(id: repoID), repos[idx].isCloned else { return }
+        guard let repo = repo(id: repoID), repo.isCloned else { return }
 
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
@@ -2775,14 +2798,17 @@ final class AppState {
         syncProgress = String(localized: "Continuing rebase...")
 
         do {
-            let repo = repos[idx]
             let result = try await gitService.continueRebase(
                 pat: try await authPayload(for: repo),
                 authorName: repo.authorName,
                 authorEmail: repo.authorEmail
             )
-            repos[idx].gitState.commitSHA = result.newCommitSHA
-            repos[idx].gitState.lastSyncDate = Date()
+            guard mutateRepoIfPresent(id: repoID, mutate: { currentRepo in
+                currentRepo.gitState.commitSHA = result.newCommitSHA
+                currentRepo.gitState.lastSyncDate = Date()
+            }) else {
+                throw LocalGitError.notCloned
+            }
             saveRepos()
             clearCommitHistoryCache(for: repoID)
             detectChanges(repoID: repoID)
@@ -2853,7 +2879,7 @@ final class AppState {
     }
 
     private func performPushCurrentBranch(repoID: UUID) async -> Bool {
-        guard let idx = repoIndex(id: repoID), repos[idx].isCloned else { return false }
+        guard let repo = repo(id: repoID), repo.isCloned else { return false }
 
         let vaultDir = vaultURL(for: repoID)
         let gitService = gitRepositoryFactory(vaultDir)
@@ -2867,21 +2893,27 @@ final class AppState {
         defer { finishLongGitOperation() }
 
         do {
-            let repo = repos[idx]
             updateLongGitOperation(.connecting)
             await Task.yield()
             try checkLongGitOperationCancellation()
             updateLongGitOperation(.uploading)
             try await gitService.pushCurrentBranch(pat: try await authPayload(for: repo))
 
-            if let info = try? await gitService.repoInfo() {
-                repos[idx].gitState.branch = info.branch
-                repos[idx].gitState.commitSHA = info.commitSHA
+            let info = try? await gitService.repoInfo()
+            guard mutateRepoIfPresent(id: repoID, mutate: { currentRepo in
+                if let info {
+                    currentRepo.gitState.branch = info.branch
+                    currentRepo.gitState.commitSHA = info.commitSHA
+                }
+                currentRepo.gitState.lastSyncDate = Date()
+            }) else {
+                throw LocalGitError.notCloned
+            }
+            if let info {
                 changeCounts[repoID] = info.changeCount
                 statusEntriesByRepo[repoID] = info.statusEntries
                 syncStateByRepo[repoID] = info.syncState
             }
-            repos[idx].gitState.lastSyncDate = Date()
             saveRepos()
             clearCommitHistoryCache(for: repoID)
             pushRetryRequiresCurrentBranch.remove(repoID)
@@ -2911,7 +2943,7 @@ final class AppState {
     }
 
     private func performPush(repoID: UUID, message: String, operationID suppliedOperationID: String?) async -> Bool {
-        guard let idx = repoIndex(id: repoID) else {
+        guard let repo = repo(id: repoID) else {
             showError(message: String(localized: "Repository not found"))
             return false
         }
@@ -2940,7 +2972,6 @@ final class AppState {
         var startingCommitSHA: String?
 
         do {
-            var repo = repos[idx]
             let vaultDir = vaultURL(for: repoID)
             let gitService = gitRepositoryFactory(vaultDir)
 
@@ -2966,10 +2997,12 @@ final class AppState {
                 pat: try await authPayload(for: repo)
             )
 
-            repo.gitState.commitSHA = result.commitSHA
-            repo.gitState.lastSyncDate = Date()
-
-            repos[idx] = repo
+            guard mutateRepoIfPresent(id: repoID, mutate: { currentRepo in
+                currentRepo.gitState.commitSHA = result.commitSHA
+                currentRepo.gitState.lastSyncDate = Date()
+            }) else {
+                throw LocalGitError.notCloned
+            }
             saveRepos()
             clearCommitHistoryCache(for: repoID)
             pushRetryRequiresCurrentBranch.remove(repoID)
@@ -2994,9 +3027,11 @@ final class AppState {
             pushRetryRequiresCurrentBranch.remove(repoID)
             pushRetryRequiresCommit.insert(repoID)
             if let info = try? await gitService.repoInfo() {
-                let previousCommitSHA = startingCommitSHA ?? repos[idx].gitState.commitSHA
-                repos[idx].gitState.branch = info.branch
-                repos[idx].gitState.commitSHA = info.commitSHA
+                let previousCommitSHA = startingCommitSHA ?? self.repo(id: repoID)?.gitState.commitSHA ?? ""
+                let didUpdateRepo = mutateRepoIfPresent(id: repoID) { currentRepo in
+                    currentRepo.gitState.branch = info.branch
+                    currentRepo.gitState.commitSHA = info.commitSHA
+                }
                 changeCounts[repoID] = info.changeCount
                 statusEntriesByRepo[repoID] = info.statusEntries
                 syncStateByRepo[repoID] = info.syncState
@@ -3007,7 +3042,7 @@ final class AppState {
                     pushRetryRequiresCurrentBranch.remove(repoID)
                     pushRetryRequiresCommit.insert(repoID)
                 }
-                saveRepos()
+                if didUpdateRepo { saveRepos() }
             }
             if !handleSSHHostKeyTrustIfNeeded(error, repoID: repoID, operation: .pushCommit(message: message)) {
                 showError(
@@ -3243,9 +3278,20 @@ final class AppState {
         tagsByRepo.removeValue(forKey: repoID)
     }
 
+    /// Looks the repository up at mutation time so callers never retain an
+    /// array index across an `await` suspension point.
+    @discardableResult
+    private func mutateRepoIfPresent(
+        id: UUID,
+        mutate: (inout RepoConfig) -> Void
+    ) -> Bool {
+        guard let index = repoIndex(id: id) else { return false }
+        mutate(&repos[index])
+        return true
+    }
+
     func updateRepo(id: UUID, mutate: (inout RepoConfig) -> Void) {
-        guard let idx = repoIndex(id: id) else { return }
-        mutate(&repos[idx])
+        guard mutateRepoIfPresent(id: id, mutate: mutate) else { return }
         saveRepos()
     }
 
@@ -3283,13 +3329,20 @@ final class AppState {
             }
         }
 
-        repos[idx].repoURL = trimmedRepoURL
-        repos[idx].branch = branch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "main" : branch.trimmingCharacters(in: .whitespacesAndNewlines)
-        repos[idx].authorName = authorName.trimmingCharacters(in: .whitespacesAndNewlines)
-        repos[idx].authorEmail = authorEmail.trimmingCharacters(in: .whitespacesAndNewlines)
-        repos[idx].authMethod = authMethod
-        repos[idx].authUsername = credentials.username.trimmingCharacters(in: .whitespacesAndNewlines)
-        repos[idx].gitHubAccountLogin = authMethod == .gitHubPAT ? activeGitHubAccountLogin : nil
+        guard mutateRepoIfPresent(id: id, mutate: { currentRepo in
+            currentRepo.repoURL = trimmedRepoURL
+            currentRepo.branch = branch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? "main"
+                : branch.trimmingCharacters(in: .whitespacesAndNewlines)
+            currentRepo.authorName = authorName.trimmingCharacters(in: .whitespacesAndNewlines)
+            currentRepo.authorEmail = authorEmail.trimmingCharacters(in: .whitespacesAndNewlines)
+            currentRepo.authMethod = authMethod
+            currentRepo.authUsername = credentials.username.trimmingCharacters(in: .whitespacesAndNewlines)
+            currentRepo.gitHubAccountLogin = authMethod == .gitHubPAT ? activeGitHubAccountLogin : nil
+        }) else {
+            showError(message: String(localized: "Repository not found"))
+            return false
+        }
 
         switch authMethod {
         case .httpsToken, .sshKey:
