@@ -51,6 +51,7 @@ struct FileEditorView: View {
     @State private var showPhotoPicker = false
     @State private var showImageImporter = false
     @State private var imageMessage: String?
+    @State private var showImageAlert = false
     @State private var editorSelection = NSRange(location: 0, length: 0)
     @State private var images: [URL] = []
     @State private var showImageLibrary = false
@@ -344,11 +345,11 @@ struct FileEditorView: View {
             guard let item else { return }
             Task<Void, Never> { @MainActor in await importPhoto(item) }
         }
-        .alert("Error", isPresented: Binding(
-            get: { imageMessage != nil },
-            set: { if !$0 { imageMessage = nil } }
-        )) {
-            Button("OK", role: .cancel) { imageMessage = nil }
+        .alert("Error", isPresented: $showImageAlert) {
+            Button("OK", role: .cancel) {
+                showImageAlert = false
+                imageMessage = nil
+            }
         } message: {
             Text(imageMessage ?? "")
         }
@@ -415,15 +416,10 @@ struct FileEditorView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Date")
-            Picker("", selection: Binding(
-                get: { isArticleDraft },
-                set: updateArticleDraft
-            )) {
-                Text("Draft").tag(true)
-                Text("Published").tag(false)
+            HStack(spacing: 0) {
+                articleStatusButton(title: "Draft", isDraft: true)
+                articleStatusButton(title: "Published", isDraft: false)
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
             .frame(maxWidth: 220)
             .accessibilityLabel(Text(isArticleDraft ? String(localized: "Draft") : String(localized: "Published")))
         }
@@ -440,6 +436,21 @@ struct FileEditorView: View {
             content = HugoContentService.updatingDraftStatus(in: content, isDraft: isDraft)
         }
         persistenceMessage = isDraft ? String(localized: "Draft") : String(localized: "Published")
+    }
+
+    private func articleStatusButton(title: LocalizedStringKey, isDraft: Bool) -> some View {
+        let isSelected = isArticleDraft == isDraft
+        return Button {
+            updateArticleDraft(isDraft)
+        } label: {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .frame(maxWidth: .infinity, minHeight: 30)
+                .foregroundStyle(isSelected ? Color.white : Color.brutalText)
+                .background(isSelected ? Color.brutalAccent : Color.brutalSurface)
+        }
+        .buttonStyle(.plain)
+        .overlay { Rectangle().stroke(Color.brutalBorder, lineWidth: 1) }
     }
 
     private func updateArticlePublicationDate(_ date: Date?) {
@@ -551,14 +562,20 @@ struct FileEditorView: View {
                 Text(label)
             }
         case .boolean:
-            Toggle(label, isOn: Binding(
-                get: {
-                    ["true", "yes", "1"].contains(
-                        frontMatter.customValues[field.key]?.lowercased() ?? ""
-                    )
-                },
-                set: { frontMatter.customValues[field.key] = $0 ? "true" : "false" }
-            ))
+            let isEnabled = ["true", "yes", "1"].contains(
+                frontMatter.customValues[field.key]?.lowercased() ?? ""
+            )
+            Button {
+                frontMatter.customValues[field.key] = isEnabled ? "false" : "true"
+            } label: {
+                HStack {
+                    Text(label)
+                    Spacer()
+                    Image(systemName: isEnabled ? "checkmark.square.fill" : "square")
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityValue(isEnabled ? "On" : "Off")
         case .number:
             TextField(text: customFrontMatterNumberBinding(for: field.key)) {
                 Text(label)
@@ -587,6 +604,11 @@ struct FileEditorView: View {
                 }
             }
         )
+    }
+
+    private func presentImageMessage(_ message: String) {
+        imageMessage = message
+        showImageAlert = true
     }
 
     private var markdownPreview: some View {
@@ -968,7 +990,7 @@ struct FileEditorView: View {
         } catch {
             isBinary = true
             persistenceMessage = error.localizedDescription
-            imageMessage = error.localizedDescription
+            presentImageMessage(error.localizedDescription)
         }
     }
 
@@ -1054,7 +1076,7 @@ struct FileEditorView: View {
         guard let data = try? await item.loadTransferable(type: Data.self) else {
             await MainActor.run {
                 selectedPhoto = nil
-                imageMessage = String(localized: "Could not read the selected image.")
+                presentImageMessage(String(localized: "Could not read the selected image."))
             }
             return
         }
@@ -1069,7 +1091,7 @@ struct FileEditorView: View {
         let accessing = source.startAccessingSecurityScopedResource()
         defer { if accessing { source.stopAccessingSecurityScopedResource() } }
         guard let data = try? Data(contentsOf: source) else {
-            imageMessage = String(localized: "Could not read the selected image.")
+            presentImageMessage(String(localized: "Could not read the selected image."))
             return
         }
         storeImage(data: data, preferredName: source.lastPathComponent)
@@ -1106,9 +1128,9 @@ struct FileEditorView: View {
             loadImages()
             insertMarkdownImage(named: destination.lastPathComponent)
             state.detectChanges(repoID: repoID)
-            imageMessage = String(localized: "Image added to images/ and inserted into Markdown.")
+            presentImageMessage(String(localized: "Image added to images/ and inserted into Markdown."))
         } catch {
-            imageMessage = error.localizedDescription
+            presentImageMessage(error.localizedDescription)
         }
     }
 
@@ -1190,7 +1212,7 @@ struct FileEditorView: View {
             replaceImageReference(from: safeImage.lastPathComponent, to: destination.lastPathComponent)
             loadImages()
             state.detectChanges(repoID: repoID)
-        } catch { imageMessage = error.localizedDescription }
+        } catch { presentImageMessage(error.localizedDescription) }
     }
 
     private func replaceImage(_ image: URL, _ source: URL) {
@@ -1223,7 +1245,7 @@ struct FileEditorView: View {
             }
             loadImages()
             state.detectChanges(repoID: repoID)
-        } catch { imageMessage = error.localizedDescription }
+        } catch { presentImageMessage(error.localizedDescription) }
     }
 
     private func deleteImage(_ image: URL) {
@@ -1238,7 +1260,7 @@ struct FileEditorView: View {
             invalidatePublishRetry()
             loadImages()
             state.detectChanges(repoID: repoID)
-        } catch { imageMessage = error.localizedDescription }
+        } catch { presentImageMessage(error.localizedDescription) }
     }
 
     private func replaceImageReference(from oldName: String, to newName: String) {
@@ -1284,7 +1306,7 @@ struct FileEditorView: View {
             }
             return .saved
         } catch {
-            imageMessage = error.localizedDescription
+            presentImageMessage(error.localizedDescription)
             persistenceMessage = String(localized: "Save failed · draft preserved")
             DebugLogger.shared.error(
                 "editor", "File save failed", detail: error.localizedDescription,
@@ -1846,7 +1868,9 @@ private struct HugoImageLibraryView: View {
 
     @State private var renameTarget: URL?
     @State private var renameName = ""
+    @State private var showRenameAlert = false
     @State private var deleteTarget: URL?
+    @State private var showDeleteAlert = false
     @State private var replaceTarget: URL?
     @State private var showReplacementImporter = false
 
@@ -1881,30 +1905,32 @@ private struct HugoImageLibraryView: View {
                 }
             }
         }
-        .alert("Rename Image", isPresented: Binding(
-            get: { renameTarget != nil },
-            set: { if !$0 { renameTarget = nil } }
-        )) {
+        .alert("Rename Image", isPresented: $showRenameAlert) {
             TextField("image-name.jpg", text: $renameName)
                 .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)
             Button("Rename") {
                 if let target = renameTarget { onRename(target, renameName) }
+                showRenameAlert = false
                 renameTarget = nil
             }
-            Button("Cancel", role: .cancel) { renameTarget = nil }
+            Button("Cancel", role: .cancel) {
+                showRenameAlert = false
+                renameTarget = nil
+            }
         } message: {
             Text("Use an English file name. Markdown references will be updated automatically.")
         }
-        .alert("Delete Image?", isPresented: Binding(
-            get: { deleteTarget != nil },
-            set: { if !$0 { deleteTarget = nil } }
-        )) {
+        .alert("Delete Image?", isPresented: $showDeleteAlert) {
             Button("Delete", role: .destructive) {
                 if let target = deleteTarget { onDelete(target) }
+                showDeleteAlert = false
                 deleteTarget = nil
             }
-            Button("Cancel", role: .cancel) { deleteTarget = nil }
+            Button("Cancel", role: .cancel) {
+                showDeleteAlert = false
+                deleteTarget = nil
+            }
         } message: {
             if let target = deleteTarget, referencedImageNames.contains(target.lastPathComponent) {
                 Text("This image is referenced by the article. Deleting it will leave a broken Markdown link.")
@@ -1955,6 +1981,7 @@ private struct HugoImageLibraryView: View {
                     Button {
                         renameTarget = imageURL
                         renameName = imageURL.lastPathComponent
+                        showRenameAlert = true
                     } label: { Label("Rename", systemImage: "pencil") }
                     Button {
                         replaceTarget = imageURL
@@ -1962,6 +1989,7 @@ private struct HugoImageLibraryView: View {
                     } label: { Label("Replace", systemImage: "arrow.triangle.2.circlepath") }
                     Button(role: .destructive) {
                         deleteTarget = imageURL
+                        showDeleteAlert = true
                     } label: { Label("Delete", systemImage: "trash") }
                 } label: {
                     Image(systemName: "ellipsis.circle")
