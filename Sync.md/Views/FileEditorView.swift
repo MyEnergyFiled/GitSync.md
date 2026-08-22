@@ -910,23 +910,39 @@ struct FileEditorView: View {
 
     // MARK: - Operations
 
+    private func validatedLiveFileURL() throws -> URL {
+        try RepositoryFileDestinationValidator.existingFileURL(
+            liveURL,
+            in: liveURL.deletingLastPathComponent(),
+            repositoryRootURL: state.vaultURL(for: repoID)
+        )
+    }
+
     private func loadContent() {
-        guard let data = try? Data(contentsOf: liveURL),
-              let text = String(data: data, encoding: .utf8) else {
+        do {
+            let safeURL = try validatedLiveFileURL()
+            let data = try Data(contentsOf: safeURL)
+            guard let text = String(data: data, encoding: .utf8) else {
+                isBinary = true
+                return
+            }
+            liveURL = safeURL
+            content = text
+            originalContent = text
+            if let draft = draftStore.draft(repoID: repoID, fileURL: liveURL), draft.content != text {
+                pendingRecoveredDraft = draft.content
+                showDraftRecovery = true
+                persistenceMessage = String(localized: "Unsaved draft found")
+            } else {
+                try? draftStore.remove(repoID: repoID, fileURL: liveURL)
+                persistenceMessage = String(localized: "File loaded")
+            }
+            if isMarkdown { frontMatter = MarkdownFrontMatter(markdown: content) }
+        } catch {
             isBinary = true
-            return
+            persistenceMessage = error.localizedDescription
+            imageMessage = error.localizedDescription
         }
-        content = text
-        originalContent = text
-        if let draft = draftStore.draft(repoID: repoID, fileURL: liveURL), draft.content != text {
-            pendingRecoveredDraft = draft.content
-            showDraftRecovery = true
-            persistenceMessage = String(localized: "Unsaved draft found")
-        } else {
-            try? draftStore.remove(repoID: repoID, fileURL: liveURL)
-            persistenceMessage = String(localized: "File loaded")
-        }
-        if isMarkdown { frontMatter = MarkdownFrontMatter(markdown: content) }
     }
 
     private func restorePendingDraft() {
@@ -1191,7 +1207,9 @@ struct FileEditorView: View {
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         guard let data = content.data(using: .utf8) else { return false }
         do {
-            try data.write(to: liveURL, options: .atomic)
+            let safeURL = try validatedLiveFileURL()
+            try data.write(to: safeURL, options: .atomic)
+            liveURL = safeURL
             originalContent = content
             draftSaveTask?.cancel()
             if removeDraft {
@@ -1316,10 +1334,16 @@ struct FileEditorView: View {
     }
 
     private func performDelete() {
-        try? draftStore.remove(repoID: repoID, fileURL: liveURL)
-        try? FileManager.default.removeItem(at: liveURL)
-        state.detectChanges(repoID: repoID)
-        dismiss()
+        showDeleteConfirm = false
+        do {
+            let safeURL = try validatedLiveFileURL()
+            try FileManager.default.removeItem(at: safeURL)
+            try? draftStore.remove(repoID: repoID, fileURL: liveURL)
+            state.detectChanges(repoID: repoID)
+            dismiss()
+        } catch {
+            persistenceMessage = error.localizedDescription
+        }
     }
 
     private func performRename() {
@@ -1328,17 +1352,18 @@ struct FileEditorView: View {
         renameText = ""
         guard !trimmed.isEmpty, trimmed != liveURL.lastPathComponent else { return }
         do {
+            let source = try validatedLiveFileURL()
             let dest = try RepositoryFileDestinationValidator.destinationURL(
-                forRenaming: liveURL,
+                forRenaming: source,
                 to: trimmed,
                 repositoryRootURL: state.vaultURL(for: repoID)
             )
-            guard dest != liveURL else { return }
+            guard dest != source else { return }
             guard !FileManager.default.fileExists(atPath: dest.path) else {
                 throw CocoaError(.fileWriteFileExists)
             }
             let previousURL = liveURL
-            try FileManager.default.moveItem(at: previousURL, to: dest)
+            try FileManager.default.moveItem(at: source, to: dest)
             invalidatePublishRetry()
             if isDirty {
                 try? draftStore.save(content: pendingContent, repoID: repoID, fileURL: dest)
