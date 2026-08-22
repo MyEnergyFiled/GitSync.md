@@ -261,6 +261,87 @@ final class SyncMDTests: XCTestCase {
         XCTAssertEqual(state.repos.map(\.id), [repo.id])
     }
 
+    @MainActor
+    func testSaveReposReportsPersistenceFailure() {
+        let state = AppState(
+            reposPersistenceWriter: { _ in throw PersistenceFixtureError.failed },
+            loadPersistedState: false
+        )
+
+        let result = state.saveRepos()
+
+        guard case .failure(.saveFailed) = result else {
+            return XCTFail("Expected repository persistence to fail")
+        }
+        XCTAssertTrue(state.showError)
+        XCTAssertEqual(state.lastError, RepoPersistenceError.saveFailed.localizedDescription)
+    }
+
+    func testKeychainServiceReportsResultsAndUpdatesAtomically() throws {
+        let key = "tests_\(UUID().uuidString)"
+        defer { try? KeychainService.delete(key: key) }
+
+        XCTAssertNil(try KeychainService.load(key: key))
+        try KeychainService.save(key: key, value: "first")
+        XCTAssertEqual(try KeychainService.load(key: key), "first")
+
+        try KeychainService.save(key: key, value: "second")
+        XCTAssertEqual(try KeychainService.load(key: key), "second")
+
+        try KeychainService.delete(key: key)
+        try KeychainService.delete(key: key)
+        XCTAssertNil(try KeychainService.load(key: key))
+    }
+
+    @MainActor
+    func testRemoveRepositoryPreservesRecordWhenLocalDeletionFails() throws {
+        let repo = RepoConfig(
+            repoURL: "https://example.com/delete-failure.git",
+            branch: "main",
+            authorName: "Test User",
+            authorEmail: "test@example.com",
+            vaultFolderName: "SyncMD-DeleteFailure-\(UUID().uuidString)",
+            authMethod: .none
+        )
+        let vaultURL = repo.defaultVaultURL
+        try FileManager.default.createDirectory(at: vaultURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: vaultURL) }
+        var didPersist = false
+        let state = AppState(
+            reposPersistenceWriter: { _ in didPersist = true },
+            repositoryFileRemover: { _ in throw PersistenceFixtureError.failed },
+            loadPersistedState: false
+        )
+        state.repos = [repo]
+
+        XCTAssertFalse(state.removeRepo(id: repo.id, deleteLocalFiles: true))
+        XCTAssertEqual(state.repos.map(\.id), [repo.id])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: vaultURL.path))
+        XCTAssertFalse(didPersist)
+        XCTAssertTrue(state.showError)
+    }
+
+    @MainActor
+    func testRemoveRepositoryRestoresRecordWhenSettingsSaveFails() {
+        let repo = RepoConfig(
+            repoURL: "https://example.com/save-failure.git",
+            branch: "main",
+            authorName: "Test User",
+            authorEmail: "test@example.com",
+            vaultFolderName: "SyncMD-SaveFailure-\(UUID().uuidString)",
+            authMethod: .none
+        )
+        let state = AppState(
+            reposPersistenceWriter: { _ in throw PersistenceFixtureError.failed },
+            loadPersistedState: false
+        )
+        state.repos = [repo]
+
+        XCTAssertFalse(state.removeRepo(id: repo.id))
+        XCTAssertEqual(state.repos.map(\.id), [repo.id])
+        XCTAssertTrue(state.showError)
+    }
+
     func testGitHubOAuthCredentialRefreshesBeforeAccessTokenExpiry() {
         let now = Date(timeIntervalSince1970: 1_000)
         let credential = GitHubOAuthCredential(
@@ -4917,6 +4998,10 @@ private actor AsyncTestGate {
         continuation?.resume()
         continuation = nil
     }
+}
+
+private enum PersistenceFixtureError: Error {
+    case failed
 }
 
 private final class FakeGitRepository: GitRepositoryProtocol, @unchecked Sendable {

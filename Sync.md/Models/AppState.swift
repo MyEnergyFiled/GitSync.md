@@ -96,6 +96,19 @@ struct SSHHostKeyTrustRequest: Identifiable, Equatable {
     }
 }
 
+enum RepoPersistenceError: LocalizedError, Equatable {
+    case saveFailed
+
+    var errorDescription: String? {
+        String(localized: "Repository settings could not be saved. Check available storage and try again.")
+    }
+}
+
+private func persistenceErrorDiagnostic(_ error: Error) -> String {
+    let nsError = error as NSError
+    return "domain=\(nsError.domain) code=\(nsError.code)"
+}
+
 // MARK: - App State
 
 @Observable
@@ -210,18 +223,18 @@ final class AppState {
             if let token = gitHubToken(for: activeGitHubAccountLogin), !token.isEmpty {
                 return token
             }
-            return KeychainService.load(key: "github_pat") ?? ""
+            return keychainValue(for: "github_pat") ?? ""
         }
         set {
             if newValue.isEmpty {
                 if !activeGitHubAccountLogin.isEmpty {
                     deleteGitHubCredential(for: activeGitHubAccountLogin)
                 }
-                KeychainService.delete(key: "github_pat")
+                deleteKeychainValue(for: "github_pat")
             } else if !activeGitHubAccountLogin.isEmpty {
                 saveGitHubCredential(GitHubOAuthCredential(accessToken: newValue), for: activeGitHubAccountLogin)
             } else {
-                KeychainService.save(key: "github_pat", value: newValue)
+                saveKeychainValue(newValue, for: "github_pat")
             }
         }
     }
@@ -242,31 +255,101 @@ final class AppState {
         "github_oauth_credential_\(login.lowercased())"
     }
 
+    private func keychainValue(for key: String) -> String? {
+        do {
+            return try KeychainService.load(key: key)
+        } catch {
+            if let keychainError = error as? KeychainServiceError {
+                DebugLogger.shared.error(
+                    "persistence",
+                    "Secure credential load failed",
+                    detail: keychainError.diagnosticDescription
+                )
+            }
+            showError(message: error.localizedDescription, category: "persistence")
+            return nil
+        }
+    }
+
+    @discardableResult
+    private func saveKeychainValue(_ value: String, for key: String) -> Bool {
+        do {
+            try KeychainService.save(key: key, value: value)
+            return true
+        } catch {
+            if let keychainError = error as? KeychainServiceError {
+                DebugLogger.shared.error(
+                    "persistence",
+                    "Secure credential save failed",
+                    detail: keychainError.diagnosticDescription
+                )
+            }
+            showError(message: error.localizedDescription, category: "persistence")
+            return false
+        }
+    }
+
+    @discardableResult
+    private func deleteKeychainValue(for key: String) -> Bool {
+        do {
+            try KeychainService.delete(key: key)
+            return true
+        } catch {
+            if let keychainError = error as? KeychainServiceError {
+                DebugLogger.shared.error(
+                    "persistence",
+                    "Secure credential deletion failed",
+                    detail: keychainError.diagnosticDescription
+                )
+            }
+            showError(message: error.localizedDescription, category: "persistence")
+            return false
+        }
+    }
+
     private func gitHubCredential(for login: String?) -> GitHubOAuthCredential? {
         guard let login = login?.trimmingCharacters(in: .whitespacesAndNewlines), !login.isEmpty else {
             return nil
         }
-        if let encoded = KeychainService.load(key: Self.gitHubOAuthCredentialKey(for: login)),
-           let data = encoded.data(using: .utf8),
-           let credential = try? JSONDecoder().decode(GitHubOAuthCredential.self, from: data) {
-            return credential
+        if let encoded = keychainValue(for: Self.gitHubOAuthCredentialKey(for: login)),
+           let data = encoded.data(using: .utf8) {
+            do {
+                return try JSONDecoder().decode(GitHubOAuthCredential.self, from: data)
+            } catch {
+                showError(message: String(localized: "Saved GitHub credentials could not be loaded."), category: "persistence")
+                DebugLogger.shared.error(
+                    "persistence",
+                    "Could not decode saved GitHub credential",
+                    detail: persistenceErrorDiagnostic(error)
+                )
+            }
         }
-        guard let accessToken = KeychainService.load(key: Self.gitHubTokenKey(for: login)),
+        guard let accessToken = keychainValue(for: Self.gitHubTokenKey(for: login)),
               !accessToken.isEmpty else { return nil }
         return GitHubOAuthCredential(accessToken: accessToken)
     }
 
     private func saveGitHubCredential(_ credential: GitHubOAuthCredential, for login: String) {
-        KeychainService.save(key: Self.gitHubTokenKey(for: login), value: credential.accessToken)
-        if let data = try? JSONEncoder().encode(credential),
-           let encoded = String(data: data, encoding: .utf8) {
-            KeychainService.save(key: Self.gitHubOAuthCredentialKey(for: login), value: encoded)
+        saveKeychainValue(credential.accessToken, for: Self.gitHubTokenKey(for: login))
+        do {
+            let data = try JSONEncoder().encode(credential)
+            guard let encoded = String(data: data, encoding: .utf8) else {
+                throw CocoaError(.fileWriteInapplicableStringEncoding)
+            }
+            saveKeychainValue(encoded, for: Self.gitHubOAuthCredentialKey(for: login))
+        } catch {
+            showError(message: String(localized: "GitHub credentials could not be encoded."), category: "persistence")
+            DebugLogger.shared.error(
+                "persistence",
+                "Could not encode GitHub credential",
+                detail: persistenceErrorDiagnostic(error)
+            )
         }
     }
 
     private func deleteGitHubCredential(for login: String) {
-        KeychainService.delete(key: Self.gitHubTokenKey(for: login))
-        KeychainService.delete(key: Self.gitHubOAuthCredentialKey(for: login))
+        deleteKeychainValue(for: Self.gitHubTokenKey(for: login))
+        deleteKeychainValue(for: Self.gitHubOAuthCredentialKey(for: login))
     }
 
     func gitHubToken(for login: String?) -> String? {
@@ -300,28 +383,28 @@ final class AppState {
 
         let username = credentials.username.trimmingCharacters(in: .whitespacesAndNewlines)
         if !username.isEmpty {
-            KeychainService.save(key: Self.repoCredentialKey(repoID, "username"), value: username)
+            saveKeychainValue(username, for: Self.repoCredentialKey(repoID, "username"))
         }
         if !credentials.password.isEmpty {
-            KeychainService.save(key: Self.repoCredentialKey(repoID, "password"), value: credentials.password)
+            saveKeychainValue(credentials.password, for: Self.repoCredentialKey(repoID, "password"))
         }
         if !credentials.privateKey.isEmpty {
-            KeychainService.save(key: Self.repoCredentialKey(repoID, "ssh_private_key"), value: credentials.privateKey)
+            saveKeychainValue(credentials.privateKey, for: Self.repoCredentialKey(repoID, "ssh_private_key"))
         }
         if !credentials.publicKey.isEmpty {
-            KeychainService.save(key: Self.repoCredentialKey(repoID, "ssh_public_key"), value: credentials.publicKey)
+            saveKeychainValue(credentials.publicKey, for: Self.repoCredentialKey(repoID, "ssh_public_key"))
         }
         if !credentials.passphrase.isEmpty {
-            KeychainService.save(key: Self.repoCredentialKey(repoID, "ssh_passphrase"), value: credentials.passphrase)
+            saveKeychainValue(credentials.passphrase, for: Self.repoCredentialKey(repoID, "ssh_passphrase"))
         }
     }
 
     func clearRemoteCredentials(for repoID: UUID) {
-        KeychainService.delete(key: Self.repoCredentialKey(repoID, "username"))
-        KeychainService.delete(key: Self.repoCredentialKey(repoID, "password"))
-        KeychainService.delete(key: Self.repoCredentialKey(repoID, "ssh_private_key"))
-        KeychainService.delete(key: Self.repoCredentialKey(repoID, "ssh_public_key"))
-        KeychainService.delete(key: Self.repoCredentialKey(repoID, "ssh_passphrase"))
+        deleteKeychainValue(for: Self.repoCredentialKey(repoID, "username"))
+        deleteKeychainValue(for: Self.repoCredentialKey(repoID, "password"))
+        deleteKeychainValue(for: Self.repoCredentialKey(repoID, "ssh_private_key"))
+        deleteKeychainValue(for: Self.repoCredentialKey(repoID, "ssh_public_key"))
+        deleteKeychainValue(for: Self.repoCredentialKey(repoID, "ssh_passphrase"))
     }
 
     func remoteCredentials(for repo: RepoConfig) -> GitRemoteCredentials {
@@ -333,23 +416,23 @@ final class AppState {
             return .none
         case .httpsToken:
             let username = Self.firstNonEmpty(
-                KeychainService.load(key: Self.repoCredentialKey(repo.id, "username")),
+                keychainValue(for: Self.repoCredentialKey(repo.id, "username")),
                 repo.authUsername,
                 GitRemoteURL.parse(repo.repoURL)?.username
             ) ?? ""
-            let password = KeychainService.load(key: Self.repoCredentialKey(repo.id, "password")) ?? ""
+            let password = keychainValue(for: Self.repoCredentialKey(repo.id, "password")) ?? ""
             return .httpsToken(username: username, password: password)
         case .sshKey:
             let username = Self.firstNonEmpty(
-                KeychainService.load(key: Self.repoCredentialKey(repo.id, "username")),
+                keychainValue(for: Self.repoCredentialKey(repo.id, "username")),
                 repo.authUsername,
                 GitRemoteURL.parse(repo.repoURL)?.username
             ) ?? "git"
             return .sshKey(
                 username: username,
-                privateKey: KeychainService.load(key: Self.repoCredentialKey(repo.id, "ssh_private_key")) ?? "",
-                publicKey: KeychainService.load(key: Self.repoCredentialKey(repo.id, "ssh_public_key")) ?? "",
-                passphrase: KeychainService.load(key: Self.repoCredentialKey(repo.id, "ssh_passphrase")) ?? ""
+                privateKey: keychainValue(for: Self.repoCredentialKey(repo.id, "ssh_private_key")) ?? "",
+                publicKey: keychainValue(for: Self.repoCredentialKey(repo.id, "ssh_public_key")) ?? "",
+                passphrase: keychainValue(for: Self.repoCredentialKey(repo.id, "ssh_passphrase")) ?? ""
             )
         }
     }
@@ -405,6 +488,8 @@ final class AppState {
     private let gitRepositoryFactory: (URL) -> any GitRepositoryProtocol
     private let sshHostKeyTrustStore: any GitLFSSSHHostKeyTrustStore
     private let gitOperationCoordinator: GitOperationCoordinator
+    private let reposPersistenceWriter: ([RepoConfig]) throws -> Void
+    private let repositoryFileRemover: (URL) throws -> Void
 
     // MARK: - Init
 
@@ -412,11 +497,15 @@ final class AppState {
         gitRepositoryFactory: @escaping (URL) -> any GitRepositoryProtocol = { LocalGitService(localURL: $0) },
         sshHostKeyTrustStore: any GitLFSSSHHostKeyTrustStore = GitLFSSSHHostKeyFileTrustStore.default,
         gitOperationCoordinator: GitOperationCoordinator = .shared,
+        reposPersistenceWriter: @escaping ([RepoConfig]) throws -> Void = { try AppState.persistRepos($0) },
+        repositoryFileRemover: @escaping (URL) throws -> Void = { try FileManager.default.removeItem(at: $0) },
         loadPersistedState: Bool = true
     ) {
         self.gitRepositoryFactory = gitRepositoryFactory
         self.sshHostKeyTrustStore = sshHostKeyTrustStore
         self.gitOperationCoordinator = gitOperationCoordinator
+        self.reposPersistenceWriter = reposPersistenceWriter
+        self.repositoryFileRemover = repositoryFileRemover
         if loadPersistedState {
             loadState()
         }
@@ -427,7 +516,6 @@ final class AppState {
     static var persistedReposFileURL: URL {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let dir = support.appendingPathComponent("SyncMD", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent("repos.json")
     }
 
@@ -436,10 +524,34 @@ final class AppState {
     }
 
     static func loadPersistedRepos() -> [RepoConfig] {
-        guard let data = try? Data(contentsOf: persistedReposFileURL) else { return [] }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return (try? decoder.decode([RepoConfig].self, from: data)) ?? []
+        do {
+            let data = try Data(contentsOf: persistedReposFileURL)
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            return try decoder.decode([RepoConfig].self, from: data)
+        } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
+            return []
+        } catch {
+            DebugLogger.shared.error(
+                "persistence",
+                "Could not load repository settings",
+                detail: persistenceErrorDiagnostic(error)
+            )
+            return []
+        }
+    }
+
+    static func persistRepos(_ repos: [RepoConfig]) throws {
+        let fileURL = persistedReposFileURL
+        try FileManager.default.createDirectory(
+            at: fileURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = .prettyPrinted
+        let data = try encoder.encode(repos)
+        try data.write(to: fileURL, options: .atomic)
     }
 
     private func loadState() {
@@ -452,9 +564,17 @@ final class AppState {
         hasCompletedOnboarding = defaults.bool(forKey: "hasCompletedOnboarding")
         hasSeenOnboarding = defaults.bool(forKey: "hasSeenOnboarding")
 
-        if let accountData = defaults.data(forKey: "gitHubAccounts"),
-           let decodedAccounts = try? JSONDecoder().decode([GitHubAccount].self, from: accountData) {
-            gitHubAccounts = decodedAccounts
+        if let accountData = defaults.data(forKey: "gitHubAccounts") {
+            do {
+                gitHubAccounts = try JSONDecoder().decode([GitHubAccount].self, from: accountData)
+            } catch {
+                showError(message: String(localized: "Saved GitHub accounts could not be loaded."), category: "persistence")
+                DebugLogger.shared.error(
+                    "persistence",
+                    "Could not decode saved GitHub accounts",
+                    detail: persistenceErrorDiagnostic(error)
+                )
+            }
         }
         activeGitHubAccountLogin = defaults.string(forKey: "activeGitHubAccountLogin") ?? ""
         migrateLegacyGitHubAccountIfNeeded()
@@ -465,10 +585,12 @@ final class AppState {
         resolveDefaultSaveBookmark()
 
         // Try to load multi-repo state
-        if let data = try? Data(contentsOf: Self.reposFileURL) {
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
-            if let decoded = try? decoder.decode([RepoConfig].self, from: data) {
+        if FileManager.default.fileExists(atPath: Self.reposFileURL.path) {
+            do {
+                let data = try Data(contentsOf: Self.reposFileURL)
+                let decoder = JSONDecoder()
+                decoder.dateDecodingStrategy = .iso8601
+                let decoded = try decoder.decode([RepoConfig].self, from: data)
                 repos = Self.deduplicatedRepos(decoded)
                 duplicateReposCleanedCount = decoded.count - repos.count
                 if duplicateReposCleanedCount > 0 {
@@ -479,6 +601,13 @@ final class AppState {
                         detail: "\(duplicateReposCleanedCount) records; local files preserved"
                     )
                 }
+            } catch {
+                showError(message: String(localized: "Saved repository settings could not be loaded."), category: "persistence")
+                DebugLogger.shared.error(
+                    "persistence",
+                    "Could not load saved repository settings",
+                    detail: persistenceErrorDiagnostic(error)
+                )
             }
         } else {
             // Migration from single-repo state
@@ -535,7 +664,7 @@ final class AppState {
 
     private func migrateLegacyGitHubAccountIfNeeded() {
         guard gitHubAccounts.isEmpty,
-              let legacyToken = KeychainService.load(key: "github_pat"),
+              let legacyToken = keychainValue(for: "github_pat"),
               !legacyToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !gitHubUsername.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         else { return }
@@ -548,7 +677,7 @@ final class AppState {
         )
         gitHubAccounts = [account]
         activeGitHubAccountLogin = account.login
-        KeychainService.save(key: Self.gitHubTokenKey(for: account.login), value: legacyToken)
+        saveKeychainValue(legacyToken, for: Self.gitHubTokenKey(for: account.login))
     }
 
     private func restoreActiveGitHubAccount() {
@@ -591,12 +720,19 @@ final class AppState {
         defaultAuthorEmail = account.email
     }
 
-    func saveRepos() {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = .prettyPrinted
-        if let data = try? encoder.encode(repos) {
-            try? data.write(to: Self.reposFileURL, options: .atomic)
+    @discardableResult
+    func saveRepos() -> Result<Void, RepoPersistenceError> {
+        do {
+            try reposPersistenceWriter(repos)
+            return .success(())
+        } catch {
+            DebugLogger.shared.error(
+                "persistence",
+                "Could not save repository settings",
+                detail: persistenceErrorDiagnostic(error)
+            )
+            showError(message: RepoPersistenceError.saveFailed.localizedDescription, category: "persistence")
+            return .failure(.saveFailed)
         }
     }
 
@@ -610,8 +746,16 @@ final class AppState {
         defaults.set(hasCompletedOnboarding, forKey: "hasCompletedOnboarding")
         defaults.set(hasSeenOnboarding, forKey: "hasSeenOnboarding")
         defaults.set(activeGitHubAccountLogin, forKey: "activeGitHubAccountLogin")
-        if let accountData = try? JSONEncoder().encode(gitHubAccounts) {
+        do {
+            let accountData = try JSONEncoder().encode(gitHubAccounts)
             defaults.set(accountData, forKey: "gitHubAccounts")
+        } catch {
+            showError(message: String(localized: "GitHub account settings could not be saved."), category: "persistence")
+            DebugLogger.shared.error(
+                "persistence",
+                "Could not encode GitHub account settings",
+                detail: persistenceErrorDiagnostic(error)
+            )
         }
 
         if let bookmarkData = defaultSaveLocationBookmarkData {
@@ -3239,7 +3383,8 @@ final class AppState {
 
     @discardableResult
     func removeRepo(id: UUID, deleteLocalFiles: Bool = false) -> Bool {
-        guard let repo = repo(id: id) else { return false }
+        guard let originalIndex = repoIndex(id: id) else { return false }
+        let repo = repos[originalIndex]
         guard !isRepositoryOperationInProgress(repoID: id) else {
             showError(
                 message: String(localized: "Wait for the current Git operation to finish before moving or removing this repository.")
@@ -3251,15 +3396,37 @@ final class AppState {
         // Existing local repositories are user-owned folders that may also be
         // managed by another app. Removing HugoInk's bookmark must never
         // delete those files.
-        if deleteLocalFiles && repo.isGitSyncManagedStorage {
-            try? FileManager.default.removeItem(at: vaultDir)
+        if deleteLocalFiles,
+           repo.isGitSyncManagedStorage,
+           FileManager.default.fileExists(atPath: vaultDir.path) {
+            do {
+                try repositoryFileRemover(vaultDir)
+            } catch {
+                showError(
+                    message: String(localized: "Local repository files could not be deleted. The repository was not removed."),
+                    category: "persistence",
+                    repoID: id
+                )
+                DebugLogger.shared.error(
+                    "persistence",
+                    "Local repository deletion failed; record preserved",
+                    detail: persistenceErrorDiagnostic(error),
+                    repoID: id,
+                    repoName: repo.displayName
+                )
+                return false
+            }
+        }
+
+        repos.remove(at: originalIndex)
+        guard case .success = saveRepos() else {
+            repos.insert(repo, at: min(originalIndex, repos.endIndex))
+            return false
         }
 
         clearCustomLocation(for: id)
         clearRemoteCredentials(for: id)
         clearCachedRepoState(for: id)
-        repos.removeAll { $0.id == id }
-        saveRepos()
         return true
     }
 
@@ -3435,7 +3602,7 @@ final class AppState {
 
         activeGitHubAccountLogin = account.login
         saveGitHubCredential(credential, for: account.login)
-        KeychainService.delete(key: "github_pat")
+        deleteKeychainValue(for: "github_pat")
         isSignedIn = true
         applyGitHubAccount(account)
 
@@ -3503,7 +3670,7 @@ final class AppState {
 
         let login = activeGitHubAccountLogin
         if login.isEmpty {
-            KeychainService.delete(key: "github_pat")
+            deleteKeychainValue(for: "github_pat")
             clearGitHubSession()
         } else {
             removeGitHubAccount(login: login)

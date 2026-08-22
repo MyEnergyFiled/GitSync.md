@@ -121757,6 +121757,46 @@
       "zh-Hans": { "stringUnit": { "state": "translated", "value": "请等待当前 Git 操作完成后再移动或移除此仓库。" } },
       "zh-Hant": { "stringUnit": { "state": "translated", "value": "請等待目前的 Git 操作完成後再移動或移除此儲存庫。" } }
     } },
+    "Secure credential access failed.": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Secure credential access failed." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "安全凭据访问失败。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "安全憑證存取失敗。" } }
+    } },
+    "Repository settings could not be saved. Check available storage and try again.": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Repository settings could not be saved. Check available storage and try again." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "无法保存仓库设置。请检查可用存储空间后重试。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法儲存儲存庫設定。請檢查可用儲存空間後再試。" } }
+    } },
+    "GitHub credentials could not be encoded.": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "GitHub credentials could not be encoded." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "无法编码 GitHub 凭据。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法編碼 GitHub 憑證。" } }
+    } },
+    "Saved GitHub accounts could not be loaded.": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Saved GitHub accounts could not be loaded." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "无法加载已保存的 GitHub 账户。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法載入已儲存的 GitHub 帳號。" } }
+    } },
+    "Saved GitHub credentials could not be loaded.": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Saved GitHub credentials could not be loaded." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "无法加载已保存的 GitHub 凭据。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法載入已儲存的 GitHub 憑證。" } }
+    } },
+    "Saved repository settings could not be loaded.": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Saved repository settings could not be loaded." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "无法加载已保存的仓库设置。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法載入已儲存的儲存庫設定。" } }
+    } },
+    "GitHub account settings could not be saved.": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "GitHub account settings could not be saved." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "无法保存 GitHub 账户设置。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法儲存 GitHub 帳號設定。" } }
+    } },
+    "Local repository files could not be deleted. The repository was not removed.": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Local repository files could not be deleted. The repository was not removed." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "无法删除本地仓库文件。仓库记录未被移除。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法刪除本機儲存庫檔案。儲存庫記錄未被移除。" } }
+    } },
     "Search logs, repositories, or operation IDs": {
       "localizations": {
         "en": {
