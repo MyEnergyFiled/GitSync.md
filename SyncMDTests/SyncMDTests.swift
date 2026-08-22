@@ -4982,7 +4982,7 @@ final class HugoContentServiceTests: XCTestCase {
         XCTAssertEqual(choices.layouts, ["feature", "single"])
         XCTAssertEqual(choices.contentTypes, ["page", "posts"])
         XCTAssertEqual(choices.languages, ["en", "zh-Hant"])
-        XCTAssertEqual(choices.languageVariantURLs["zh-Hant"], traditional)
+        XCTAssertEqual(choices.languageVariantURLs["zh-Hant"], traditional.resolvingSymlinksInPath())
         XCTAssertEqual(page.layoutPath, "layouts/posts/feature.html")
         XCTAssertTrue(page.html.contains("data-layout=\"feature\""))
         XCTAssertTrue(page.html.contains("lang=\"zh-Hant\""))
@@ -4990,6 +4990,36 @@ final class HugoContentServiceTests: XCTestCase {
         XCTAssertEqual(HugoPreviewDevice.phone.width, 390)
         XCTAssertEqual(HugoPreviewDevice.tablet.width, 768)
         XCTAssertEqual(HugoPreviewDevice.desktop.width, 1200)
+    }
+
+    func testThemePreviewRejectsLanguageVariantSymlinkOutsideRepository() throws {
+        let fileManager = FileManager.default
+        let temporaryRoot = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let repositoryRoot = temporaryRoot.appendingPathComponent("repository", isDirectory: true)
+        let bundle = repositoryRoot.appendingPathComponent("content/post", isDirectory: true)
+        let article = bundle.appendingPathComponent("index.md")
+        let linkedVariant = bundle.appendingPathComponent("index.zh-Hant.md")
+        let outsideVariant = temporaryRoot.appendingPathComponent("outside.md")
+        defer { try? fileManager.removeItem(at: temporaryRoot) }
+        try fileManager.createDirectory(at: bundle, withIntermediateDirectories: true)
+        try "English".write(to: article, atomically: true, encoding: .utf8)
+        try "Private".write(to: outsideVariant, atomically: true, encoding: .utf8)
+        try fileManager.createSymbolicLink(at: linkedVariant, withDestinationURL: outsideVariant)
+
+        let choices = HugoThemePreviewService.discoverChoices(
+            repositoryRoot: repositoryRoot,
+            configuration: HugoSiteConfiguration(
+                defaultContentLanguage: "en",
+                languages: ["en", "zh-Hant"]
+            ),
+            articleURL: article
+        )
+
+        XCTAssertEqual(
+            choices.languageVariantURLs["en"],
+            article.resolvingSymlinksInPath()
+        )
+        XCTAssertNil(choices.languageVariantURLs["zh-Hant"])
     }
 
     func testThemeTemplateSanitizerRemovesScriptsEventsAndFrames() {

@@ -270,8 +270,11 @@ enum HugoThemePreviewService {
             }
         }
         let contentRoot = root.appendingPathComponent("content", isDirectory: true)
-        if let entries = try? FileManager.default.contentsOfDirectory(
-            at: contentRoot,
+        if let safeContentRoot = try? RepositoryFileDestinationValidator.validatedDirectoryURL(
+            contentRoot,
+            repositoryRootURL: root
+        ), let entries = try? FileManager.default.contentsOfDirectory(
+            at: safeContentRoot,
             includingPropertiesForKeys: [.isDirectoryKey],
             options: [.skipsHiddenFiles]
         ) {
@@ -281,21 +284,41 @@ enum HugoThemePreviewService {
         }
 
         let defaultLanguage = configuration.defaultContentLanguage ?? configuration.languages.first ?? "en"
-        var variants: [String: URL] = [defaultLanguage: articleURL]
-        let baseName = articleURL.deletingPathExtension().lastPathComponent.split(separator: ".").first.map(String.init)
-            ?? articleURL.deletingPathExtension().lastPathComponent
-        if let siblings = try? FileManager.default.contentsOfDirectory(
-            at: articleURL.deletingLastPathComponent(),
+        let articleDirectory = try? RepositoryFileDestinationValidator.validatedDirectoryURL(
+            articleURL.deletingLastPathComponent(),
+            repositoryRootURL: root
+        )
+        let safeArticleURL = articleDirectory.flatMap {
+            try? RepositoryFileDestinationValidator.existingFileURL(
+                articleURL,
+                in: $0,
+                repositoryRootURL: root
+            )
+        }
+        var variants: [String: URL] = [:]
+        if let safeArticleURL { variants[defaultLanguage] = safeArticleURL }
+        let baseArticleURL = safeArticleURL ?? articleURL
+        let baseName = baseArticleURL.deletingPathExtension().lastPathComponent
+            .split(separator: ".").first.map(String.init)
+            ?? baseArticleURL.deletingPathExtension().lastPathComponent
+        if let articleDirectory,
+           let siblings = try? FileManager.default.contentsOfDirectory(
+            at: articleDirectory,
             includingPropertiesForKeys: [.isRegularFileKey],
             options: [.skipsHiddenFiles]
         ) {
             for sibling in siblings where ["md", "markdown"].contains(sibling.pathExtension.lowercased()) {
-                let stem = sibling.deletingPathExtension().lastPathComponent
+                guard let safeSibling = try? RepositoryFileDestinationValidator.existingFileURL(
+                    sibling,
+                    in: articleDirectory,
+                    repositoryRootURL: root
+                ) else { continue }
+                let stem = safeSibling.deletingPathExtension().lastPathComponent
                 let components = stem.split(separator: ".").map(String.init)
                 if components.count == 2, components[0] == baseName {
-                    variants[components[1]] = sibling
+                    variants[components[1]] = safeSibling
                 } else if stem == baseName {
-                    variants[defaultLanguage] = sibling
+                    variants[defaultLanguage] = safeSibling
                 }
             }
         }
