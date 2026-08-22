@@ -113,7 +113,7 @@ private enum GitLFSCleanStatusCacheStore {
     }
 
     private static let lock = NSLock()
-    private static var memory: [String: Cache] = [:]
+    nonisolated(unsafe) private static var memory: [String: Cache] = [:]
 
     static func isKnownClean(repositoryURL: URL, path: String, pointer: GitLFSPointer, fileURL: URL) -> Bool {
         guard let metadata = metadata(for: fileURL), metadata.fileSize == pointer.size else { return false }
@@ -591,17 +591,17 @@ struct GitLFSLock: Codable, Equatable, Sendable {
         return fractionalDateFormatter.date(from: string)
     }
 
-    private static let dateFormatter: ISO8601DateFormatter = {
+    private static var dateFormatter: ISO8601DateFormatter {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]
         return formatter
-    }()
+    }
 
-    private static let fractionalDateFormatter: ISO8601DateFormatter = {
+    private static var fractionalDateFormatter: ISO8601DateFormatter {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter
-    }()
+    }
 }
 
 struct GitLFSListLocksResult: Equatable, Sendable {
