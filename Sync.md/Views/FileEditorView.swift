@@ -21,6 +21,11 @@ private enum MarkdownEditorMode: String, CaseIterable, Identifiable {
     var title: String { String(localized: String.LocalizationValue(rawValue)) }
 }
 
+private enum FileSaveOutcome: Equatable, Sendable {
+    case saved
+    case failed
+}
+
 struct FileEditorView: View {
     @Environment(AppState.self) private var state
     @Environment(\.scenePhase) private var scenePhase
@@ -1235,10 +1240,10 @@ struct FileEditorView: View {
     }
 
     @discardableResult
-    private func performSave(operationID: String? = nil, removeDraft: Bool = true) async -> Bool {
+    private func performSave(operationID: String? = nil, removeDraft: Bool = true) async -> FileSaveOutcome {
         content = pendingContent
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-        guard let data = content.data(using: .utf8) else { return false }
+        guard let data = content.data(using: .utf8) else { return .failed }
         do {
             let safeURL = try validatedLiveFileURL()
             try data.write(to: safeURL, options: .atomic)
@@ -1265,7 +1270,7 @@ struct FileEditorView: View {
                     showSaveToast = false
                 }
             }
-            return true
+            return .saved
         } catch {
             imageMessage = error.localizedDescription
             persistenceMessage = String(localized: "Save failed · draft preserved")
@@ -1274,7 +1279,7 @@ struct FileEditorView: View {
                 repoID: repoID, repoName: logRepoName, operationID: operationID
             )
             saveDraftImmediately()
-            return false
+            return .failed
         }
     }
 
@@ -1315,7 +1320,7 @@ struct FileEditorView: View {
             )
             return
         }
-        guard await performSave(operationID: operationID, removeDraft: false) else { return }
+        guard await performSave(operationID: operationID, removeDraft: false) == .saved else { return }
         isQuickPublishing = true
         persistenceMessage = String(localized: "Saving file…")
 
