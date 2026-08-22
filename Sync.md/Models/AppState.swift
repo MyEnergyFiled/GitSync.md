@@ -151,6 +151,7 @@ func persistenceErrorDiagnostic(_ error: Error) -> String {
 
 // MARK: - App State
 
+@MainActor
 @Observable
 final class AppState {
 
