@@ -4,17 +4,17 @@ extension AppState {
 
     // MARK: - Persistence
 
-    static var persistedReposFileURL: URL {
+    nonisolated static var persistedReposFileURL: URL {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let dir = support.appendingPathComponent("SyncMD", isDirectory: true)
         return dir.appendingPathComponent("repos.json")
     }
 
-    private static var reposFileURL: URL {
+    nonisolated private static var reposFileURL: URL {
         persistedReposFileURL
     }
 
-    static func loadPersistedRepos() -> [RepoConfig] {
+    nonisolated static func loadPersistedRepos() -> [RepoConfig] {
         do {
             let data = try Data(contentsOf: persistedReposFileURL)
             let decoder = JSONDecoder()
@@ -32,7 +32,7 @@ extension AppState {
         }
     }
 
-    static func persistRepos(_ repos: [RepoConfig]) throws {
+    nonisolated static func persistRepos(_ repos: [RepoConfig]) throws {
         let fileURL = persistedReposFileURL
         try FileManager.default.createDirectory(
             at: fileURL.deletingLastPathComponent(),
