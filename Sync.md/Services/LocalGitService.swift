@@ -2135,33 +2135,40 @@ final class LocalGitService: GitRepositoryProtocol, @unchecked Sendable {
         path: String,
         worktreeURL: URL
     ) throws -> URL {
+        do {
+            return try validatedWorktreeURL(path: path, worktreeURL: worktreeURL)
+        } catch {
+            throw LocalGitError.conflictPathNotFound(path)
+        }
+    }
+
+    private static func validatedWorktreeURL(
+        path: String,
+        worktreeURL: URL
+    ) throws -> URL {
         let components = path.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
         guard !path.isEmpty,
               !path.hasPrefix("/"),
               !components.contains(where: { $0.isEmpty || $0 == "." || $0 == ".." }),
               !components.contains(where: { $0.lowercased() == ".git" }),
               path.rangeOfCharacter(from: .controlCharacters) == nil else {
-            throw LocalGitError.conflictPathNotFound(path)
+            throw RepositoryFileDestinationError.outsideRepository
         }
 
         let candidate = worktreeURL.appendingPathComponent(path).standardizedFileURL
-        do {
-            _ = try RepositoryFileDestinationValidator.validatedDirectoryURL(
-                candidate,
-                repositoryRootURL: worktreeURL
-            )
-            _ = try RepositoryFileDestinationValidator.validatedDirectoryURL(
-                candidate.deletingLastPathComponent(),
-                repositoryRootURL: worktreeURL
-            )
-            let values = try? candidate.resourceValues(forKeys: [.isSymbolicLinkKey])
-            guard values?.isSymbolicLink != true else {
-                throw LocalGitError.conflictPathNotFound(path)
-            }
-            return candidate
-        } catch {
-            throw LocalGitError.conflictPathNotFound(path)
+        _ = try RepositoryFileDestinationValidator.validatedDirectoryURL(
+            candidate,
+            repositoryRootURL: worktreeURL
+        )
+        _ = try RepositoryFileDestinationValidator.validatedDirectoryURL(
+            candidate.deletingLastPathComponent(),
+            repositoryRootURL: worktreeURL
+        )
+        let values = try? candidate.resourceValues(forKeys: [.isSymbolicLinkKey])
+        guard values?.isSymbolicLink != true else {
+            throw RepositoryFileDestinationError.outsideRepository
         }
+        return candidate
     }
 
     func commitLocal(
@@ -2560,9 +2567,13 @@ final class LocalGitService: GitRepositoryProtocol, @unchecked Sendable {
 
     func discardChanges(path: String) async throws {
         let repoPath = self.localURL.path
-        let fullPath = self.localURL.appendingPathComponent(path).path
+        let worktreeURL = self.localURL
 
         try await Task.detached {
+            let fileURL = try Self.validatedWorktreeURL(
+                path: path,
+                worktreeURL: worktreeURL
+            )
             var repo: OpaquePointer?
             defer { if let repo { git_repository_free(repo) } }
             try git2Check(git_repository_open(&repo, repoPath), context: "Open repo")
@@ -2601,7 +2612,7 @@ final class LocalGitService: GitRepositoryProtocol, @unchecked Sendable {
 
             if !existsInIndex && !existsInHead {
                 // Purely untracked file — remove from disk
-                try FileManager.default.removeItem(atPath: fullPath)
+                try FileManager.default.removeItem(at: fileURL)
                 return
             }
 
@@ -2651,7 +2662,7 @@ final class LocalGitService: GitRepositoryProtocol, @unchecked Sendable {
                 )
             } else {
                 // File doesn't exist in HEAD (was newly added) — remove from disk
-                try? FileManager.default.removeItem(atPath: fullPath)
+                try? FileManager.default.removeItem(at: fileURL)
             }
         }.value
     }

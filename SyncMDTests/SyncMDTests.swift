@@ -3034,6 +3034,34 @@ final class SyncMDTests: XCTestCase {
                        "subdir/mover.md may only appear in commit as a deletion, not still tracked")
     }
 
+    func testLocalGitServiceDiscardChangesRejectsPathsOutsideWorktree() async throws {
+        let fileManager = FileManager.default
+        let temporaryRoot = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let repositoryURL = temporaryRoot.appendingPathComponent("repository", isDirectory: true)
+        let outsideFile = temporaryRoot.appendingPathComponent("outside.txt")
+        defer { try? fileManager.removeItem(at: temporaryRoot) }
+        try fileManager.createDirectory(at: repositoryURL, withIntermediateDirectories: true)
+        try Data("outside".utf8).write(to: outsideFile)
+        var repository: OpaquePointer?
+        XCTAssertEqual(git_repository_init(&repository, repositoryURL.path, 0), 0)
+        if let repository { git_repository_free(repository) }
+        let metadataURL = repositoryURL.appendingPathComponent(".git/config")
+        let originalMetadata = try Data(contentsOf: metadataURL)
+        let service = LocalGitService(localURL: repositoryURL)
+
+        for unsafePath in ["../outside.txt", outsideFile.path, ".git/config"] {
+            do {
+                try await service.discardChanges(path: unsafePath)
+                XCTFail("Expected unsafe discard path to be rejected: \(unsafePath)")
+            } catch {
+                XCTAssertEqual(error as? RepositoryFileDestinationError, .outsideRepository)
+            }
+        }
+
+        XCTAssertEqual(try String(contentsOf: outsideFile, encoding: .utf8), "outside")
+        XCTAssertEqual(try Data(contentsOf: metadataURL), originalMetadata)
+    }
+
     func testLocalGitServiceUnifiedDiffShowsStagedOnlyJSONChanges() async throws {
         let fm = FileManager.default
         let repoURL = fm.temporaryDirectory.appendingPathComponent("SyncMD-JSONDiff-\(UUID().uuidString)", isDirectory: true)
