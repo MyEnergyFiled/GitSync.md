@@ -1336,8 +1336,12 @@ struct FileEditorView: View {
         isQuickPublishing = true
         persistenceMessage = String(localized: "Saving file…")
 
-        let staged = await state.stageArticleBundle(repoID: repoID, fileURL: liveURL, operationID: operationID)
-        guard staged else {
+        let stageOutcome = await state.stageArticleBundleOutcome(
+            repoID: repoID,
+            fileURL: liveURL,
+            operationID: operationID
+        )
+        guard stageOutcome == .succeeded else {
             isQuickPublishing = false
             persistenceMessage = String(localized: "No article changes to commit")
             try? await draftStore.remove(repoID: repoID, fileURL: liveURL)
@@ -1345,9 +1349,13 @@ struct FileEditorView: View {
         }
 
         persistenceMessage = String(localized: "Article staged · pushing…")
-        let pushed = await state.push(repoID: repoID, message: quickCommitMessage, operationID: operationID)
+        let pushOutcome = await state.pushOutcome(
+            repoID: repoID,
+            message: quickCommitMessage,
+            operationID: operationID
+        )
         isQuickPublishing = false
-        if pushed {
+        if pushOutcome == .succeeded {
             await finishSuccessfulPublish()
         } else {
             await preserveFailedPublish()
@@ -1359,13 +1367,13 @@ struct FileEditorView: View {
         let operationID = String(UUID().uuidString.prefix(8)).lowercased()
         isQuickPublishing = true
         persistenceMessage = String(localized: "Retrying push…")
-        let pushed = await state.retryPush(
+        let pushOutcome = await state.retryPushOutcome(
             repoID: repoID,
             message: quickCommitMessage,
             operationID: operationID
         )
         isQuickPublishing = false
-        if pushed {
+        if pushOutcome == .succeeded {
             await finishSuccessfulPublish()
         } else {
             await preserveFailedPublish()

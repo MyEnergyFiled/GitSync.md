@@ -36,3 +36,12 @@ struct GitState: Codable, Equatable {
         try? FileManager.default.removeItem(at: legacyFileURL)
     }
 }
+
+enum GitOperationOutcome: Equatable, Sendable {
+    case succeeded
+    case failed
+
+    init(succeeded: Bool) {
+        self = succeeded ? .succeeded : .failed
+    }
+}

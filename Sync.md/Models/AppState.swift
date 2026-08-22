@@ -1751,6 +1751,20 @@ final class AppState {
         }
     }
 
+    func stageArticleBundleOutcome(
+        repoID: UUID,
+        fileURL: URL,
+        operationID: String? = nil
+    ) async -> GitOperationOutcome {
+        GitOperationOutcome(
+            succeeded: await stageArticleBundle(
+                repoID: repoID,
+                fileURL: fileURL,
+                operationID: operationID
+            )
+        )
+    }
+
     func stageAllChanges(repoID: UUID) async {
         _ = await stageAllChanges(repoID: repoID, lfsAutoTrack: false, promptForLFS: true)
     }
@@ -2622,6 +2636,16 @@ final class AppState {
         return result
     }
 
+    func pushOutcome(
+        repoID: UUID,
+        message: String,
+        operationID: String? = nil
+    ) async -> GitOperationOutcome {
+        GitOperationOutcome(
+            succeeded: await push(repoID: repoID, message: message, operationID: operationID)
+        )
+    }
+
     private func performPush(repoID: UUID, message: String, operationID suppliedOperationID: String?) async -> Bool {
         guard let repo = repo(id: repoID) else {
             showError(message: String(localized: "Repository not found"))
@@ -2752,6 +2776,16 @@ final class AppState {
             return await pushCurrentBranch(repoID: repoID)
         }
         return await push(repoID: repoID, message: message, operationID: operationID)
+    }
+
+    func retryPushOutcome(
+        repoID: UUID,
+        message: String,
+        operationID: String? = nil
+    ) async -> GitOperationOutcome {
+        GitOperationOutcome(
+            succeeded: await retryPush(repoID: repoID, message: message, operationID: operationID)
+        )
     }
 
 
