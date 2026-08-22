@@ -109,9 +109,6 @@ enum RepoPersistenceError: LocalizedError, Equatable {
 }
 
 private func persistenceErrorDiagnostic(_ error: Error) -> String {
-    if let cocoaError = error as? CocoaError {
-        return "type=CocoaError code=\(cocoaError.code.rawValue)"
-    }
     if let keychainError = error as? KeychainServiceError {
         return keychainError.diagnosticDescription
     }
