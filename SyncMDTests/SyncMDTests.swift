@@ -5844,6 +5844,31 @@ final class HugoContentServiceTests: XCTestCase {
         XCTAssertEqual(destination, posts.appendingPathComponent("safe-article", isDirectory: true))
     }
 
+    func testContentDirectoryDiscoveryRejectsSymlinksOutsideRepository() throws {
+        let fileManager = FileManager.default
+        let temporaryRoot = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let repositoryRoot = temporaryRoot.appendingPathComponent("repository", isDirectory: true)
+        let content = repositoryRoot.appendingPathComponent("content", isDirectory: true)
+        let posts = content.appendingPathComponent("posts", isDirectory: true)
+        let outside = temporaryRoot.appendingPathComponent("outside", isDirectory: true)
+        let linkedSection = content.appendingPathComponent("external", isDirectory: true)
+        defer { try? fileManager.removeItem(at: temporaryRoot) }
+        try fileManager.createDirectory(at: posts, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: outside, withIntermediateDirectories: true)
+        try fileManager.createSymbolicLink(at: linkedSection, withDestinationURL: outside)
+
+        XCTAssertEqual(
+            HugoContentService.contentDirectories(in: repositoryRoot),
+            ["content", "content/posts"]
+        )
+        XCTAssertNil(HugoContentService.contentDirectoryURL(for: "content/external", in: repositoryRoot))
+        XCTAssertNil(HugoContentService.contentDirectoryURL(for: "../outside", in: repositoryRoot))
+
+        try fileManager.removeItem(at: content)
+        try fileManager.createSymbolicLink(at: content, withDestinationURL: outside)
+        XCTAssertTrue(HugoContentService.contentDirectories(in: repositoryRoot).isEmpty)
+    }
+
     func testArchetypeValidationRejectsSymlinkOutsideRepository() throws {
         let fileManager = FileManager.default
         let temporaryRoot = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)

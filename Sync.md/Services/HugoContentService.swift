@@ -492,15 +492,39 @@ enum HugoContentService {
     }
 
     static func contentDirectories(in root: URL) -> [String] {
-        let content = root.appendingPathComponent("content", isDirectory: true)
+        guard let content = contentDirectoryURL(for: "content", in: root) else { return [] }
         let urls = (try? FileManager.default.contentsOfDirectory(
-            at: content, includingPropertiesForKeys: [.isDirectoryKey], options: .skipsHiddenFiles
+            at: content,
+            includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+            options: .skipsHiddenFiles
         )) ?? []
-        var result = urls.filter {
-            (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
-        }.map { "content/\($0.lastPathComponent)" }
-        if FileManager.default.fileExists(atPath: content.path) { result.insert("content", at: 0) }
+        var result = urls.compactMap { url -> String? in
+            let relativePath = "content/\(url.lastPathComponent)"
+            return contentDirectoryURL(for: relativePath, in: root) == nil ? nil : relativePath
+        }
+        result.insert("content", at: 0)
         return Array(Set(result)).sorted()
+    }
+
+    static func contentDirectoryURL(for rawPath: String, in root: URL) -> URL? {
+        let path = rawPath.replacingOccurrences(of: "\\", with: "/")
+        let components = path.split(separator: "/", omittingEmptySubsequences: false)
+        guard components.first == "content",
+              components.allSatisfy({ component in
+                  !component.isEmpty
+                      && component != "."
+                      && component != ".."
+                      && component.lowercased() != ".git"
+                      && component.rangeOfCharacter(from: .controlCharacters) == nil
+              }) else { return nil }
+
+        let repositoryRoot = root.standardizedFileURL
+        let candidate = repositoryRoot.appendingPathComponent(path, isDirectory: true).standardizedFileURL
+        return try? RepositoryFileDestinationValidator.existingDirectoryURL(
+            candidate,
+            in: candidate.deletingLastPathComponent(),
+            repositoryRootURL: repositoryRoot
+        )
     }
 
     static func archetypes(in root: URL) -> [String] {

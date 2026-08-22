@@ -307,13 +307,7 @@ private struct HugoArticleMoveView: View {
         let current = article.fileURL.deletingLastPathComponent().deletingLastPathComponent().path
             .replacingOccurrences(of: root.path + "/", with: "")
         return Array(Set(HugoContentService.contentDirectories(in: root) + configured + [current]))
-            .filter { path in
-                var isDirectory: ObjCBool = false
-                return FileManager.default.fileExists(
-                    atPath: root.appendingPathComponent(path).path,
-                    isDirectory: &isDirectory
-                ) && isDirectory.boolValue
-            }
+            .filter { HugoContentService.contentDirectoryURL(for: $0, in: root) != nil }
             .sorted()
     }
 
