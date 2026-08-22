@@ -5207,6 +5207,46 @@ final class HugoContentServiceTests: XCTestCase {
         XCTAssertFalse(json.contains("\"id\""))
     }
 
+    func testHugoRepositoryConfigurationDoesNotLoadSymlinkOutsideRepository() throws {
+        let fileManager = FileManager.default
+        let temporaryRoot = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let repositoryRoot = temporaryRoot.appendingPathComponent("repository", isDirectory: true)
+        let outsideConfiguration = temporaryRoot.appendingPathComponent("outside.json")
+        let linkedConfiguration = repositoryRoot.appendingPathComponent(HugoContentService.configurationFile)
+        defer { try? fileManager.removeItem(at: temporaryRoot) }
+        try fileManager.createDirectory(at: repositoryRoot, withIntermediateDirectories: true)
+        let externalValue = HugoRepositoryConfiguration(
+            contentMappings: [HugoContentMapping(directory: "private", archetype: "secret.md")]
+        )
+        try JSONEncoder().encode(externalValue).write(to: outsideConfiguration)
+        try fileManager.createSymbolicLink(at: linkedConfiguration, withDestinationURL: outsideConfiguration)
+
+        let configuration = HugoContentService.loadConfiguration(from: repositoryRoot)
+
+        XCTAssertTrue(configuration.contentMappings.isEmpty)
+        XCTAssertTrue(configuration.frontMatterFields.isEmpty)
+    }
+
+    func testHugoRepositoryConfigurationDoesNotSaveThroughSymlinkOutsideRepository() throws {
+        let fileManager = FileManager.default
+        let temporaryRoot = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let repositoryRoot = temporaryRoot.appendingPathComponent("repository", isDirectory: true)
+        let outsideConfiguration = temporaryRoot.appendingPathComponent("outside.json")
+        let linkedConfiguration = repositoryRoot.appendingPathComponent(HugoContentService.configurationFile)
+        defer { try? fileManager.removeItem(at: temporaryRoot) }
+        try fileManager.createDirectory(at: repositoryRoot, withIntermediateDirectories: true)
+        try Data("outside".utf8).write(to: outsideConfiguration)
+        try fileManager.createSymbolicLink(at: linkedConfiguration, withDestinationURL: outsideConfiguration)
+
+        XCTAssertThrowsError(try HugoContentService.saveConfiguration(
+            HugoRepositoryConfiguration(
+                contentMappings: [HugoContentMapping(directory: "content/posts", archetype: "archetypes/default.md")]
+            ),
+            to: repositoryRoot
+        ))
+        XCTAssertEqual(try String(contentsOf: outsideConfiguration, encoding: .utf8), "outside")
+    }
+
     func testHugoSiteConfigurationDiscoversTOMLSettings() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)

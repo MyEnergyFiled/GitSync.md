@@ -451,8 +451,17 @@ enum HugoContentService {
     }
 
     static func loadConfiguration(from root: URL) -> HugoRepositoryConfiguration {
-        let url = root.appendingPathComponent(configurationFile)
-        guard let data = try? Data(contentsOf: url),
+        let repositoryRoot = root.standardizedFileURL
+        guard let directory = try? RepositoryFileDestinationValidator.validatedDirectoryURL(
+            repositoryRoot,
+            repositoryRootURL: repositoryRoot
+        ),
+              let url = try? RepositoryFileDestinationValidator.existingFileURL(
+                  directory.appendingPathComponent(configurationFile),
+                  in: directory,
+                  repositoryRootURL: repositoryRoot
+              ),
+              let data = try? Data(contentsOf: url),
               let value = try? JSONDecoder().decode(HugoRepositoryConfiguration.self, from: data) else {
             return HugoRepositoryConfiguration()
         }
@@ -460,11 +469,26 @@ enum HugoContentService {
     }
 
     static func saveConfiguration(_ configuration: HugoRepositoryConfiguration, to root: URL) throws {
+        let repositoryRoot = root.standardizedFileURL
+        let directory = try RepositoryFileDestinationValidator.validatedDirectoryURL(
+            repositoryRoot,
+            repositoryRootURL: repositoryRoot
+        )
+        let url = try RepositoryFileDestinationValidator.destinationURL(
+            for: configurationFile,
+            in: directory,
+            repositoryRootURL: repositoryRoot
+        )
+        if FileManager.default.fileExists(atPath: url.path) {
+            _ = try RepositoryFileDestinationValidator.existingFileURL(
+                url,
+                in: directory,
+                repositoryRootURL: repositoryRoot
+            )
+        }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(configuration).write(
-            to: root.appendingPathComponent(configurationFile), options: .atomic
-        )
+        try encoder.encode(configuration).write(to: url, options: .atomic)
     }
 
     static func contentDirectories(in root: URL) -> [String] {
