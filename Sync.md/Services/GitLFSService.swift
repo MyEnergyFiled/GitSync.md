@@ -1249,10 +1249,14 @@ final class GitLFSService: @unchecked Sendable {
     }
 
     private func configuredLFSURL() -> URL? {
-        for url in [
-            localURL.appendingPathComponent(".lfsconfig"),
-            localURL.appendingPathComponent(".git/config")
-        ] {
+        let root = localURL.standardizedFileURL
+        let requestedWorktreeConfig = root.appendingPathComponent(".lfsconfig")
+        let worktreeConfig = try? RepositoryFileDestinationValidator.existingFileURL(
+            requestedWorktreeConfig,
+            in: root,
+            repositoryRootURL: root
+        )
+        for url in [worktreeConfig, root.appendingPathComponent(".git/config")].compactMap({ $0 }) {
             if let value = Self.gitConfigValue(fileURL: url, section: "lfs", key: "url"),
                let parsed = URL(string: value) {
                 return parsed
@@ -1265,7 +1269,7 @@ final class GitLFSService: @unchecked Sendable {
         guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
             throw LocalGitError.lfsFailed(String(localized: "Configured Git LFS URL must be HTTP(S) for this build: \(url.absoluteString)"))
         }
-        return GitLFSAccess(href: lfsBaseURL(from: url), headers: basicAuthHeaders())
+        return GitLFSAccess(href: lfsBaseURL(from: url), headers: basicAuthHeaders(for: url))
     }
 
     private func originRemoteURL() -> String? {
@@ -1437,6 +1441,28 @@ final class GitLFSService: @unchecked Sendable {
         let authUsername = username.isEmpty ? "x-access-token" : username
         let token = Data("\(authUsername):\(password)".utf8).base64EncodedString()
         return ["Authorization": "Basic \(token)"]
+    }
+
+    private func basicAuthHeaders(for endpoint: URL) -> [String: String] {
+        guard credentials.method == .gitHubPAT || credentials.method == .httpsToken,
+              let endpointHost = endpoint.host?.lowercased(),
+              let remoteValue = originRemoteURL(),
+              let remote = GitRemoteURL.parse(remoteValue),
+              remote.host?.lowercased() == endpointHost else { return [:] }
+
+        if remote.isGitHubShortcut {
+            guard endpoint.scheme?.lowercased() == "https",
+                  (endpoint.port ?? 443) == 443 else { return [:] }
+            return basicAuthHeaders()
+        }
+
+        guard let remoteURL = URL(string: remoteValue),
+              let remoteScheme = remoteURL.scheme?.lowercased(),
+              remoteScheme == "http" || remoteScheme == "https",
+              endpoint.scheme?.lowercased() == remoteScheme else { return [:] }
+        let defaultPort = remoteScheme == "https" ? 443 : 80
+        guard (remoteURL.port ?? defaultPort) == (endpoint.port ?? defaultPort) else { return [:] }
+        return basicAuthHeaders()
     }
 
     private func validateHTTP(_ response: HTTPURLResponse, context: String) throws {

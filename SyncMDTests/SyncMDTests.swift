@@ -3415,6 +3415,109 @@ final class SyncMDTests: XCTestCase {
         XCTAssertNotNil(GitLFSPointer(data: try Data(contentsOf: repoURL.appendingPathComponent("Unchanged.pdf"))))
     }
 
+    func testGitLFSIgnoresLFSConfigSymlinkOutsideRepository() async throws {
+        let fileManager = FileManager.default
+        let temporaryRoot = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let repositoryURL = temporaryRoot.appendingPathComponent("repository", isDirectory: true)
+        let outsideConfig = temporaryRoot.appendingPathComponent("outside-lfsconfig")
+        defer { try? fileManager.removeItem(at: temporaryRoot) }
+        try fileManager.createDirectory(
+            at: repositoryURL.appendingPathComponent(".git", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try """
+        [remote "origin"]
+            url = https://github.com/example/vault.git
+        """.write(to: repositoryURL.appendingPathComponent(".git/config"), atomically: true, encoding: .utf8)
+        try """
+        [lfs]
+            url = https://untrusted.example.test/lfs
+        """.write(to: outsideConfig, atomically: true, encoding: .utf8)
+        try fileManager.createSymbolicLink(
+            at: repositoryURL.appendingPathComponent(".lfsconfig"),
+            withDestinationURL: outsideConfig
+        )
+
+        let data = Data("trusted endpoint data\n".utf8)
+        let pointer = GitLFSPointer(oid: GitLFSPointer.sha256Hex(for: data), size: Int64(data.count))
+        try pointer.serializedString.write(
+            to: repositoryURL.appendingPathComponent("Manual.pdf"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let transport = MockGitLFSTransport { request, _ in
+            if request.url?.absoluteString == "https://github.com/example/vault.git/info/lfs/objects/batch" {
+                XCTAssertNotNil(request.value(forHTTPHeaderField: "Authorization"))
+                return (Data("""
+                {"objects":[{"oid":"\(pointer.oid)","size":\(pointer.size),"actions":{"download":{"href":"https://objects.example.test/\(pointer.oid)"}}}]}
+                """.utf8), 200)
+            }
+            if request.url?.absoluteString == "https://objects.example.test/\(pointer.oid)" {
+                return (data, 200)
+            }
+            XCTFail("Unexpected LFS request: \(request.url?.absoluteString ?? "<nil>")")
+            return (Data(), 500)
+        }
+
+        let result = try await GitLFSService(
+            localURL: repositoryURL,
+            credentials: .gitHubPAT("ghp_test"),
+            transport: transport
+        ).hydrateWorktree()
+
+        XCTAssertEqual(result.checkedOutCount, 1)
+        XCTAssertEqual(try Data(contentsOf: repositoryURL.appendingPathComponent("Manual.pdf")), data)
+    }
+
+    func testGitLFSDoesNotForwardGitCredentialsToDifferentConfiguredHost() async throws {
+        let fileManager = FileManager.default
+        let repositoryURL = fileManager.temporaryDirectory
+            .appendingPathComponent("SyncMD-LFSConfiguredHost-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: repositoryURL) }
+        try fileManager.createDirectory(
+            at: repositoryURL.appendingPathComponent(".git", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try """
+        [remote "origin"]
+            url = https://github.com/example/vault.git
+        """.write(to: repositoryURL.appendingPathComponent(".git/config"), atomically: true, encoding: .utf8)
+        try """
+        [lfs]
+            url = https://lfs.example.test/custom
+        """.write(to: repositoryURL.appendingPathComponent(".lfsconfig"), atomically: true, encoding: .utf8)
+
+        let data = Data("custom endpoint data\n".utf8)
+        let pointer = GitLFSPointer(oid: GitLFSPointer.sha256Hex(for: data), size: Int64(data.count))
+        try pointer.serializedString.write(
+            to: repositoryURL.appendingPathComponent("asset.bin"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let transport = MockGitLFSTransport { request, _ in
+            if request.url?.absoluteString == "https://lfs.example.test/custom/objects/batch" {
+                XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+                return (Data("""
+                {"objects":[{"oid":"\(pointer.oid)","size":\(pointer.size),"actions":{"download":{"href":"https://lfs.example.test/objects/\(pointer.oid)"}}}]}
+                """.utf8), 200)
+            }
+            if request.url?.absoluteString == "https://lfs.example.test/objects/\(pointer.oid)" {
+                return (data, 200)
+            }
+            XCTFail("Unexpected LFS request: \(request.url?.absoluteString ?? "<nil>")")
+            return (Data(), 500)
+        }
+
+        let result = try await GitLFSService(
+            localURL: repositoryURL,
+            credentials: .gitHubPAT("ghp_test"),
+            transport: transport
+        ).hydrateWorktree()
+
+        XCTAssertEqual(result.checkedOutCount, 1)
+        XCTAssertEqual(try Data(contentsOf: repositoryURL.appendingPathComponent("asset.bin")), data)
+    }
+
     func testGitLFSHydrateRejectsCandidateOutsideRepository() async throws {
         let fileManager = FileManager.default
         let temporaryRoot = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
