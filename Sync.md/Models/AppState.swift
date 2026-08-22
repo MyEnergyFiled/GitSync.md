@@ -96,6 +96,22 @@ struct SSHHostKeyTrustRequest: Identifiable, Equatable {
     }
 }
 
+protocol RepoPersistenceWriting {
+    func persist(_ repos: [RepoConfig]) throws
+}
+
+struct DefaultRepoPersistenceWriter: RepoPersistenceWriting {
+    func persist(_ repos: [RepoConfig]) throws {
+        try AppState.persistRepos(repos)
+    }
+}
+
+protocol RepositoryFileRemoving {
+    func removeItem(at url: URL) throws
+}
+
+extension FileManager: RepositoryFileRemoving {}
+
 enum RepoPersistenceError: LocalizedError, Equatable {
     case saveFailed
 
@@ -501,8 +517,8 @@ final class AppState {
     private let gitRepositoryFactory: (URL) -> any GitRepositoryProtocol
     private let sshHostKeyTrustStore: any GitLFSSSHHostKeyTrustStore
     private let gitOperationCoordinator: GitOperationCoordinator
-    private let reposPersistenceWriter: ([RepoConfig]) throws -> Void
-    private let repositoryFileRemover: (URL) throws -> Void
+    private let reposPersistenceWriter: any RepoPersistenceWriting
+    private let repositoryFileRemover: any RepositoryFileRemoving
 
     // MARK: - Init
 
@@ -510,8 +526,8 @@ final class AppState {
         gitRepositoryFactory: @escaping (URL) -> any GitRepositoryProtocol = { LocalGitService(localURL: $0) },
         sshHostKeyTrustStore: any GitLFSSSHHostKeyTrustStore = GitLFSSSHHostKeyFileTrustStore.default,
         gitOperationCoordinator: GitOperationCoordinator = .shared,
-        reposPersistenceWriter: @escaping ([RepoConfig]) throws -> Void = { try AppState.persistRepos($0) },
-        repositoryFileRemover: @escaping (URL) throws -> Void = { try FileManager.default.removeItem(at: $0) },
+        reposPersistenceWriter: any RepoPersistenceWriting = DefaultRepoPersistenceWriter(),
+        repositoryFileRemover: any RepositoryFileRemoving = FileManager.default,
         loadPersistedState: Bool = true
     ) {
         self.gitRepositoryFactory = gitRepositoryFactory
@@ -736,7 +752,7 @@ final class AppState {
     @discardableResult
     func saveRepos() -> Result<Void, RepoPersistenceError> {
         do {
-            try reposPersistenceWriter(repos)
+            try reposPersistenceWriter.persist(repos)
             return .success(())
         } catch {
             DebugLogger.shared.error(
@@ -3411,9 +3427,9 @@ final class AppState {
         // delete those files.
         if deleteLocalFiles,
            repo.isGitSyncManagedStorage,
-           FileManager.default.fileExists(atPath: vaultDir.path) {
+            FileManager.default.fileExists(atPath: vaultDir.path) {
             do {
-                try repositoryFileRemover(vaultDir)
+                try repositoryFileRemover.removeItem(at: vaultDir)
             } catch {
                 showError(
                     message: String(localized: "Local repository files could not be deleted. The repository was not removed."),

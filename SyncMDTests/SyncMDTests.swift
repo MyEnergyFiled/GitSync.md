@@ -263,8 +263,9 @@ final class SyncMDTests: XCTestCase {
 
     @MainActor
     func testSaveReposReportsPersistenceFailure() {
+        let writer = RepoPersistenceWriterStub(shouldFail: true)
         let state = AppState(
-            reposPersistenceWriter: { _ in throw persistenceFixtureError() },
+            reposPersistenceWriter: writer,
             loadPersistedState: false
         )
 
@@ -273,6 +274,7 @@ final class SyncMDTests: XCTestCase {
         guard case .failure(.saveFailed) = result else {
             return XCTFail("Expected repository persistence to fail")
         }
+        XCTAssertEqual(writer.persistCallCount, 1)
         XCTAssertTrue(state.showError)
         XCTAssertEqual(state.lastError, RepoPersistenceError.saveFailed.message)
     }
@@ -299,10 +301,11 @@ final class SyncMDTests: XCTestCase {
         let vaultURL = repo.defaultVaultURL
         try FileManager.default.createDirectory(at: vaultURL, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: vaultURL) }
-        var didPersist = false
+        let writer = RepoPersistenceWriterStub()
+        let remover = RepositoryFileRemoverStub(shouldFail: true)
         let state = AppState(
-            reposPersistenceWriter: { _ in didPersist = true },
-            repositoryFileRemover: { _ in throw persistenceFixtureError() },
+            reposPersistenceWriter: writer,
+            repositoryFileRemover: remover,
             loadPersistedState: false
         )
         state.repos = [repo]
@@ -310,7 +313,8 @@ final class SyncMDTests: XCTestCase {
         XCTAssertFalse(state.removeRepo(id: repo.id, deleteLocalFiles: true))
         XCTAssertEqual(state.repos.map(\.id), [repo.id])
         XCTAssertTrue(FileManager.default.fileExists(atPath: vaultURL.path))
-        XCTAssertFalse(didPersist)
+        XCTAssertEqual(remover.removeCallCount, 1)
+        XCTAssertEqual(writer.persistCallCount, 0)
         XCTAssertTrue(state.showError)
     }
 
@@ -324,14 +328,16 @@ final class SyncMDTests: XCTestCase {
             vaultFolderName: "SyncMD-SaveFailure-\(UUID().uuidString)",
             authMethod: .none
         )
+        let writer = RepoPersistenceWriterStub(shouldFail: true)
         let state = AppState(
-            reposPersistenceWriter: { _ in throw persistenceFixtureError() },
+            reposPersistenceWriter: writer,
             loadPersistedState: false
         )
         state.repos = [repo]
 
         XCTAssertFalse(state.removeRepo(id: repo.id))
         XCTAssertEqual(state.repos.map(\.id), [repo.id])
+        XCTAssertEqual(writer.persistCallCount, 1)
         XCTAssertTrue(state.showError)
     }
 
@@ -4995,6 +5001,38 @@ private actor AsyncTestGate {
 
 private func persistenceFixtureError() -> NSError {
     NSError(domain: NSCocoaErrorDomain, code: NSFileWriteUnknownError)
+}
+
+private final class RepoPersistenceWriterStub: RepoPersistenceWriting {
+    private let shouldFail: Bool
+    private(set) var persistCallCount = 0
+
+    init(shouldFail: Bool = false) {
+        self.shouldFail = shouldFail
+    }
+
+    func persist(_ repos: [RepoConfig]) throws {
+        persistCallCount += 1
+        if shouldFail {
+            throw persistenceFixtureError()
+        }
+    }
+}
+
+private final class RepositoryFileRemoverStub: RepositoryFileRemoving {
+    private let shouldFail: Bool
+    private(set) var removeCallCount = 0
+
+    init(shouldFail: Bool = false) {
+        self.shouldFail = shouldFail
+    }
+
+    func removeItem(at url: URL) throws {
+        removeCallCount += 1
+        if shouldFail {
+            throw persistenceFixtureError()
+        }
+    }
 }
 
 private final class FakeGitRepository: GitRepositoryProtocol, @unchecked Sendable {
