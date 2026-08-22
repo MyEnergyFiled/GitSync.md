@@ -5022,6 +5022,42 @@ final class HugoContentServiceTests: XCTestCase {
         XCTAssertNil(choices.languageVariantURLs["zh-Hant"])
     }
 
+    func testThemePreviewRejectsLayoutRootSymlinkOutsideRepository() throws {
+        let fileManager = FileManager.default
+        let temporaryRoot = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let repositoryRoot = temporaryRoot.appendingPathComponent("repository", isDirectory: true)
+        let themeRoot = repositoryRoot.appendingPathComponent("themes/linked", isDirectory: true)
+        let linkedLayouts = themeRoot.appendingPathComponent("layouts", isDirectory: true)
+        let outsideLayouts = temporaryRoot.appendingPathComponent("outside-layouts", isDirectory: true)
+        let outsideLayout = outsideLayouts.appendingPathComponent("posts/private.html")
+        let article = repositoryRoot.appendingPathComponent("content/posts/example/index.md")
+        defer { try? fileManager.removeItem(at: temporaryRoot) }
+        try fileManager.createDirectory(at: themeRoot, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: outsideLayout.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: article.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "<main>Private theme</main>".write(to: outsideLayout, atomically: true, encoding: .utf8)
+        try "Article".write(to: article, atomically: true, encoding: .utf8)
+        try fileManager.createSymbolicLink(at: linkedLayouts, withDestinationURL: outsideLayouts)
+        let configuration = HugoSiteConfiguration(themes: ["linked"])
+
+        let choices = HugoThemePreviewService.discoverChoices(
+            repositoryRoot: repositoryRoot,
+            configuration: configuration,
+            articleURL: article
+        )
+        let page = HugoThemePreviewService.render(
+            markdown: "Article",
+            articleURL: article,
+            repositoryRoot: repositoryRoot,
+            configuration: configuration,
+            options: HugoThemePreviewOptions(layout: "private", contentType: "posts")
+        )
+
+        XCTAssertEqual(choices.layouts, ["single"])
+        XCTAssertNil(page.layoutPath)
+        XCTAssertFalse(page.html.contains("Private theme"))
+    }
+
     func testThemeTemplateSanitizerRemovesScriptsEventsAndFrames() {
         let context = HugoTemplatePreviewContext(
             title: "Safe",

@@ -475,10 +475,16 @@ enum HugoThemePreviewService {
         repositoryRoot: URL,
         configuration: HugoSiteConfiguration
     ) -> [URL] {
-        [repositoryRoot.appendingPathComponent("layouts", isDirectory: true)]
+        let candidates = [repositoryRoot.appendingPathComponent("layouts", isDirectory: true)]
             + configuration.themes.map {
                 repositoryRoot.appendingPathComponent("themes/\($0)/layouts", isDirectory: true)
             }
+        return candidates.compactMap {
+            try? RepositoryFileDestinationValidator.validatedDirectoryURL(
+                $0,
+                repositoryRootURL: repositoryRoot
+            )
+        }
     }
 
     private static func articleSection(articleURL: URL, repositoryRoot: URL) -> String {
