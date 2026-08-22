@@ -1600,9 +1600,16 @@ final class AppState {
     }
 
     func stageFileForAutomation(repoID: UUID, path: String, oldPath: String? = nil) async -> Bool {
-        await gitOperationCoordinator.withOperation(repoID: repoID) { [self] in
-            await stageFile(repoID: repoID, path: path, oldPath: oldPath, lfsAutoTrack: false, promptForLFS: false)
-        }
+        await gitOperationCoordinator.beginOperation(repoID: repoID)
+        let result = await stageFile(
+            repoID: repoID,
+            path: path,
+            oldPath: oldPath,
+            lfsAutoTrack: false,
+            promptForLFS: false
+        )
+        await gitOperationCoordinator.endOperation(repoID: repoID)
+        return result
     }
 
     private func stageFile(
@@ -1751,9 +1758,10 @@ final class AppState {
     /// Stages without presenting UI so App Intents and x-callback requests can
     /// use the same injected repository and per-repository operation queue.
     func stageAllChangesForAutomation(repoID: UUID) async -> Bool {
-        await gitOperationCoordinator.withOperation(repoID: repoID) { [self] in
-            await stageAllChanges(repoID: repoID, lfsAutoTrack: false, promptForLFS: false)
-        }
+        await gitOperationCoordinator.beginOperation(repoID: repoID)
+        let result = await stageAllChanges(repoID: repoID, lfsAutoTrack: false, promptForLFS: false)
+        await gitOperationCoordinator.endOperation(repoID: repoID)
+        return result
     }
 
     private func stageAllChanges(repoID: UUID, lfsAutoTrack: Bool, promptForLFS: Bool) async -> Bool {
@@ -2132,9 +2140,10 @@ final class AppState {
 
     @discardableResult
     func pull(repoID: UUID, showsProgressDelay: Bool = true) async -> Bool {
-        await gitOperationCoordinator.withOperation(repoID: repoID) { [self] in
-            await performPull(repoID: repoID, showsProgressDelay: showsProgressDelay)
-        }
+        await gitOperationCoordinator.beginOperation(repoID: repoID)
+        let result = await performPull(repoID: repoID, showsProgressDelay: showsProgressDelay)
+        await gitOperationCoordinator.endOperation(repoID: repoID)
+        return result
     }
 
     private func performPull(repoID: UUID, showsProgressDelay: Bool) async -> Bool {
@@ -2302,9 +2311,10 @@ final class AppState {
 
     @discardableResult
     func pullWithRebase(repoID: UUID, showsProgressDelay: Bool = true) async -> Bool {
-        await gitOperationCoordinator.withOperation(repoID: repoID) { [self] in
-            await performPullWithRebase(repoID: repoID, showsProgressDelay: showsProgressDelay)
-        }
+        await gitOperationCoordinator.beginOperation(repoID: repoID)
+        let result = await performPullWithRebase(repoID: repoID, showsProgressDelay: showsProgressDelay)
+        await gitOperationCoordinator.endOperation(repoID: repoID)
+        return result
     }
 
     private func performPullWithRebase(repoID: UUID, showsProgressDelay: Bool) async -> Bool {
@@ -2541,9 +2551,10 @@ final class AppState {
 
     @discardableResult
     func pushCurrentBranch(repoID: UUID) async -> Bool {
-        await gitOperationCoordinator.withOperation(repoID: repoID) { [self] in
-            await performPushCurrentBranch(repoID: repoID)
-        }
+        await gitOperationCoordinator.beginOperation(repoID: repoID)
+        let result = await performPushCurrentBranch(repoID: repoID)
+        await gitOperationCoordinator.endOperation(repoID: repoID)
+        return result
     }
 
     private func performPushCurrentBranch(repoID: UUID) async -> Bool {
@@ -2605,9 +2616,10 @@ final class AppState {
 
     @discardableResult
     func push(repoID: UUID, message: String, operationID suppliedOperationID: String? = nil) async -> Bool {
-        await gitOperationCoordinator.withOperation(repoID: repoID) { [self] in
-            await performPush(repoID: repoID, message: message, operationID: suppliedOperationID)
-        }
+        await gitOperationCoordinator.beginOperation(repoID: repoID)
+        let result = await performPush(repoID: repoID, message: message, operationID: suppliedOperationID)
+        await gitOperationCoordinator.endOperation(repoID: repoID)
+        return result
     }
 
     private func performPush(repoID: UUID, message: String, operationID suppliedOperationID: String?) async -> Bool {

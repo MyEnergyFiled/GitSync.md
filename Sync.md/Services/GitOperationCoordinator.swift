@@ -36,6 +36,18 @@ actor GitOperationCoordinator {
         }
     }
 
+    /// Acquires the per-repository queue without carrying an operation closure
+    /// across the actor boundary. This is used for async Boolean operations to
+    /// avoid a Swift 6.3 IRGen failure when reabstracting `@isolated(any)`
+    /// closures that return `Bool`.
+    func beginOperation(repoID: UUID) async {
+        await acquire(repoID: repoID)
+    }
+
+    func endOperation(repoID: UUID) {
+        release(repoID: repoID)
+    }
+
     private func acquire(repoID: UUID) async {
         guard activeRepositoryIDs.contains(repoID) else {
             activeRepositoryIDs.insert(repoID)
