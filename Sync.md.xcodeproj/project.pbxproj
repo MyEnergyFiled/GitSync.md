@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		1273715551CDF043029317F6 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4CB8CE527D5D632A5D9E9D3D /* Foundation.framework */; };
 		336367C9178D693793FC2E54 /* SyncMDTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFF8C7BFA87748C739EB8101 /* SyncMDTests.swift */; };
+		B6D784100000000000000001 /* HugoContentServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6D784100000000000000002 /* HugoContentServiceTests.swift */; };
 		AA1640000000000000000001 /* HugoThemePreviewFixture in Resources */ = {isa = PBXBuildFile; fileRef = AA1640000000000000000002 /* HugoThemePreviewFixture */; };
 		62C953FE2F397E44001F79DF /* Clibgit2 in Frameworks */ = {isa = PBXBuildFile; productRef = 62C951C12F3A0001001F79DF /* Clibgit2 */; };
 		9B1CC33021E2FBF384971478 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4CB8CE527D5D632A5D9E9D3D /* Foundation.framework */; };
@@ -30,6 +31,7 @@
 		4CB8CE527D5D632A5D9E9D3D /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
 		62C951962F393029001F79DF /* Sync.md.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Sync.md.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		DFF8C7BFA87748C739EB8101 /* SyncMDTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SyncMDTests.swift; sourceTree = "<group>"; };
+		B6D784100000000000000002 /* HugoContentServiceTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HugoContentServiceTests.swift; sourceTree = "<group>"; };
 		AA1640000000000000000002 /* HugoThemePreviewFixture */ = {isa = PBXFileReference; lastKnownFileType = folder; path = HugoThemePreviewFixture; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -79,6 +81,7 @@
 			isa = PBXGroup;
 			children = (
 				DFF8C7BFA87748C739EB8101 /* SyncMDTests.swift */,
+				B6D784100000000000000002 /* HugoContentServiceTests.swift */,
 				AA1640000000000000000002 /* HugoThemePreviewFixture */,
 			);
 			name = SyncMDTests;
@@ -257,6 +260,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				336367C9178D693793FC2E54 /* SyncMDTests.swift in Sources */,
+				B6D784100000000000000001 /* HugoContentServiceTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
