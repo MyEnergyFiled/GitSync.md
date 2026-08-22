@@ -887,6 +887,24 @@ final class SyncMDTests: XCTestCase {
         XCTAssertEqual(ssh?.isSSH, true)
     }
 
+    func testGitHubRepoParserRequiresExactGitHubHostAndTwoPathComponents() {
+        let https = GitHubService.parseRepoURL("https://github.com/example/notes.git")
+        XCTAssertEqual(https?.owner, "example")
+        XCTAssertEqual(https?.repo, "notes")
+
+        let ssh = GitHubService.parseRepoURL("git@github.com:example/notes.git")
+        XCTAssertEqual(ssh?.owner, "example")
+        XCTAssertEqual(ssh?.repo, "notes")
+
+        let shortcut = GitHubService.parseRepoURL("example/notes")
+        XCTAssertEqual(shortcut?.owner, "example")
+        XCTAssertEqual(shortcut?.repo, "notes")
+
+        XCTAssertNil(GitHubService.parseRepoURL("https://notgithub.com/example/notes.git"))
+        XCTAssertNil(GitHubService.parseRepoURL("https://github.com.evil.example/example/notes.git"))
+        XCTAssertNil(GitHubService.parseRepoURL("https://github.com/group/example/notes.git"))
+    }
+
     func testGitRemoteCredentialsTransportPayloadRoundTripsAndSupportsLegacyPAT() {
         let credentials = GitRemoteCredentials.sshKey(
             username: "git",
