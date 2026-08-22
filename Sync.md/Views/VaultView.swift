@@ -330,7 +330,9 @@ struct VaultView: View {
                             .disabled(state.isSyncing)
 
                             Button {
-                                Task { await state.pullWithRebase(repoID: repoID) }
+                                Task<Void, Never> { @MainActor in
+                                    _ = await state.pullWithRebase(repoID: repoID)
+                                }
                             } label: {
                                 Text(String(localized: "Rebase").uppercased())
                                     .font(.system(size: 12, weight: .bold, design: .monospaced))
@@ -549,7 +551,9 @@ struct VaultView: View {
         VStack(spacing: 10) {
             // Pull
             Button {
-                Task { await state.pull(repoID: repoID) }
+                Task<Void, Never> { @MainActor in
+                    _ = await state.pull(repoID: repoID)
+                }
             } label: {
                 BCard(padding: 0) {
                     BActionRow(
@@ -564,7 +568,9 @@ struct VaultView: View {
             .opacity(state.isSyncing ? 0.5 : 1)
 
             Button {
-                Task { await state.pullWithRebase(repoID: repoID) }
+                Task<Void, Never> { @MainActor in
+                    _ = await state.pullWithRebase(repoID: repoID)
+                }
             } label: {
                 BCard(padding: 0) {
                     BActionRow(
@@ -583,7 +589,9 @@ struct VaultView: View {
 
             Button {
                 if canPushAhead {
-                    Task { await state.pushCurrentBranch(repoID: repoID) }
+                    Task<Void, Never> { @MainActor in
+                        _ = await state.pushCurrentBranch(repoID: repoID)
+                    }
                 } else {
                     showCommitSheet = true
                 }
