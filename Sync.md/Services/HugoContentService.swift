@@ -561,6 +561,7 @@ enum HugoContentService {
     static func validateArticleBundle(
         markdown: String,
         fileURL: URL,
+        repositoryRoot: URL,
         oversizedThreshold: Int64 = 10 * 1024 * 1024
     ) -> HugoArticleValidation {
         let matter = MarkdownFrontMatter(markdown: markdown)
@@ -576,7 +577,10 @@ enum HugoContentService {
             }
         }
 
-        let bundleURL = fileURL.deletingLastPathComponent()
+        let bundleURL = try? RepositoryFileDestinationValidator.validatedDirectoryURL(
+            fileURL.deletingLastPathComponent(),
+            repositoryRootURL: repositoryRoot
+        )
         let pattern = #"images/[^\s)\]\}"']+"#
         let regex = try? NSRegularExpression(pattern: pattern)
         let range = NSRange(markdown.startIndex..., in: markdown)
@@ -586,20 +590,41 @@ enum HugoContentService {
         } ?? []
         let uniqueReferences = Array(Set(references)).sorted()
         let missing = uniqueReferences.filter { path in
-            path.contains("..") || !FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent(path).path)
+            guard !path.contains(".."),
+                  let bundleURL,
+                  let imageURL = localPreviewAssetURL(
+                      for: path,
+                      bundleURL: bundleURL,
+                      repositoryRoot: repositoryRoot
+                  ) else { return true }
+            return !FileManager.default.fileExists(atPath: imageURL.path)
         }
 
-        let imagesURL = bundleURL.appendingPathComponent("images", isDirectory: true)
-        let imageFiles = (try? FileManager.default.contentsOfDirectory(
-            at: imagesURL,
-            includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey],
-            options: .skipsHiddenFiles
-        )) ?? []
+        let imagesURL = bundleURL.flatMap {
+            try? RepositoryFileDestinationValidator.existingDirectoryURL(
+                $0.appendingPathComponent("images", isDirectory: true),
+                in: $0,
+                repositoryRootURL: repositoryRoot
+            )
+        }
+        let imageFiles = imagesURL.flatMap {
+            try? FileManager.default.contentsOfDirectory(
+                at: $0,
+                includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey, .isSymbolicLinkKey],
+                options: .skipsHiddenFiles
+            )
+        } ?? []
         let oversized = imageFiles.compactMap { url -> String? in
-            guard let values = try? url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]),
+            guard let imagesURL,
+                  let safeURL = try? RepositoryFileDestinationValidator.existingFileURL(
+                      url,
+                      in: imagesURL,
+                      repositoryRootURL: repositoryRoot
+                  ),
+                  let values = try? safeURL.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]),
                   values.isRegularFile == true,
                   Int64(values.fileSize ?? 0) > oversizedThreshold else { return nil }
-            return url.lastPathComponent
+            return safeURL.lastPathComponent
         }.sorted()
 
         return HugoArticleValidation(

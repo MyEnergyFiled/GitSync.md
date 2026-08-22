@@ -1245,7 +1245,8 @@ struct FileEditorView: View {
     private func prepareQuickPublish() {
         publishValidation = HugoContentService.validateArticleBundle(
             markdown: pendingContent,
-            fileURL: liveURL
+            fileURL: liveURL,
+            repositoryRoot: vaultURL
         )
         if !isDirty,
            !state.hasArticleBundleChanges(repoID: repoID, fileURL: liveURL),
@@ -1265,7 +1266,8 @@ struct FileEditorView: View {
         )
         let validation = HugoContentService.validateArticleBundle(
             markdown: pendingContent,
-            fileURL: liveURL
+            fileURL: liveURL,
+            repositoryRoot: vaultURL
         )
         publishValidation = validation
         guard validation.isValid else {

@@ -448,6 +448,7 @@ final class SyncMDTests: XCTestCase {
         let result = HugoContentService.validateArticleBundle(
             markdown: markdown,
             fileURL: fileURL,
+            repositoryRoot: root,
             oversizedThreshold: 3
         )
 
@@ -463,7 +464,8 @@ final class SyncMDTests: XCTestCase {
 
         let result = HugoContentService.validateArticleBundle(
             markdown: "Body without Front Matter",
-            fileURL: fileURL
+            fileURL: fileURL,
+            repositoryRoot: fileURL.deletingLastPathComponent()
         )
 
         XCTAssertEqual(result.frontMatterIssues, [.missingOrIncomplete])
@@ -478,7 +480,8 @@ final class SyncMDTests: XCTestCase {
 
         let result = HugoContentService.validateArticleBundle(
             markdown: markdown,
-            fileURL: fileURL
+            fileURL: fileURL,
+            repositoryRoot: fileURL.deletingLastPathComponent()
         )
 
         XCTAssertEqual(result.frontMatterIssues, [.missingTitle, .invalidDate])
@@ -493,7 +496,8 @@ final class SyncMDTests: XCTestCase {
 
         let result = HugoContentService.validateArticleBundle(
             markdown: markdown,
-            fileURL: fileURL
+            fileURL: fileURL,
+            repositoryRoot: fileURL.deletingLastPathComponent()
         )
 
         XCTAssertTrue(result.frontMatterIssues.isEmpty)
@@ -513,11 +517,38 @@ final class SyncMDTests: XCTestCase {
         let result = HugoContentService.validateArticleBundle(
             markdown: markdown,
             fileURL: fileURL,
+            repositoryRoot: root,
             oversizedThreshold: 3
         )
 
         XCTAssertEqual(result.oversizedImageNames, ["large.jpg"])
         XCTAssertTrue(result.isValid)
+    }
+
+    func testHugoArticleValidationRejectsImagesDirectorySymlinkOutsideRepository() throws {
+        let fileManager = FileManager.default
+        let temporaryRoot = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let repositoryRoot = temporaryRoot.appendingPathComponent("repository", isDirectory: true)
+        let bundle = repositoryRoot.appendingPathComponent("content/posts/test", isDirectory: true)
+        let linkedImages = bundle.appendingPathComponent("images", isDirectory: true)
+        let outsideImages = temporaryRoot.appendingPathComponent("outside-images", isDirectory: true)
+        defer { try? fileManager.removeItem(at: temporaryRoot) }
+        try fileManager.createDirectory(at: bundle, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: outsideImages, withIntermediateDirectories: true)
+        try Data([0, 1, 2, 3]).write(to: outsideImages.appendingPathComponent("private.jpg"))
+        try fileManager.createSymbolicLink(at: linkedImages, withDestinationURL: outsideImages)
+        let markdown = "---\ntitle: \"Post\"\ndraft: false\n---\n\n![image](images/private.jpg)"
+
+        let result = HugoContentService.validateArticleBundle(
+            markdown: markdown,
+            fileURL: bundle.appendingPathComponent("index.md"),
+            repositoryRoot: repositoryRoot,
+            oversizedThreshold: 3
+        )
+
+        XCTAssertEqual(result.missingImagePaths, ["images/private.jpg"])
+        XCTAssertTrue(result.oversizedImageNames.isEmpty)
+        XCTAssertFalse(result.isValid)
     }
 
     func testArticleImageFormatsIncludeBitmapFiles() {
