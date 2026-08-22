@@ -262,7 +262,7 @@ final class SyncMDTests: XCTestCase {
     }
 
     @MainActor
-    func testSaveReposReportsPersistenceFailure() {
+    func testSaveReposReportsPersistenceFailure() async {
         let writer = RepoPersistenceWriterStub(shouldFail: true)
         let state = AppState(
             reposPersistenceWriter: writer,
@@ -289,7 +289,7 @@ final class SyncMDTests: XCTestCase {
     }
 
     @MainActor
-    func testRemoveRepositoryPreservesRecordWhenLocalDeletionFails() throws {
+    func testRemoveRepositoryPreservesRecordWhenLocalDeletionFails() async throws {
         let repo = RepoConfig(
             repoURL: "https://example.com/delete-failure.git",
             branch: "main",
@@ -319,7 +319,7 @@ final class SyncMDTests: XCTestCase {
     }
 
     @MainActor
-    func testRemoveRepositoryRestoresRecordWhenSettingsSaveFails() {
+    func testRemoveRepositoryRestoresRecordWhenSettingsSaveFails() async {
         let repo = RepoConfig(
             repoURL: "https://example.com/save-failure.git",
             branch: "main",
