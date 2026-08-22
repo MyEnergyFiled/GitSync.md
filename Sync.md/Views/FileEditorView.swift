@@ -1017,17 +1017,29 @@ struct FileEditorView: View {
     }
 
     private func storeImage(data: Data, preferredName: String) {
-        let directory = liveURL.deletingLastPathComponent().appendingPathComponent("images", isDirectory: true)
         do {
+            let repositoryRoot = state.vaultURL(for: repoID)
+            let directory = try RepositoryFileDestinationValidator.validatedDirectoryURL(
+                imageDirectory,
+                repositoryRootURL: repositoryRoot
+            )
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let source = URL(fileURLWithPath: preferredName)
             let stem = HugoContentService.slugify(source.deletingPathExtension().lastPathComponent)
             let base = stem.isEmpty ? "image" : stem
             let ext = source.pathExtension.isEmpty ? "jpg" : source.pathExtension.lowercased()
-            var destination = directory.appendingPathComponent("\(base).\(ext)")
+            var destination = try RepositoryFileDestinationValidator.destinationURL(
+                for: "\(base).\(ext)",
+                in: directory,
+                repositoryRootURL: repositoryRoot
+            )
             var suffix = 2
             while FileManager.default.fileExists(atPath: destination.path) {
-                destination = directory.appendingPathComponent("\(base)-\(suffix).\(ext)")
+                destination = try RepositoryFileDestinationValidator.destinationURL(
+                    for: "\(base)-\(suffix).\(ext)",
+                    in: directory,
+                    repositoryRootURL: repositoryRoot
+                )
                 suffix += 1
             }
             try data.write(to: destination, options: .atomic)
@@ -1060,12 +1072,28 @@ struct FileEditorView: View {
     }
 
     private func loadImages() {
+        let repositoryRoot = state.vaultURL(for: repoID)
+        guard let directory = try? RepositoryFileDestinationValidator.validatedDirectoryURL(
+            imageDirectory,
+            repositoryRootURL: repositoryRoot
+        ) else {
+            images = []
+            return
+        }
         images = ((try? FileManager.default.contentsOfDirectory(
-            at: imageDirectory,
-            includingPropertiesForKeys: nil,
+            at: directory,
+            includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey],
             options: .skipsHiddenFiles
-        )) ?? []).filter(HugoContentService.isSupportedArticleImage)
-            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+        )) ?? []).compactMap { url in
+            guard HugoContentService.isSupportedArticleImage(url) else { return nil }
+            return try? RepositoryFileDestinationValidator.existingFileURL(
+                url,
+                in: directory,
+                repositoryRootURL: repositoryRoot
+            )
+        }.sorted {
+            $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending
+        }
     }
 
     private func isImageReferenced(_ name: String) -> Bool {
@@ -1073,16 +1101,27 @@ struct FileEditorView: View {
     }
 
     private func renameImage(_ image: URL, _ requestedName: String) {
-        let raw = URL(fileURLWithPath: requestedName)
-        let ext = raw.pathExtension.isEmpty ? image.pathExtension : raw.pathExtension.lowercased()
-        let stem = HugoContentService.slugify(raw.deletingPathExtension().lastPathComponent)
-        guard !stem.isEmpty else { return }
-        let destination = imageDirectory.appendingPathComponent("\(stem).\(ext)")
-        guard destination != image, !FileManager.default.fileExists(atPath: destination.path) else { return }
         do {
-            try FileManager.default.moveItem(at: image, to: destination)
+            let repositoryRoot = state.vaultURL(for: repoID)
+            let safeImage = try RepositoryFileDestinationValidator.existingFileURL(
+                image,
+                in: imageDirectory,
+                repositoryRootURL: repositoryRoot
+            )
+            let raw = URL(fileURLWithPath: requestedName)
+            let ext = raw.pathExtension.isEmpty ? safeImage.pathExtension : raw.pathExtension.lowercased()
+            let stem = HugoContentService.slugify(raw.deletingPathExtension().lastPathComponent)
+            guard !stem.isEmpty else { return }
+            let destination = try RepositoryFileDestinationValidator.destinationURL(
+                for: "\(stem).\(ext)",
+                in: imageDirectory,
+                repositoryRootURL: repositoryRoot
+            )
+            guard destination != safeImage,
+                  !FileManager.default.fileExists(atPath: destination.path) else { return }
+            try FileManager.default.moveItem(at: safeImage, to: destination)
             invalidatePublishRetry()
-            replaceImageReference(from: image.lastPathComponent, to: destination.lastPathComponent)
+            replaceImageReference(from: safeImage.lastPathComponent, to: destination.lastPathComponent)
             loadImages()
             state.detectChanges(repoID: repoID)
         } catch { imageMessage = error.localizedDescription }
@@ -1092,16 +1131,29 @@ struct FileEditorView: View {
         let accessing = source.startAccessingSecurityScopedResource()
         defer { if accessing { source.stopAccessingSecurityScopedResource() } }
         do {
+            let repositoryRoot = state.vaultURL(for: repoID)
+            let safeImage = try RepositoryFileDestinationValidator.existingFileURL(
+                image,
+                in: imageDirectory,
+                repositoryRootURL: repositoryRoot
+            )
             let data = try Data(contentsOf: source)
             let sourceExtension = source.pathExtension.lowercased()
-            let destination = sourceExtension.isEmpty || sourceExtension == image.pathExtension.lowercased()
-                ? image
-                : image.deletingPathExtension().appendingPathExtension(sourceExtension)
+            let destination: URL
+            if sourceExtension.isEmpty || sourceExtension == safeImage.pathExtension.lowercased() {
+                destination = safeImage
+            } else {
+                destination = try RepositoryFileDestinationValidator.destinationURL(
+                    for: safeImage.deletingPathExtension().lastPathComponent + "." + sourceExtension,
+                    in: imageDirectory,
+                    repositoryRootURL: repositoryRoot
+                )
+            }
             try data.write(to: destination, options: .atomic)
             invalidatePublishRetry()
-            if destination != image {
-                try FileManager.default.removeItem(at: image)
-                replaceImageReference(from: image.lastPathComponent, to: destination.lastPathComponent)
+            if destination != safeImage {
+                try FileManager.default.removeItem(at: safeImage)
+                replaceImageReference(from: safeImage.lastPathComponent, to: destination.lastPathComponent)
             }
             loadImages()
             state.detectChanges(repoID: repoID)
@@ -1110,7 +1162,13 @@ struct FileEditorView: View {
 
     private func deleteImage(_ image: URL) {
         do {
-            try FileManager.default.removeItem(at: image)
+            let repositoryRoot = state.vaultURL(for: repoID)
+            let safeImage = try RepositoryFileDestinationValidator.existingFileURL(
+                image,
+                in: imageDirectory,
+                repositoryRootURL: repositoryRoot
+            )
+            try FileManager.default.removeItem(at: safeImage)
             invalidatePublishRetry()
             loadImages()
             state.detectChanges(repoID: repoID)

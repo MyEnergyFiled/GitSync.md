@@ -15,6 +15,46 @@ enum RepositoryFileDestinationError: LocalizedError, Equatable {
 }
 
 enum RepositoryFileDestinationValidator {
+    static func validatedDirectoryURL(
+        _ directoryURL: URL,
+        repositoryRootURL: URL
+    ) throws -> URL {
+        let resolvedRoot = repositoryRootURL.standardizedFileURL.resolvingSymlinksInPath()
+        let resolvedDirectory = directoryURL.standardizedFileURL.resolvingSymlinksInPath()
+        guard contains(resolvedDirectory, within: resolvedRoot) else {
+            throw RepositoryFileDestinationError.outsideRepository
+        }
+        return resolvedDirectory
+    }
+
+    static func existingFileURL(
+        _ fileURL: URL,
+        in directoryURL: URL,
+        repositoryRootURL: URL
+    ) throws -> URL {
+        let resolvedDirectory = try validatedDirectoryURL(
+            directoryURL,
+            repositoryRootURL: repositoryRootURL
+        )
+        let expectedURL = try destinationURL(
+            for: fileURL.lastPathComponent,
+            in: resolvedDirectory,
+            repositoryRootURL: repositoryRootURL
+        )
+        let standardizedFile = fileURL.standardizedFileURL
+        let resolvedFile = standardizedFile.resolvingSymlinksInPath()
+        let values = try? standardizedFile.resourceValues(
+            forKeys: [.isRegularFileKey, .isSymbolicLinkKey]
+        )
+        guard standardizedFile.deletingLastPathComponent().resolvingSymlinksInPath() == resolvedDirectory,
+              resolvedFile == expectedURL,
+              values?.isRegularFile == true,
+              values?.isSymbolicLink != true else {
+            throw RepositoryFileDestinationError.outsideRepository
+        }
+        return resolvedFile
+    }
+
     static func destinationURL(
         forRenaming sourceURL: URL,
         to rawName: String,
@@ -44,10 +84,10 @@ enum RepositoryFileDestinationValidator {
         }
 
         let resolvedRoot = repositoryRootURL.standardizedFileURL.resolvingSymlinksInPath()
-        let resolvedDirectory = directoryURL.standardizedFileURL.resolvingSymlinksInPath()
-        guard contains(resolvedDirectory, within: resolvedRoot) else {
-            throw RepositoryFileDestinationError.outsideRepository
-        }
+        let resolvedDirectory = try validatedDirectoryURL(
+            directoryURL,
+            repositoryRootURL: repositoryRootURL
+        )
 
         let destination = resolvedDirectory.appendingPathComponent(name).standardizedFileURL
         guard destination.deletingLastPathComponent() == resolvedDirectory,
