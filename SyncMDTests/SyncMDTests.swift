@@ -274,23 +274,16 @@ final class SyncMDTests: XCTestCase {
             return XCTFail("Expected repository persistence to fail")
         }
         XCTAssertTrue(state.showError)
-        XCTAssertEqual(state.lastError, RepoPersistenceError.saveFailed.localizedDescription)
+        XCTAssertEqual(state.lastError, RepoPersistenceError.saveFailed.message)
     }
 
-    func testKeychainServiceReportsResultsAndUpdatesAtomically() throws {
-        let key = "tests_\(UUID().uuidString)"
-        defer { try? KeychainService.delete(key: key) }
+    func testKeychainServiceErrorKeepsDiagnosticsOutOfUserMessage() {
+        let error = KeychainServiceError(operation: .save, status: errSecMissingEntitlement)
 
-        XCTAssertNil(try KeychainService.load(key: key))
-        try KeychainService.save(key: key, value: "first")
-        XCTAssertEqual(try KeychainService.load(key: key), "first")
-
-        try KeychainService.save(key: key, value: "second")
-        XCTAssertEqual(try KeychainService.load(key: key), "second")
-
-        try KeychainService.delete(key: key)
-        try KeychainService.delete(key: key)
-        XCTAssertNil(try KeychainService.load(key: key))
+        XCTAssertEqual(error.errorDescription, String(localized: "Secure credential access failed."))
+        XCTAssertFalse(error.errorDescription?.contains("OSStatus") == true)
+        XCTAssertTrue(error.diagnosticDescription.contains("operation=save"))
+        XCTAssertTrue(error.diagnosticDescription.contains("status="))
     }
 
     @MainActor

@@ -99,14 +99,23 @@ struct SSHHostKeyTrustRequest: Identifiable, Equatable {
 enum RepoPersistenceError: LocalizedError, Equatable {
     case saveFailed
 
-    var errorDescription: String? {
+    var message: String {
         String(localized: "Repository settings could not be saved. Check available storage and try again.")
+    }
+
+    var errorDescription: String? {
+        message
     }
 }
 
 private func persistenceErrorDiagnostic(_ error: Error) -> String {
-    let nsError = error as NSError
-    return "domain=\(nsError.domain) code=\(nsError.code)"
+    if let cocoaError = error as? CocoaError {
+        return "type=CocoaError code=\(cocoaError.code.rawValue)"
+    }
+    if let keychainError = error as? KeychainServiceError {
+        return keychainError.diagnosticDescription
+    }
+    return "type=\(String(reflecting: type(of: error)))"
 }
 
 // MARK: - App State
@@ -266,7 +275,6 @@ final class AppState {
                     detail: keychainError.diagnosticDescription
                 )
             }
-            showError(message: error.localizedDescription, category: "persistence")
             return nil
         }
     }
@@ -284,7 +292,11 @@ final class AppState {
                     detail: keychainError.diagnosticDescription
                 )
             }
-            showError(message: error.localizedDescription, category: "persistence")
+            showError(
+                message: (error as? KeychainServiceError)?.errorDescription
+                    ?? String(localized: "Secure credential access failed."),
+                category: "persistence"
+            )
             return false
         }
     }
@@ -302,7 +314,11 @@ final class AppState {
                     detail: keychainError.diagnosticDescription
                 )
             }
-            showError(message: error.localizedDescription, category: "persistence")
+            showError(
+                message: (error as? KeychainServiceError)?.errorDescription
+                    ?? String(localized: "Secure credential access failed."),
+                category: "persistence"
+            )
             return false
         }
     }
@@ -731,7 +747,7 @@ final class AppState {
                 "Could not save repository settings",
                 detail: persistenceErrorDiagnostic(error)
             )
-            showError(message: RepoPersistenceError.saveFailed.localizedDescription, category: "persistence")
+            showError(message: RepoPersistenceError.saveFailed.message, category: "persistence")
             return .failure(.saveFailed)
         }
     }
