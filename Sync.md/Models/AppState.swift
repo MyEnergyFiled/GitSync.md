@@ -159,6 +159,10 @@ final class AppState {
     var repos: [RepoConfig] = []
     private(set) var duplicateReposCleanedCount = 0
     var changeCounts: [UUID: Int] = [:]
+
+    func recordDuplicateReposCleaned(_ count: Int) {
+        duplicateReposCleanedCount = count
+    }
     var statusEntriesByRepo: [UUID: [GitStatusEntry]] = [:]
     var syncStateByRepo: [UUID: RepoSyncState] = [:]
     var pullOutcomeByRepo: [UUID: PullOutcomeState] = [:]

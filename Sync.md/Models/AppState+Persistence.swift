@@ -83,7 +83,7 @@ extension AppState {
                 decoder.dateDecodingStrategy = .iso8601
                 let decoded = try decoder.decode([RepoConfig].self, from: data)
                 repos = Self.deduplicatedRepos(decoded)
-                duplicateReposCleanedCount = decoded.count - repos.count
+                recordDuplicateReposCleaned(decoded.count - repos.count)
                 if duplicateReposCleanedCount > 0 {
                     saveRepos()
                     DebugLogger.shared.info(
@@ -189,7 +189,7 @@ extension AppState {
         applyGitHubAccount(account)
     }
 
-    private func migrateRepoAccountOwnershipIfNeeded() {
+    func migrateRepoAccountOwnershipIfNeeded() {
         guard !activeGitHubAccountLogin.isEmpty else { return }
         var didChange = false
         for idx in repos.indices {
