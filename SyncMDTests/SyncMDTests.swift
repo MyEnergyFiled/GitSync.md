@@ -3112,8 +3112,14 @@ final class SyncMDTests: XCTestCase {
             }
         }
 
-        let safeStatus = try await service.repoInfo().statusEntries.first { $0.path == "safe.txt" }
-        XCTAssertNil(safeStatus?.indexStatus)
+        var reopenedRepository: OpaquePointer?
+        defer { if let reopenedRepository { git_repository_free(reopenedRepository) } }
+        XCTAssertEqual(git_repository_open(&reopenedRepository, repositoryURL.path), 0)
+        var index: OpaquePointer?
+        defer { if let index { git_index_free(index) } }
+        XCTAssertEqual(git_repository_index(&index, reopenedRepository), 0)
+        let safeIndexEntry = "safe.txt".withCString { git_index_get_bypath(index, $0, 0) }
+        XCTAssertNil(safeIndexEntry)
         XCTAssertEqual(try String(contentsOf: outsideFile, encoding: .utf8), "outside")
         XCTAssertEqual(try Data(contentsOf: metadataURL), originalMetadata)
     }
