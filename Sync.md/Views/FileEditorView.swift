@@ -274,7 +274,9 @@ struct FileEditorView: View {
                     }
                     if !isBinary {
                         Button("Save") {
-                            Task { _ = await performSave() }
+                            Task<Void, Never> { @MainActor in
+                                _ = await performSave()
+                            }
                         }
                         .font(.system(size: 12, weight: .bold, design: .monospaced))
                         .foregroundStyle(isDirty ? Color.brutalAccent : Color.brutalTextFaint)
