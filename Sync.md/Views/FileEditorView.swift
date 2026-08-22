@@ -26,6 +26,7 @@ private enum FileSaveOutcome: Equatable, Sendable {
     case failed
 }
 
+@MainActor
 struct FileEditorView: View {
     @Environment(AppState.self) private var state
     @Environment(\.scenePhase) private var scenePhase
