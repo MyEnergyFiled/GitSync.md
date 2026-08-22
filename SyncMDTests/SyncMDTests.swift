@@ -108,6 +108,41 @@ final class SyncMDTests: XCTestCase {
         )
     }
 
+    func testRepositoryExistingDirectoryRejectsSymlinkOutsideRepository() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let repositoryRoot = temporaryRoot.appendingPathComponent("repository", isDirectory: true)
+        let outsideDirectory = temporaryRoot.appendingPathComponent("outside", isDirectory: true)
+        let linkedDirectory = repositoryRoot.appendingPathComponent("linked", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+        try FileManager.default.createDirectory(at: repositoryRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outsideDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: linkedDirectory, withDestinationURL: outsideDirectory)
+
+        XCTAssertThrowsError(try RepositoryFileDestinationValidator.existingDirectoryURL(
+            linkedDirectory,
+            in: repositoryRoot,
+            repositoryRootURL: repositoryRoot
+        )) { error in
+            XCTAssertEqual(error as? RepositoryFileDestinationError, .outsideRepository)
+        }
+    }
+
+    func testRepositoryExistingDirectoryAcceptsRegularChild() throws {
+        let repositoryRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let directory = repositoryRoot.appendingPathComponent("notes", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: repositoryRoot) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        XCTAssertEqual(
+            try RepositoryFileDestinationValidator.existingDirectoryURL(
+                directory,
+                in: repositoryRoot,
+                repositoryRootURL: repositoryRoot
+            ),
+            directory.resolvingSymlinksInPath()
+        )
+    }
+
     func testRepositoryFileRenameDestinationKeepsEditorFileInsideRepository() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let articleDirectory = root.appendingPathComponent("content/posts/article", isDirectory: true)

@@ -55,6 +55,31 @@ enum RepositoryFileDestinationValidator {
         return resolvedFile
     }
 
+    static func existingDirectoryURL(
+        _ directoryURL: URL,
+        in parentDirectoryURL: URL,
+        repositoryRootURL: URL
+    ) throws -> URL {
+        let resolvedParent = try validatedDirectoryURL(
+            parentDirectoryURL,
+            repositoryRootURL: repositoryRootURL
+        )
+        let standardizedDirectory = directoryURL.standardizedFileURL
+        let resolvedDirectory = try validatedDirectoryURL(
+            standardizedDirectory,
+            repositoryRootURL: repositoryRootURL
+        )
+        let values = try? standardizedDirectory.resourceValues(
+            forKeys: [.isDirectoryKey, .isSymbolicLinkKey]
+        )
+        guard standardizedDirectory.deletingLastPathComponent().resolvingSymlinksInPath() == resolvedParent,
+              values?.isDirectory == true,
+              values?.isSymbolicLink != true else {
+            throw RepositoryFileDestinationError.outsideRepository
+        }
+        return resolvedDirectory
+    }
+
     static func destinationURL(
         forRenaming sourceURL: URL,
         to rawName: String,

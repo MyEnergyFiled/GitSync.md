@@ -265,9 +265,16 @@ struct FileBrowserView: View {
     // MARK: - Data Loading
 
     private func loadItems() {
+        guard let directory = try? RepositoryFileDestinationValidator.validatedDirectoryURL(
+            currentURL,
+            repositoryRootURL: vaultURL
+        ) else {
+            items = []
+            return
+        }
         guard let contents = try? FileManager.default.contentsOfDirectory(
-            at: currentURL,
-            includingPropertiesForKeys: [.isDirectoryKey],
+            at: directory,
+            includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey],
             options: .skipsHiddenFiles
         ) else {
             items = []
@@ -276,8 +283,27 @@ struct FileBrowserView: View {
 
         items = contents.compactMap { url -> FileItem? in
             guard url.lastPathComponent != ".git" else { return nil }
-            let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
-            return FileItem(url: url, name: url.lastPathComponent, isDirectory: isDir)
+            let values = try? url.resourceValues(
+                forKeys: [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey]
+            )
+            guard values?.isSymbolicLink != true else { return nil }
+            if values?.isDirectory == true,
+               let safeURL = try? RepositoryFileDestinationValidator.existingDirectoryURL(
+                   url,
+                   in: directory,
+                   repositoryRootURL: vaultURL
+               ) {
+                return FileItem(url: safeURL, name: url.lastPathComponent, isDirectory: true)
+            }
+            if values?.isRegularFile == true,
+               let safeURL = try? RepositoryFileDestinationValidator.existingFileURL(
+                   url,
+                   in: directory,
+                   repositoryRootURL: vaultURL
+               ) {
+                return FileItem(url: safeURL, name: url.lastPathComponent, isDirectory: false)
+            }
+            return nil
         }
         .sorted {
             if $0.isDirectory != $1.isDirectory { return $0.isDirectory }
