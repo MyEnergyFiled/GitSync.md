@@ -309,7 +309,7 @@ struct FileEditorView: View {
         .sheet(isPresented: $showImageLibrary) {
             HugoImageLibraryView(
                 images: $images,
-                isReferenced: { isImageReferenced($0.lastPathComponent) },
+                referencedImageNames: referencedImageNames,
                 onInsert: { insertMarkdownImage(named: $0.lastPathComponent) },
                 onRename: renameImage,
                 onReplace: replaceImage,
@@ -1151,8 +1151,15 @@ struct FileEditorView: View {
         }
     }
 
-    private func isImageReferenced(_ name: String) -> Bool {
-        content.contains("images/\(name)") || frontMatter.body.contains("images/\(name)")
+    private var referencedImageNames: Set<String> {
+        var names = Set<String>()
+        for image in images {
+            let name = image.lastPathComponent
+            if content.contains("images/\(name)") || frontMatter.body.contains("images/\(name)") {
+                names.insert(name)
+            }
+        }
+        return names
     }
 
     private func renameImage(_ image: URL, _ requestedName: String) {
@@ -1819,7 +1826,7 @@ private struct HugoMarkdownPreview: View {
 private struct HugoImageLibraryView: View {
     @Environment(\.dismiss) private var dismiss
     @Binding var images: [URL]
-    let isReferenced: (URL) -> Bool
+    let referencedImageNames: Set<String>
     let onInsert: (URL) -> Void
     let onRename: (URL, String) -> Void
     let onReplace: (URL, URL) -> Void
@@ -1887,7 +1894,7 @@ private struct HugoImageLibraryView: View {
             }
             Button("Cancel", role: .cancel) { deleteTarget = nil }
         } message: {
-            if let target = deleteTarget, isReferenced(target) {
+            if let target = deleteTarget, referencedImageNames.contains(target.lastPathComponent) {
                 Text("This image is referenced by the article. Deleting it will leave a broken Markdown link.")
             } else {
                 Text("This removes the image from the article bundle.")
