@@ -11,9 +11,9 @@ actor GitOperationCoordinator {
     private var activeRepositoryIDs: Set<UUID> = []
     private var waitersByRepositoryID: [UUID: [CheckedContinuation<Void, Never>]] = [:]
 
-    func withOperation<Result>(
+    func withOperation<Result: Sendable>(
         repoID: UUID,
-        operation: @Sendable () async -> Result
+        operation: @MainActor @Sendable () async -> Result
     ) async -> Result {
         await acquire(repoID: repoID)
         let result = await operation()
@@ -21,9 +21,9 @@ actor GitOperationCoordinator {
         return result
     }
 
-    func withThrowingOperation<Result>(
+    func withThrowingOperation<Result: Sendable>(
         repoID: UUID,
-        operation: @Sendable () async throws -> Result
+        operation: @MainActor @Sendable () async throws -> Result
     ) async throws -> Result {
         await acquire(repoID: repoID)
         do {
