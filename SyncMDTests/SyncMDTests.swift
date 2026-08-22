@@ -738,7 +738,8 @@ final class SyncMDTests: XCTestCase {
         XCTAssertFalse(HugoContentService.isSupportedArticleImage(URL(fileURLWithPath: "notes.txt")))
     }
 
-    func testRepositoryDeduplicationPrefersClonedRecord() {
+    @MainActor
+    func testRepositoryDeduplicationPrefersClonedRecord() async {
         let failed = RepoConfig(
             repoURL: "https://github.com/Owner/Notes.git",
             branch: "main",
@@ -1808,7 +1809,8 @@ final class SyncMDTests: XCTestCase {
         XCTAssertTrue(fixture.repository.stagedPaths.isEmpty)
     }
 
-    func testArticleBundleChangeDetectionIgnoresOtherArticles() {
+    @MainActor
+    func testArticleBundleChangeDetectionIgnoresOtherArticles() async {
         let entries = [
             GitStatusEntry(path: "content/posts/one/images/cover.jpg", indexStatus: .added, workTreeStatus: nil),
             GitStatusEntry(path: "content/posts/two/index.md", indexStatus: nil, workTreeStatus: .modified)
