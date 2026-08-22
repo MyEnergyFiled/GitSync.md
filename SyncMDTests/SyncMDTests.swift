@@ -264,7 +264,7 @@ final class SyncMDTests: XCTestCase {
     @MainActor
     func testSaveReposReportsPersistenceFailure() {
         let state = AppState(
-            reposPersistenceWriter: { _ in throw PersistenceFixtureError.failed },
+            reposPersistenceWriter: { _ in throw persistenceFixtureError() },
             loadPersistedState: false
         )
 
@@ -302,7 +302,7 @@ final class SyncMDTests: XCTestCase {
         var didPersist = false
         let state = AppState(
             reposPersistenceWriter: { _ in didPersist = true },
-            repositoryFileRemover: { _ in throw PersistenceFixtureError.failed },
+            repositoryFileRemover: { _ in throw persistenceFixtureError() },
             loadPersistedState: false
         )
         state.repos = [repo]
@@ -325,7 +325,7 @@ final class SyncMDTests: XCTestCase {
             authMethod: .none
         )
         let state = AppState(
-            reposPersistenceWriter: { _ in throw PersistenceFixtureError.failed },
+            reposPersistenceWriter: { _ in throw persistenceFixtureError() },
             loadPersistedState: false
         )
         state.repos = [repo]
@@ -4993,8 +4993,8 @@ private actor AsyncTestGate {
     }
 }
 
-private enum PersistenceFixtureError: Error {
-    case failed
+private func persistenceFixtureError() -> NSError {
+    NSError(domain: NSCocoaErrorDomain, code: NSFileWriteUnknownError)
 }
 
 private final class FakeGitRepository: GitRepositoryProtocol, @unchecked Sendable {
