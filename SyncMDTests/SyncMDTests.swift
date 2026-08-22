@@ -3062,6 +3062,62 @@ final class SyncMDTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: metadataURL), originalMetadata)
     }
 
+    func testLocalGitServiceStageAndUnstageRejectPathsOutsideWorktree() async throws {
+        let fileManager = FileManager.default
+        let temporaryRoot = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let repositoryURL = temporaryRoot.appendingPathComponent("repository", isDirectory: true)
+        let outsideFile = temporaryRoot.appendingPathComponent("outside.txt")
+        let linkedFile = repositoryURL.appendingPathComponent("linked.txt")
+        let safeFile = repositoryURL.appendingPathComponent("safe.txt")
+        defer { try? fileManager.removeItem(at: temporaryRoot) }
+        try fileManager.createDirectory(at: repositoryURL, withIntermediateDirectories: true)
+        try Data("outside".utf8).write(to: outsideFile)
+        try Data("safe".utf8).write(to: safeFile)
+        try fileManager.createSymbolicLink(at: linkedFile, withDestinationURL: outsideFile)
+        var repository: OpaquePointer?
+        XCTAssertEqual(git_repository_init(&repository, repositoryURL.path, 0), 0)
+        if let repository { git_repository_free(repository) }
+        let metadataURL = repositoryURL.appendingPathComponent(".git/config")
+        let originalMetadata = try Data(contentsOf: metadataURL)
+        let service = LocalGitService(localURL: repositoryURL)
+
+        let unsafePaths = ["../outside.txt", outsideFile.path, ".git/config", "linked.txt"]
+        for unsafePath in unsafePaths {
+            do {
+                try await service.stage(path: unsafePath)
+                XCTFail("Expected unsafe stage path to be rejected: \(unsafePath)")
+            } catch {
+                XCTAssertEqual(error as? RepositoryFileDestinationError, .outsideRepository)
+            }
+
+            do {
+                try await service.unstage(path: unsafePath)
+                XCTFail("Expected unsafe unstage path to be rejected: \(unsafePath)")
+            } catch {
+                XCTAssertEqual(error as? RepositoryFileDestinationError, .outsideRepository)
+            }
+
+            do {
+                try await service.stage(path: "safe.txt", oldPath: unsafePath)
+                XCTFail("Expected unsafe renamed stage path to be rejected: \(unsafePath)")
+            } catch {
+                XCTAssertEqual(error as? RepositoryFileDestinationError, .outsideRepository)
+            }
+
+            do {
+                try await service.unstage(path: "safe.txt", oldPath: unsafePath)
+                XCTFail("Expected unsafe renamed unstage path to be rejected: \(unsafePath)")
+            } catch {
+                XCTAssertEqual(error as? RepositoryFileDestinationError, .outsideRepository)
+            }
+        }
+
+        let safeStatus = try await service.repoInfo().statusEntries.first { $0.path == "safe.txt" }
+        XCTAssertNil(safeStatus?.indexStatus)
+        XCTAssertEqual(try String(contentsOf: outsideFile, encoding: .utf8), "outside")
+        XCTAssertEqual(try Data(contentsOf: metadataURL), originalMetadata)
+    }
+
     func testLocalGitServiceUnifiedDiffShowsStagedOnlyJSONChanges() async throws {
         let fm = FileManager.default
         let repoURL = fm.temporaryDirectory.appendingPathComponent("SyncMD-JSONDiff-\(UUID().uuidString)", isDirectory: true)

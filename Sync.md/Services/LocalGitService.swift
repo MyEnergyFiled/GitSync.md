@@ -2457,8 +2457,14 @@ final class LocalGitService: GitRepositoryProtocol, @unchecked Sendable {
 
     func stage(path: String, oldPath: String?, lfsAutoTrack: Bool) async throws {
         let repoPath = self.localURL.path
+        let worktreeURL = self.localURL
 
         try await Task.detached {
+            _ = try Self.validatedWorktreeURL(path: path, worktreeURL: worktreeURL)
+            if let oldPath {
+                _ = try Self.validatedWorktreeURL(path: oldPath, worktreeURL: worktreeURL)
+            }
+
             var repo: OpaquePointer?
             defer { if let repo { git_repository_free(repo) } }
             try git2Check(git_repository_open(&repo, repoPath), context: "Open repo")
@@ -2511,8 +2517,14 @@ final class LocalGitService: GitRepositoryProtocol, @unchecked Sendable {
 
     func unstage(path: String, oldPath: String?) async throws {
         let repoPath = self.localURL.path
+        let worktreeURL = self.localURL
 
         try await Task.detached {
+            _ = try Self.validatedWorktreeURL(path: path, worktreeURL: worktreeURL)
+            if let oldPath {
+                _ = try Self.validatedWorktreeURL(path: oldPath, worktreeURL: worktreeURL)
+            }
+
             var repo: OpaquePointer?
             defer { if let repo { git_repository_free(repo) } }
             try git2Check(git_repository_open(&repo, repoPath), context: "Open repo")
