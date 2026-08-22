@@ -70,7 +70,7 @@ struct MailComposeView: UIViewControllerRepresentable {
     }
 
     @MainActor
-    final class Coordinator: NSObject, MFMailComposeViewControllerDelegate {
+    final class Coordinator: NSObject, @preconcurrency MFMailComposeViewControllerDelegate {
         let parent: MailComposeView
 
         init(_ parent: MailComposeView) {
