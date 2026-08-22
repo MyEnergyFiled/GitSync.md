@@ -23,11 +23,14 @@ extension AppState {
         } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
             return []
         } catch {
-            DebugLogger.shared.error(
-                "persistence",
-                "Could not load repository settings",
-                detail: persistenceErrorDiagnostic(error)
-            )
+            let diagnostic = persistenceErrorDiagnostic(error)
+            Task { @MainActor in
+                DebugLogger.shared.error(
+                    "persistence",
+                    "Could not load repository settings",
+                    detail: diagnostic
+                )
+            }
             return []
         }
     }
