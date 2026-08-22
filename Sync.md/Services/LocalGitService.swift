@@ -2058,6 +2058,21 @@ final class LocalGitService: GitRepositoryProtocol, @unchecked Sendable {
                 throw LocalGitError.conflictPathNotFound(path)
             }
 
+            let worktreeURL = URL(fileURLWithPath: workdir, isDirectory: true)
+            let keepURL = try Self.validatedConflictWorktreeURL(
+                path: trimmedPath,
+                worktreeURL: worktreeURL
+            )
+            let extraURLs = try extras.map { extra in
+                (
+                    path: extra,
+                    url: try Self.validatedConflictWorktreeURL(
+                        path: extra,
+                        worktreeURL: worktreeURL
+                    )
+                )
+            }
+
             var repo: OpaquePointer?
             defer { if let repo { git_repository_free(repo) } }
             try git2Check(git_repository_open(&repo, repoPath), context: "Open repo")
@@ -2070,13 +2085,12 @@ final class LocalGitService: GitRepositoryProtocol, @unchecked Sendable {
             // parent directories. The kept path may not exist on disk yet (e.g.
             // after `git_merge` left only conflict markers, or if the user is
             // picking a new filename for a rename/rename).
-            let absoluteKeepPath = (workdir as NSString).appendingPathComponent(trimmedPath)
-            let parent = (absoluteKeepPath as NSString).deletingLastPathComponent
+            let parent = keepURL.deletingLastPathComponent()
             try FileManager.default.createDirectory(
-                atPath: parent,
+                at: parent,
                 withIntermediateDirectories: true
             )
-            try content.write(to: URL(fileURLWithPath: absoluteKeepPath), options: .atomic)
+            try content.write(to: keepURL, options: .atomic)
 
             // Clear conflict markers for every path involved in this conflict.
             // libgit2 keys conflicts by path, so a rename/rename has multiple
@@ -2093,16 +2107,15 @@ final class LocalGitService: GitRepositoryProtocol, @unchecked Sendable {
             // Drop unwanted paths from the index and the working tree. For a
             // rename/rename where the user keeps only one filename, this deletes
             // the alternative on disk too so the resulting commit is clean.
-            for extra in extras {
-                try extra.withCString { cPath in
+            for extra in extraURLs {
+                try extra.path.withCString { cPath in
                     let removeCode = git_index_remove_bypath(index, cPath)
                     if removeCode != 0 && removeCode != GIT_ENOTFOUND.rawValue {
-                        try git2Check(removeCode, context: "Remove index entry for \(extra)")
+                        try git2Check(removeCode, context: "Remove index entry for \(extra.path)")
                     }
                 }
-                let absoluteExtra = (workdir as NSString).appendingPathComponent(extra)
-                if FileManager.default.fileExists(atPath: absoluteExtra) {
-                    try? FileManager.default.removeItem(atPath: absoluteExtra)
+                if FileManager.default.fileExists(atPath: extra.url.path) {
+                    try? FileManager.default.removeItem(at: extra.url)
                 }
             }
 
@@ -2116,6 +2129,39 @@ final class LocalGitService: GitRepositoryProtocol, @unchecked Sendable {
 
             try git2Check(git_index_write(index), context: "Write index")
         }.value
+    }
+
+    private static func validatedConflictWorktreeURL(
+        path: String,
+        worktreeURL: URL
+    ) throws -> URL {
+        let components = path.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+        guard !path.isEmpty,
+              !path.hasPrefix("/"),
+              !components.contains(where: { $0.isEmpty || $0 == "." || $0 == ".." }),
+              !components.contains(where: { $0.lowercased() == ".git" }),
+              path.rangeOfCharacter(from: .controlCharacters) == nil else {
+            throw LocalGitError.conflictPathNotFound(path)
+        }
+
+        let candidate = worktreeURL.appendingPathComponent(path).standardizedFileURL
+        do {
+            _ = try RepositoryFileDestinationValidator.validatedDirectoryURL(
+                candidate,
+                repositoryRootURL: worktreeURL
+            )
+            _ = try RepositoryFileDestinationValidator.validatedDirectoryURL(
+                candidate.deletingLastPathComponent(),
+                repositoryRootURL: worktreeURL
+            )
+            let values = try? candidate.resourceValues(forKeys: [.isSymbolicLinkKey])
+            guard values?.isSymbolicLink != true else {
+                throw LocalGitError.conflictPathNotFound(path)
+            }
+            return candidate
+        } catch {
+            throw LocalGitError.conflictPathNotFound(path)
+        }
     }
 
     func commitLocal(

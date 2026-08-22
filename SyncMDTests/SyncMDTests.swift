@@ -2675,6 +2675,78 @@ final class SyncMDTests: XCTestCase {
         XCTAssertFalse(repoInfo.statusEntries.contains(where: { $0.path == "README.md" && $0.isConflicted }))
     }
 
+    func testLocalGitServiceResolveConflictWithContentRejectsUnsafeKeepPaths() async throws {
+        let fileManager = FileManager.default
+        let temporaryRoot = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let repositoryURL = temporaryRoot.appendingPathComponent("repository", isDirectory: true)
+        let outsideFile = temporaryRoot.appendingPathComponent("outside.txt")
+        defer { try? fileManager.removeItem(at: temporaryRoot) }
+        try fileManager.createDirectory(at: repositoryURL, withIntermediateDirectories: true)
+        try Data("outside".utf8).write(to: outsideFile)
+        var repository: OpaquePointer?
+        XCTAssertEqual(git_repository_init(&repository, repositoryURL.path, 0), 0)
+        if let repository { git_repository_free(repository) }
+        let service = LocalGitService(localURL: repositoryURL)
+
+        for unsafePath in ["../outside.txt", outsideFile.path, ".git/index"] {
+            do {
+                try await service.resolveConflictWithContent(
+                    path: unsafePath,
+                    content: Data("changed".utf8),
+                    additionalPathsToRemove: []
+                )
+                XCTFail("Expected unsafe path to be rejected: \(unsafePath)")
+            } catch {
+                guard let gitError = error as? LocalGitError else {
+                    XCTFail("Expected conflictPathNotFound, got \(error)")
+                    return
+                }
+                guard case .conflictPathNotFound = gitError else {
+                    XCTFail("Expected conflictPathNotFound, got \(error)")
+                    return
+                }
+            }
+        }
+
+        XCTAssertEqual(try String(contentsOf: outsideFile, encoding: .utf8), "outside")
+    }
+
+    func testLocalGitServiceResolveConflictWithContentValidatesRemovalPathsBeforeWriting() async throws {
+        let fileManager = FileManager.default
+        let temporaryRoot = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let repositoryURL = temporaryRoot.appendingPathComponent("repository", isDirectory: true)
+        let insideFile = repositoryURL.appendingPathComponent("README.md")
+        let outsideFile = temporaryRoot.appendingPathComponent("outside.txt")
+        defer { try? fileManager.removeItem(at: temporaryRoot) }
+        try fileManager.createDirectory(at: repositoryURL, withIntermediateDirectories: true)
+        try Data("outside".utf8).write(to: outsideFile)
+        var repository: OpaquePointer?
+        XCTAssertEqual(git_repository_init(&repository, repositoryURL.path, 0), 0)
+        if let repository { git_repository_free(repository) }
+        let service = LocalGitService(localURL: repositoryURL)
+
+        do {
+            try await service.resolveConflictWithContent(
+                path: "README.md",
+                content: Data("resolved".utf8),
+                additionalPathsToRemove: ["../outside.txt"]
+            )
+            XCTFail("Expected traversal removal path to be rejected")
+        } catch {
+            guard let gitError = error as? LocalGitError else {
+                XCTFail("Expected conflictPathNotFound, got \(error)")
+                return
+            }
+            guard case .conflictPathNotFound = gitError else {
+                XCTFail("Expected conflictPathNotFound, got \(error)")
+                return
+            }
+        }
+
+        XCTAssertFalse(fileManager.fileExists(atPath: insideFile.path))
+        XCTAssertEqual(try String(contentsOf: outsideFile, encoding: .utf8), "outside")
+    }
+
     func testLocalGitServiceCompleteMergeCreatesCommitAndCleansState() async throws {
         let fm = FileManager.default
         let repoURL = fm.temporaryDirectory.appendingPathComponent("SyncMD-CompleteMerge-\(UUID().uuidString)", isDirectory: true)
