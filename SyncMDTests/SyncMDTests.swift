@@ -3353,6 +3353,41 @@ final class SyncMDTests: XCTestCase {
         XCTAssertNotNil(GitLFSPointer(data: try Data(contentsOf: repoURL.appendingPathComponent("Unchanged.pdf"))))
     }
 
+    func testGitLFSHydrateRejectsCandidateOutsideRepository() async throws {
+        let fileManager = FileManager.default
+        let temporaryRoot = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let repositoryURL = temporaryRoot.appendingPathComponent("repository", isDirectory: true)
+        let outsideURL = temporaryRoot.appendingPathComponent("outside.pdf")
+        defer { try? fileManager.removeItem(at: temporaryRoot) }
+        try fileManager.createDirectory(at: repositoryURL, withIntermediateDirectories: true)
+
+        let outsideData = Data("outside file must not be hydrated\n".utf8)
+        let pointer = GitLFSPointer(
+            oid: GitLFSPointer.sha256Hex(for: outsideData),
+            size: Int64(outsideData.count)
+        )
+        let pointerData = Data(pointer.serializedString.utf8)
+        try pointerData.write(to: outsideURL)
+
+        let transport = MockGitLFSTransport { request, _ in
+            XCTFail("Unexpected LFS request: \(request.url?.absoluteString ?? "<nil>")")
+            return (Data(), 500)
+        }
+
+        do {
+            _ = try await GitLFSService(
+                localURL: repositoryURL,
+                credentials: .gitHubPAT("ghp_test"),
+                transport: transport
+            ).hydrateWorktree(candidatePaths: ["../outside.pdf"])
+            XCTFail("Expected path outside the repository to be rejected")
+        } catch {
+            XCTAssertEqual(error as? RepositoryFileDestinationError, .outsideRepository)
+        }
+
+        XCTAssertEqual(try Data(contentsOf: outsideURL), pointerData)
+    }
+
     func testGitLFSBatchErrorsIncludeServerMessage() async throws {
         let fm = FileManager.default
         let repoURL = fm.temporaryDirectory.appendingPathComponent("SyncMD-LFSBatchError-\(UUID().uuidString)", isDirectory: true)
@@ -3820,6 +3855,29 @@ final class SyncMDTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: movieURL), Data(repeating: 0xAA, count: 4096))
         XCTAssertNil(GitLFSPointer(data: Data(try headBlobString(repoURL: repoURL, path: "Media/clip.mov").utf8)))
         XCTAssertFalse(fm.fileExists(atPath: repoURL.appendingPathComponent(".gitattributes").path))
+    }
+
+    func testGitLFSAutoTrackingRejectsFilesOutsideRepository() throws {
+        let fileManager = FileManager.default
+        let temporaryRoot = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let repositoryURL = temporaryRoot.appendingPathComponent("repository", isDirectory: true)
+        let outsideURL = temporaryRoot.appendingPathComponent("outside.mov")
+        let linkedURL = repositoryURL.appendingPathComponent("linked.mov")
+        defer { try? fileManager.removeItem(at: temporaryRoot) }
+        try fileManager.createDirectory(at: repositoryURL, withIntermediateDirectories: true)
+        try Data(repeating: 0xAA, count: 4096).write(to: outsideURL)
+        try fileManager.createSymbolicLink(at: linkedURL, withDestinationURL: outsideURL)
+
+        for path in ["../outside.mov", "linked.mov"] {
+            XCTAssertThrowsError(
+                try GitLFSService.autoTrackingCandidates(
+                    repositoryURL: repositoryURL,
+                    candidatePaths: [path]
+                )
+            ) { error in
+                XCTAssertEqual(error as? RepositoryFileDestinationError, .outsideRepository)
+            }
+        }
     }
 
     func testGitLFSAttributesDoesNotLoadSymlinkOutsideRepository() throws {
