@@ -69,7 +69,7 @@ struct FileEditorView: View {
     @State private var themePreviewChoices = HugoThemePreviewChoices()
     @State private var themeResourceRevision = 0
 
-    private let draftStore = FileEditorDraftStore()
+    private let draftStore = FileEditorDraftStore.shared
 
     init(repoID: UUID, fileURL: URL) {
         self.repoID = repoID
@@ -136,7 +136,7 @@ struct FileEditorView: View {
                     message: String(localized: "This will be reflected in git status as a deletion."),
                     confirmLabel: String(localized: "Delete"),
                     isDestructive: true,
-                    onConfirm: performDelete,
+                    onConfirm: { Task { await performDelete() } },
                     onCancel: { showDeleteConfirm = false }
                 )
                 .transition(.opacity.combined(with: .scale(scale: 0.97)))
@@ -151,9 +151,14 @@ struct FileEditorView: View {
                     onConfirm: {
                         showDiscardConfirm = false
                         isDiscardingEdits = true
-                        draftSaveTask?.cancel()
-                        try? draftStore.remove(repoID: repoID, fileURL: liveURL)
-                        dismiss()
+                        Task {
+                            let pendingTask = draftSaveTask
+                            draftSaveTask = nil
+                            pendingTask?.cancel()
+                            await pendingTask?.value
+                            try? await draftStore.remove(repoID: repoID, fileURL: liveURL)
+                            dismiss()
+                        }
                     },
                     onCancel: { showDiscardConfirm = false }
                 )
@@ -195,7 +200,7 @@ struct FileEditorView: View {
                 BRenameModal(
                     title: String(localized: "Rename File"),
                     text: $renameText,
-                    onConfirm: performRename,
+                    onConfirm: { Task { await performRename() } },
                     onCancel: { showRenameModal = false; renameText = "" }
                 )
                 .transition(.opacity.combined(with: .scale(scale: 0.97)))
@@ -268,10 +273,12 @@ struct FileEditorView: View {
                         }
                     }
                     if !isBinary {
-                        Button("Save") { _ = performSave() }
-                            .font(.system(size: 12, weight: .bold, design: .monospaced))
-                            .foregroundStyle(isDirty ? Color.brutalAccent : Color.brutalTextFaint)
-                            .disabled(!isDirty)
+                        Button("Save") {
+                            Task { _ = await performSave() }
+                        }
+                        .font(.system(size: 12, weight: .bold, design: .monospaced))
+                        .foregroundStyle(isDirty ? Color.brutalAccent : Color.brutalTextFaint)
+                        .disabled(!isDirty)
                     }
                     Button {
                         renameText = fileName
@@ -340,7 +347,7 @@ struct FileEditorView: View {
             customFrontMatterFields = HugoContentService.loadConfiguration(
                 from: state.vaultURL(for: repoID)
             ).frontMatterFields
-            loadContent()
+            Task { await loadContent() }
             loadThemePreviewChoices()
             loadImages()
             state.detectChanges(repoID: repoID)
@@ -918,7 +925,7 @@ struct FileEditorView: View {
         )
     }
 
-    private func loadContent() {
+    private func loadContent() async {
         do {
             let safeURL = try validatedLiveFileURL()
             let data = try Data(contentsOf: safeURL)
@@ -929,13 +936,21 @@ struct FileEditorView: View {
             liveURL = safeURL
             content = text
             originalContent = text
-            if let draft = draftStore.draft(repoID: repoID, fileURL: liveURL), draft.content != text {
-                pendingRecoveredDraft = draft.content
-                showDraftRecovery = true
-                persistenceMessage = String(localized: "Unsaved draft found")
-            } else {
-                try? draftStore.remove(repoID: repoID, fileURL: liveURL)
+            do {
+                if let draft = try await draftStore.draft(repoID: repoID, fileURL: liveURL), draft.content != text {
+                    pendingRecoveredDraft = draft.content
+                    showDraftRecovery = true
+                    persistenceMessage = String(localized: "Unsaved draft found")
+                } else {
+                    try await draftStore.remove(repoID: repoID, fileURL: liveURL)
+                    persistenceMessage = String(localized: "File loaded")
+                }
+            } catch {
                 persistenceMessage = String(localized: "File loaded")
+                DebugLogger.shared.error(
+                    "editor", "Draft recovery failed", detail: error.localizedDescription,
+                    repoID: repoID, repoName: logRepoName
+                )
             }
             if isMarkdown { frontMatter = MarkdownFrontMatter(markdown: content) }
         } catch {
@@ -961,7 +976,13 @@ struct FileEditorView: View {
     private func discardPendingDraft() {
         pendingRecoveredDraft = nil
         showDraftRecovery = false
-        try? draftStore.remove(repoID: repoID, fileURL: liveURL)
+        let previousTask = draftSaveTask
+        previousTask?.cancel()
+        let targetURL = liveURL
+        draftSaveTask = Task { @MainActor in
+            await previousTask?.value
+            try? await draftStore.remove(repoID: repoID, fileURL: targetURL)
+        }
         persistenceMessage = String(localized: "Using saved file")
         DebugLogger.shared.info(
             "editor", "Discarded recovered draft", detail: fileName,
@@ -970,19 +991,22 @@ struct FileEditorView: View {
     }
 
     private func scheduleDraftSave(_ value: String) {
-        draftSaveTask?.cancel()
-        guard value != originalContent else {
-            try? draftStore.remove(repoID: repoID, fileURL: liveURL)
-            return
-        }
-        persistenceMessage = String(localized: "Saving draft…")
+        let previousTask = draftSaveTask
+        previousTask?.cancel()
         let targetURL = liveURL
+        let shouldRemoveDraft = value == originalContent
         let delaySeconds = EditorDraftAutosaveSettings.normalizedDelaySeconds(draftAutosaveDelaySeconds)
         draftSaveTask = Task { @MainActor in
+            await previousTask?.value
+            if shouldRemoveDraft {
+                try? await draftStore.remove(repoID: repoID, fileURL: targetURL)
+                return
+            }
+            persistenceMessage = String(localized: "Saving draft…")
             try? await Task.sleep(for: .seconds(delaySeconds))
             guard !Task.isCancelled else { return }
             do {
-                try draftStore.save(content: value, repoID: repoID, fileURL: targetURL)
+                try await draftStore.save(content: value, repoID: repoID, fileURL: targetURL)
                 persistenceMessage = String(localized: "Draft saved locally")
             } catch {
                 persistenceMessage = String(localized: "Draft save failed")
@@ -996,14 +1020,21 @@ struct FileEditorView: View {
 
     private func saveDraftImmediately() {
         guard isDirty else { return }
-        do {
-            try draftStore.save(content: pendingContent, repoID: repoID, fileURL: liveURL)
-        } catch {
-            persistenceMessage = String(localized: "Draft save failed")
-            DebugLogger.shared.error(
-                "editor", "Immediate draft save failed", detail: error.localizedDescription,
-                repoID: repoID, repoName: logRepoName
-            )
+        let previousTask = draftSaveTask
+        previousTask?.cancel()
+        let value = pendingContent
+        let targetURL = liveURL
+        draftSaveTask = Task { @MainActor in
+            await previousTask?.value
+            do {
+                try await draftStore.save(content: value, repoID: repoID, fileURL: targetURL)
+            } catch {
+                persistenceMessage = String(localized: "Draft save failed")
+                DebugLogger.shared.error(
+                    "editor", "Immediate draft save failed", detail: error.localizedDescription,
+                    repoID: repoID, repoName: logRepoName
+                )
+            }
         }
     }
 
@@ -1202,7 +1233,7 @@ struct FileEditorView: View {
     }
 
     @discardableResult
-    private func performSave(operationID: String? = nil, removeDraft: Bool = true) -> Bool {
+    private func performSave(operationID: String? = nil, removeDraft: Bool = true) async -> Bool {
         content = pendingContent
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         guard let data = content.data(using: .utf8) else { return false }
@@ -1211,11 +1242,14 @@ struct FileEditorView: View {
             try data.write(to: safeURL, options: .atomic)
             liveURL = safeURL
             originalContent = content
-            draftSaveTask?.cancel()
+            let pendingTask = draftSaveTask
+            draftSaveTask = nil
+            pendingTask?.cancel()
+            await pendingTask?.value
             if removeDraft {
-                try? draftStore.remove(repoID: repoID, fileURL: liveURL)
+                try? await draftStore.remove(repoID: repoID, fileURL: liveURL)
             } else {
-                try? draftStore.save(content: content, repoID: repoID, fileURL: liveURL)
+                try? await draftStore.save(content: content, repoID: repoID, fileURL: liveURL)
             }
             state.detectChanges(repoID: repoID)
             persistenceMessage = String(localized: "File saved · not committed")
@@ -1279,7 +1313,7 @@ struct FileEditorView: View {
             )
             return
         }
-        guard performSave(operationID: operationID, removeDraft: false) else { return }
+        guard await performSave(operationID: operationID, removeDraft: false) else { return }
         isQuickPublishing = true
         persistenceMessage = String(localized: "Saving file…")
 
@@ -1287,7 +1321,7 @@ struct FileEditorView: View {
         guard staged else {
             isQuickPublishing = false
             persistenceMessage = String(localized: "No article changes to commit")
-            try? draftStore.remove(repoID: repoID, fileURL: liveURL)
+            try? await draftStore.remove(repoID: repoID, fileURL: liveURL)
             return
         }
 
@@ -1295,9 +1329,9 @@ struct FileEditorView: View {
         let pushed = await state.push(repoID: repoID, message: quickCommitMessage, operationID: operationID)
         isQuickPublishing = false
         if pushed {
-            finishSuccessfulPublish()
+            await finishSuccessfulPublish()
         } else {
-            preserveFailedPublish()
+            await preserveFailedPublish()
         }
     }
 
@@ -1313,21 +1347,21 @@ struct FileEditorView: View {
         )
         isQuickPublishing = false
         if pushed {
-            finishSuccessfulPublish()
+            await finishSuccessfulPublish()
         } else {
-            preserveFailedPublish()
+            await preserveFailedPublish()
         }
     }
 
-    private func preserveFailedPublish() {
-        try? draftStore.save(content: content, repoID: repoID, fileURL: liveURL)
+    private func preserveFailedPublish() async {
+        try? await draftStore.save(content: content, repoID: repoID, fileURL: liveURL)
         canRetryPublish = true
         publishFailureMessage = state.lastError ?? String(localized: "Push failed · file remains saved")
         persistenceMessage = String(localized: "Push failed · retry available")
     }
 
-    private func finishSuccessfulPublish() {
-        try? draftStore.remove(repoID: repoID, fileURL: liveURL)
+    private func finishSuccessfulPublish() async {
+        try? await draftStore.remove(repoID: repoID, fileURL: liveURL)
         canRetryPublish = false
         publishFailureMessage = nil
         quickCommitMessage = ""
@@ -1335,24 +1369,33 @@ struct FileEditorView: View {
         persistenceMessage = String(localized: "Pushed to GitHub")
     }
 
-    private func performDelete() {
+    private func performDelete() async {
         showDeleteConfirm = false
+        let pendingTask = draftSaveTask
+        draftSaveTask = nil
+        pendingTask?.cancel()
+        await pendingTask?.value
         do {
             let safeURL = try validatedLiveFileURL()
             try FileManager.default.removeItem(at: safeURL)
-            try? draftStore.remove(repoID: repoID, fileURL: liveURL)
+            try? await draftStore.remove(repoID: repoID, fileURL: liveURL)
             state.detectChanges(repoID: repoID)
             dismiss()
         } catch {
             persistenceMessage = error.localizedDescription
+            saveDraftImmediately()
         }
     }
 
-    private func performRename() {
+    private func performRename() async {
         let trimmed = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
         showRenameModal = false
         renameText = ""
         guard !trimmed.isEmpty, trimmed != liveURL.lastPathComponent else { return }
+        let pendingTask = draftSaveTask
+        draftSaveTask = nil
+        pendingTask?.cancel()
+        await pendingTask?.value
         do {
             let source = try validatedLiveFileURL()
             let dest = try RepositoryFileDestinationValidator.destinationURL(
@@ -1367,14 +1410,17 @@ struct FileEditorView: View {
             let previousURL = liveURL
             try FileManager.default.moveItem(at: source, to: dest)
             invalidatePublishRetry()
-            if isDirty {
-                try? draftStore.save(content: pendingContent, repoID: repoID, fileURL: dest)
+            let renamedContent = pendingContent
+            let shouldPreserveDraft = isDirty
+            if shouldPreserveDraft {
+                try? await draftStore.save(content: renamedContent, repoID: repoID, fileURL: dest)
             }
-            try? draftStore.remove(repoID: repoID, fileURL: previousURL)
+            try? await draftStore.remove(repoID: repoID, fileURL: previousURL)
             liveURL = dest
             state.detectChanges(repoID: repoID)
         } catch {
             persistenceMessage = error.localizedDescription
+            saveDraftImmediately()
         }
     }
 }

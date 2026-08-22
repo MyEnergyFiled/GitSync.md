@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 enum EditorDraftAutosaveSettings {
     static let delaySecondsKey = "editorDraftAutosaveDelaySeconds"
@@ -19,44 +20,79 @@ struct FileEditorDraft: Codable, Equatable {
 
 /// Persists editor text independently from Git and the working tree so an
 /// interrupted save, commit, or push cannot discard the user's latest text.
-struct FileEditorDraftStore {
-    private let fileURL: URL
+actor FileEditorDraftStore {
+    static let shared = FileEditorDraftStore()
+
+    private let directoryURL: URL
+    private let legacyFileURL: URL
+    private var didPrepareStorage = false
 
     init(directoryURL: URL? = nil) {
         let root = directoryURL ?? FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
         ).first!.appendingPathComponent("SyncMD", isDirectory: true)
-        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        fileURL = root.appendingPathComponent("editor-drafts.json")
+        self.directoryURL = root.appendingPathComponent("editor-drafts", isDirectory: true)
+        self.legacyFileURL = root.appendingPathComponent("editor-drafts.json")
     }
 
-    func draft(repoID: UUID, fileURL: URL) -> FileEditorDraft? {
-        load().first { $0.repoID == repoID && $0.filePath == fileURL.standardizedFileURL.path }
+    func draft(repoID: UUID, fileURL: URL) throws -> FileEditorDraft? {
+        try prepareStorage()
+        let url = draftFileURL(repoID: repoID, fileURL: fileURL)
+        do {
+            return try JSONDecoder().decode(FileEditorDraft.self, from: Data(contentsOf: url))
+        } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
+            return nil
+        }
     }
 
     func save(content: String, repoID: UUID, fileURL: URL, now: Date = Date()) throws {
-        var drafts = load()
-        let path = fileURL.standardizedFileURL.path
-        drafts.removeAll { $0.repoID == repoID && $0.filePath == path }
-        drafts.append(FileEditorDraft(repoID: repoID, filePath: path, content: content, updatedAt: now))
-        try persist(drafts)
+        try prepareStorage()
+        let draft = FileEditorDraft(
+            repoID: repoID,
+            filePath: fileURL.standardizedFileURL.path,
+            content: content,
+            updatedAt: now
+        )
+        try persist(draft)
     }
 
     func remove(repoID: UUID, fileURL: URL) throws {
-        var drafts = load()
-        let path = fileURL.standardizedFileURL.path
-        drafts.removeAll { $0.repoID == repoID && $0.filePath == path }
-        try persist(drafts)
+        try prepareStorage()
+        do {
+            try FileManager.default.removeItem(at: draftFileURL(repoID: repoID, fileURL: fileURL))
+        } catch let error as CocoaError where error.code == .fileNoSuchFile {
+            return
+        }
     }
 
-    private func load() -> [FileEditorDraft] {
-        guard let data = try? Data(contentsOf: fileURL) else { return [] }
-        return (try? JSONDecoder().decode([FileEditorDraft].self, from: data)) ?? []
+    private func prepareStorage() throws {
+        guard !didPrepareStorage else { return }
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        if FileManager.default.fileExists(atPath: legacyFileURL.path) {
+            let data = try Data(contentsOf: legacyFileURL)
+            let drafts = try JSONDecoder().decode([FileEditorDraft].self, from: data)
+            for draft in drafts {
+                try persist(draft)
+            }
+            try FileManager.default.removeItem(at: legacyFileURL)
+        }
+        didPrepareStorage = true
     }
 
-    private func persist(_ drafts: [FileEditorDraft]) throws {
-        let data = try JSONEncoder().encode(drafts)
-        try data.write(to: fileURL, options: .atomic)
+    private func persist(_ draft: FileEditorDraft) throws {
+        let data = try JSONEncoder().encode(draft)
+        let sourceURL = URL(fileURLWithPath: draft.filePath)
+        try data.write(
+            to: draftFileURL(repoID: draft.repoID, fileURL: sourceURL),
+            options: .atomic
+        )
+    }
+
+    private func draftFileURL(repoID: UUID, fileURL: URL) -> URL {
+        let identity = "\(repoID.uuidString.lowercased())\u{0}\(fileURL.standardizedFileURL.path)"
+        let digest = SHA256.hash(data: Data(identity.utf8))
+        let filename = digest.map { String(format: "%02x", $0) }.joined() + ".json"
+        return directoryURL.appendingPathComponent(filename)
     }
 }

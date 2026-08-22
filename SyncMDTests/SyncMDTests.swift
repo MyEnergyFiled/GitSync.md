@@ -525,18 +525,74 @@ final class SyncMDTests: XCTestCase {
     }
 
 
-    func testDraftStoreRoundTripsAndRemovesEditorText() throws {
+    @MainActor
+    func testDraftStoreRoundTripsAndRemovesEditorText() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = FileEditorDraftStore(directoryURL: directory)
         let repoID = UUID()
         let fileURL = directory.appendingPathComponent("content/posts/test/index.md")
 
-        try store.save(content: "draft text", repoID: repoID, fileURL: fileURL)
-        XCTAssertEqual(store.draft(repoID: repoID, fileURL: fileURL)?.content, "draft text")
+        try await store.save(content: "draft text", repoID: repoID, fileURL: fileURL)
+        let savedDraft = try await store.draft(repoID: repoID, fileURL: fileURL)
+        XCTAssertEqual(savedDraft?.content, "draft text")
 
-        try store.remove(repoID: repoID, fileURL: fileURL)
-        XCTAssertNil(store.draft(repoID: repoID, fileURL: fileURL))
+        try await store.remove(repoID: repoID, fileURL: fileURL)
+        let removedDraft = try await store.draft(repoID: repoID, fileURL: fileURL)
+        XCTAssertNil(removedDraft)
+    }
+
+    @MainActor
+    func testDraftStoreSerializesConcurrentIndependentDraftWrites() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = FileEditorDraftStore(directoryURL: directory)
+        let repoID = UUID()
+        let firstURL = directory.appendingPathComponent("content/posts/first/index.md")
+        let secondURL = directory.appendingPathComponent("content/posts/second/index.md")
+
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask {
+                try await store.save(content: "first draft", repoID: repoID, fileURL: firstURL)
+            }
+            group.addTask {
+                try await store.save(content: "second draft", repoID: repoID, fileURL: secondURL)
+            }
+            try await group.waitForAll()
+        }
+
+        let first = try await store.draft(repoID: repoID, fileURL: firstURL)
+        let second = try await store.draft(repoID: repoID, fileURL: secondURL)
+        XCTAssertEqual(first?.content, "first draft")
+        XCTAssertEqual(second?.content, "second draft")
+        let files = try FileManager.default.contentsOfDirectory(
+            at: directory.appendingPathComponent("editor-drafts"),
+            includingPropertiesForKeys: nil
+        )
+        XCTAssertEqual(files.filter { $0.pathExtension == "json" }.count, 2)
+    }
+
+    @MainActor
+    func testDraftStoreMigratesLegacyCombinedFile() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let repoID = UUID()
+        let fileURL = directory.appendingPathComponent("content/posts/legacy/index.md")
+        let legacyDraft = FileEditorDraft(
+            repoID: repoID,
+            filePath: fileURL.standardizedFileURL.path,
+            content: "legacy draft",
+            updatedAt: Date(timeIntervalSince1970: 1_000)
+        )
+        let legacyFileURL = directory.appendingPathComponent("editor-drafts.json")
+        try JSONEncoder().encode([legacyDraft]).write(to: legacyFileURL, options: .atomic)
+
+        let store = FileEditorDraftStore(directoryURL: directory)
+        let migrated = try await store.draft(repoID: repoID, fileURL: fileURL)
+
+        XCTAssertEqual(migrated, legacyDraft)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacyFileURL.path))
     }
 
     func testHugoBundleNameValidationRequiresEnglishSlug() {
