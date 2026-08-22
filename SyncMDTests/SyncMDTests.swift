@@ -15,6 +15,50 @@ final class SyncMDTests: XCTestCase {
         XCTAssertTrue(true)
     }
 
+    func testGitOperationCoordinatorSerializesOperationsForSameRepository() async {
+        let coordinator = GitOperationCoordinator()
+        let probe = GitOperationConcurrencyProbe()
+        let repoID = UUID()
+
+        await withTaskGroup(of: Void.self) { group in
+            for _ in 0..<8 {
+                group.addTask {
+                    await coordinator.withOperation(repoID: repoID) {
+                        await probe.enter()
+                        try? await Task.sleep(for: .milliseconds(20))
+                        await probe.leave()
+                    }
+                }
+            }
+        }
+
+        let snapshot = await probe.snapshot()
+        XCTAssertEqual(snapshot.completed, 8)
+        XCTAssertEqual(snapshot.maximumConcurrent, 1)
+    }
+
+    func testGitOperationCoordinatorAllowsDifferentRepositoriesToProgress() async {
+        let coordinator = GitOperationCoordinator()
+        let probe = GitOperationConcurrencyProbe()
+        let repositoryIDs = [UUID(), UUID()]
+
+        await withTaskGroup(of: Void.self) { group in
+            for repoID in repositoryIDs {
+                group.addTask {
+                    await coordinator.withOperation(repoID: repoID) {
+                        await probe.enter()
+                        try? await Task.sleep(for: .milliseconds(100))
+                        await probe.leave()
+                    }
+                }
+            }
+        }
+
+        let snapshot = await probe.snapshot()
+        XCTAssertEqual(snapshot.completed, 2)
+        XCTAssertEqual(snapshot.maximumConcurrent, 2)
+    }
+
     func testRepositoryFileDestinationAcceptsDirectChildName() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let directory = root.appendingPathComponent("notes", isDirectory: true)
@@ -4768,6 +4812,26 @@ private struct GitFixture {
             result[relativePath] = content
         }
         return result
+    }
+}
+
+private actor GitOperationConcurrencyProbe {
+    private var current = 0
+    private var maximum = 0
+    private var completedCount = 0
+
+    func enter() {
+        current += 1
+        maximum = max(maximum, current)
+    }
+
+    func leave() {
+        current -= 1
+        completedCount += 1
+    }
+
+    func snapshot() -> (completed: Int, maximumConcurrent: Int) {
+        (completedCount, maximum)
     }
 }
 

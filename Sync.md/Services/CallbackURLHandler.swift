@@ -226,101 +226,85 @@ final class CallbackURLHandler {
     // MARK: - Git Operations
 
     private func performPull(repoID: UUID) async throws -> LocalPullResult {
-        guard let idx = appState.repoIndex(id: repoID) else {
+        guard let repo = appState.repo(id: repoID) else {
             throw LocalGitError.notCloned
         }
-
-        let repo       = appState.repos[idx]
-        let vaultDir   = appState.vaultURL(for: repoID)
-        let gitService = LocalGitService(localURL: vaultDir)
-
-        guard gitService.hasGitDirectory else {
-            throw LocalGitError.notCloned
+        let previousCommitSHA = repo.gitState.commitSHA
+        let succeeded = await appState.pull(repoID: repoID, showsProgressDelay: false)
+        guard succeeded, let updatedRepo = appState.repo(id: repoID) else {
+            throw LocalGitError.fetchFailed(
+                appState.lastError ?? String(localized: "Pull failed")
+            )
         }
-
-        let result = try await gitService.pull(pat: try await appState.authPayload(for: repo))
-
-        if result.updated {
-            appState.repos[idx].gitState.commitSHA    = result.newCommitSHA
-            appState.repos[idx].gitState.lastSyncDate = Date()
-            appState.saveRepos()
-            appState.detectChanges(repoID: repoID)
-        }
-
-        return result
+        let updated = appState.pullOutcomeByRepo[repoID]?.kind == .fastForwarded
+            || updatedRepo.gitState.commitSHA != previousCommitSHA
+        return LocalPullResult(updated: updated, newCommitSHA: updatedRepo.gitState.commitSHA)
     }
 
     private func performPush(repoID: UUID, message: String) async throws -> LocalPushResult {
-        guard let idx = appState.repoIndex(id: repoID) else {
-            throw LocalGitError.notCloned
-        }
-
-        let repo       = appState.repos[idx]
-        let vaultDir   = appState.vaultURL(for: repoID)
-        let gitService = LocalGitService(localURL: vaultDir)
-
-        guard gitService.hasGitDirectory else {
+        guard appState.repo(id: repoID) != nil else {
             throw LocalGitError.notCloned
         }
 
         // x-callback pushes (Obsidian workflow) should include all local changes
         // without requiring a manual staging step in the HugoInk UI.
-        try await stageAllLocalChanges(gitService: gitService)
+        try await stageAllLocalChanges(repoID: repoID)
 
-        let commitMsg = message.isEmpty ? "Update from HugoInk" : message
-
-        let result = try await gitService.commitAndPush(
-            message: commitMsg,
-            authorName: repo.authorName,
-            authorEmail: repo.authorEmail,
-            pat: try await appState.authPayload(for: repo)
-        )
-
-        appState.repos[idx].gitState.commitSHA    = result.commitSHA
-        appState.repos[idx].gitState.lastSyncDate = Date()
-        appState.saveRepos()
-        appState.detectChanges(repoID: repoID)
-
-        return result
+        let commitMsg = message.isEmpty ? String(localized: "Update from HugoInk") : message
+        guard await appState.push(repoID: repoID, message: commitMsg),
+              let updatedRepo = appState.repo(id: repoID) else {
+            throw LocalGitError.pushFailed(
+                appState.lastError ?? String(localized: "Push failed")
+            )
+        }
+        return LocalPushResult(commitSHA: updatedRepo.gitState.commitSHA)
     }
 
     /// Stages all local changes for callback pushes, with a short settle window
     /// to absorb delayed file-system events (e.g. Obsidian rename = copy+delete
     /// where the delete can arrive shortly after the new file appears).
-    private func stageAllLocalChanges(gitService: LocalGitService) async throws {
+    private func stageAllLocalChanges(repoID: UUID) async throws {
         var sawAnyChanges = false
 
         // Run multiple add/update passes over a short window so delayed rename
         // deletions are captured before commit.
         for pass in 0..<8 {
-            let before = try await gitService.repoInfo()
+            let before = try await appState.repositoryInfoForAutomation(repoID: repoID)
             if !before.statusEntries.isEmpty {
                 sawAnyChanges = true
             }
 
-            try await gitService.stageAll()
+            guard await appState.stageAllChangesForAutomation(repoID: repoID) else {
+                throw LocalGitError.commitFailed(String(localized: "Could not stage local file changes before push."))
+            }
 
             if pass < 7 {
                 try? await Task.sleep(for: .milliseconds(250))
             }
         }
 
-        var finalInfo = try await gitService.repoInfo()
+        var finalInfo = try await appState.repositoryInfoForAutomation(repoID: repoID)
         if finalInfo.statusEntries.contains(where: { $0.indexStatus != nil }) {
             return
         }
 
-        // Fallback to per-entry staging if libgit2 add/update missed anything.
+        // Fallback to per-entry staging if add/update missed an unusual status.
         if !finalInfo.statusEntries.isEmpty {
             var seen = Set<String>()
             for entry in finalInfo.statusEntries {
                 guard entry.path != "<unknown>" else { continue }
                 let key = "\(entry.path)\u{0}\(entry.oldPath ?? "")"
                 guard seen.insert(key).inserted else { continue }
-                try await gitService.stage(path: entry.path, oldPath: entry.oldPath)
+                guard await appState.stageFileForAutomation(
+                    repoID: repoID,
+                    path: entry.path,
+                    oldPath: entry.oldPath
+                ) else {
+                    throw LocalGitError.commitFailed(String(localized: "Could not stage local file changes before push."))
+                }
             }
 
-            finalInfo = try await gitService.repoInfo()
+            finalInfo = try await appState.repositoryInfoForAutomation(repoID: repoID)
             if finalInfo.statusEntries.contains(where: { $0.indexStatus != nil }) {
                 return
             }
@@ -335,14 +319,7 @@ final class CallbackURLHandler {
     }
 
     private func performStatus(repoID: UUID) async throws -> LocalRepoInfo {
-        let vaultDir   = appState.vaultURL(for: repoID)
-        let gitService = LocalGitService(localURL: vaultDir)
-
-        guard gitService.hasGitDirectory else {
-            throw LocalGitError.notCloned
-        }
-
-        return try await gitService.repoInfo()
+        try await appState.repositoryInfoForAutomation(repoID: repoID)
     }
 
     // MARK: - Redirect Helpers

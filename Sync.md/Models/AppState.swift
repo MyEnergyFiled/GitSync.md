@@ -404,16 +404,19 @@ final class AppState {
 
     private let gitRepositoryFactory: (URL) -> any GitRepositoryProtocol
     private let sshHostKeyTrustStore: any GitLFSSSHHostKeyTrustStore
+    private let gitOperationCoordinator: GitOperationCoordinator
 
     // MARK: - Init
 
     init(
         gitRepositoryFactory: @escaping (URL) -> any GitRepositoryProtocol = { LocalGitService(localURL: $0) },
         sshHostKeyTrustStore: any GitLFSSSHHostKeyTrustStore = GitLFSSSHHostKeyFileTrustStore.default,
+        gitOperationCoordinator: GitOperationCoordinator = .shared,
         loadPersistedState: Bool = true
     ) {
         self.gitRepositoryFactory = gitRepositoryFactory
         self.sshHostKeyTrustStore = sshHostKeyTrustStore
+        self.gitOperationCoordinator = gitOperationCoordinator
         if loadPersistedState {
             loadState()
         }
@@ -1909,7 +1912,13 @@ final class AppState {
     }
 
     func stageFile(repoID: UUID, path: String, oldPath: String? = nil) async {
-        await stageFile(repoID: repoID, path: path, oldPath: oldPath, lfsAutoTrack: false, promptForLFS: true)
+        _ = await stageFile(repoID: repoID, path: path, oldPath: oldPath, lfsAutoTrack: false, promptForLFS: true)
+    }
+
+    func stageFileForAutomation(repoID: UUID, path: String, oldPath: String? = nil) async -> Bool {
+        await gitOperationCoordinator.withOperation(repoID: repoID) { [self] in
+            await stageFile(repoID: repoID, path: path, oldPath: oldPath, lfsAutoTrack: false, promptForLFS: false)
+        }
     }
 
     private func stageFile(
@@ -1918,9 +1927,9 @@ final class AppState {
         oldPath: String?,
         lfsAutoTrack: Bool,
         promptForLFS: Bool
-    ) async {
-        guard let repo = repo(id: repoID), repo.isCloned else { return }
-        guard indexMutationRepoIDs.insert(repoID).inserted else { return }
+    ) async -> Bool {
+        guard let repo = repo(id: repoID), repo.isCloned else { return false }
+        guard indexMutationRepoIDs.insert(repoID).inserted else { return false }
         defer { indexMutationRepoIDs.remove(repoID) }
 
         let vaultDir = vaultURL(for: repoID)
@@ -1928,7 +1937,7 @@ final class AppState {
 
         guard gitService.hasGitDirectory else {
             showError(message: LocalGitError.notCloned.localizedDescription)
-            return
+            return false
         }
 
         do {
@@ -1940,7 +1949,7 @@ final class AppState {
                         action: .stageFile(path: path, oldPath: oldPath),
                         candidates: candidates
                     )
-                    return
+                    return false
                 }
             }
 
@@ -1957,8 +1966,10 @@ final class AppState {
                 )
             }
             detectChanges(repoID: repoID)
+            return true
         } catch {
             showError(message: error.localizedDescription)
+            return false
         }
     }
 
@@ -2050,12 +2061,20 @@ final class AppState {
     }
 
     func stageAllChanges(repoID: UUID) async {
-        await stageAllChanges(repoID: repoID, lfsAutoTrack: false, promptForLFS: true)
+        _ = await stageAllChanges(repoID: repoID, lfsAutoTrack: false, promptForLFS: true)
     }
 
-    private func stageAllChanges(repoID: UUID, lfsAutoTrack: Bool, promptForLFS: Bool) async {
-        guard let repo = repo(id: repoID), repo.isCloned else { return }
-        guard indexMutationRepoIDs.insert(repoID).inserted else { return }
+    /// Stages without presenting UI so App Intents and x-callback requests can
+    /// use the same injected repository and per-repository operation queue.
+    func stageAllChangesForAutomation(repoID: UUID) async -> Bool {
+        await gitOperationCoordinator.withOperation(repoID: repoID) { [self] in
+            await stageAllChanges(repoID: repoID, lfsAutoTrack: false, promptForLFS: false)
+        }
+    }
+
+    private func stageAllChanges(repoID: UUID, lfsAutoTrack: Bool, promptForLFS: Bool) async -> Bool {
+        guard let repo = repo(id: repoID), repo.isCloned else { return false }
+        guard indexMutationRepoIDs.insert(repoID).inserted else { return false }
         defer { indexMutationRepoIDs.remove(repoID) }
 
         let vaultDir = vaultURL(for: repoID)
@@ -2063,7 +2082,7 @@ final class AppState {
 
         guard gitService.hasGitDirectory else {
             showError(message: LocalGitError.notCloned.localizedDescription)
-            return
+            return false
         }
 
         do {
@@ -2079,7 +2098,7 @@ final class AppState {
                         action: .stageAll,
                         candidates: candidates
                     )
-                    return
+                    return false
                 }
             }
 
@@ -2096,8 +2115,10 @@ final class AppState {
                 )
             }
             detectChanges(repoID: repoID)
+            return true
         } catch {
             showError(message: error.localizedDescription)
+            return false
         }
     }
 
@@ -2108,9 +2129,22 @@ final class AppState {
 
         switch request.action {
         case .stageFile(let path, let oldPath):
-            await stageFile(repoID: request.repoID, path: path, oldPath: oldPath, lfsAutoTrack: true, promptForLFS: false)
+            _ = await stageFile(repoID: request.repoID, path: path, oldPath: oldPath, lfsAutoTrack: true, promptForLFS: false)
         case .stageAll:
-            await stageAllChanges(repoID: request.repoID, lfsAutoTrack: true, promptForLFS: false)
+            _ = await stageAllChanges(repoID: request.repoID, lfsAutoTrack: true, promptForLFS: false)
+        }
+    }
+
+    func repositoryInfoForAutomation(repoID: UUID) async throws -> LocalRepoInfo {
+        try await gitOperationCoordinator.withThrowingOperation(repoID: repoID) { [self] in
+            guard let repo = repo(id: repoID), repo.isCloned else {
+                throw LocalGitError.notCloned
+            }
+            let gitService = gitRepositoryFactory(vaultURL(for: repoID))
+            guard gitService.hasGitDirectory else {
+                throw LocalGitError.notCloned
+            }
+            return try await gitService.repoInfo()
         }
     }
 
@@ -2289,6 +2323,12 @@ final class AppState {
     }
 
     func clone(repoID: UUID) async {
+        await gitOperationCoordinator.withOperation(repoID: repoID) { [self] in
+            await performClone(repoID: repoID)
+        }
+    }
+
+    private func performClone(repoID: UUID) async {
         guard let idx = repoIndex(id: repoID) else {
             showError(message: String(localized: "Repository not found"))
             return
@@ -2404,6 +2444,12 @@ final class AppState {
 
     @discardableResult
     func pull(repoID: UUID, showsProgressDelay: Bool = true) async -> Bool {
+        await gitOperationCoordinator.withOperation(repoID: repoID) { [self] in
+            await performPull(repoID: repoID, showsProgressDelay: showsProgressDelay)
+        }
+    }
+
+    private func performPull(repoID: UUID, showsProgressDelay: Bool) async -> Bool {
         guard let idx = repoIndex(id: repoID) else {
             showError(message: String(localized: "Repository not found"))
             return false
@@ -2567,6 +2613,12 @@ final class AppState {
 
     @discardableResult
     func pullWithRebase(repoID: UUID, showsProgressDelay: Bool = true) async -> Bool {
+        await gitOperationCoordinator.withOperation(repoID: repoID) { [self] in
+            await performPullWithRebase(repoID: repoID, showsProgressDelay: showsProgressDelay)
+        }
+    }
+
+    private func performPullWithRebase(repoID: UUID, showsProgressDelay: Bool) async -> Bool {
         guard let idx = repoIndex(id: repoID) else {
             showError(message: String(localized: "Repository not found"))
             return false
@@ -2795,6 +2847,12 @@ final class AppState {
 
     @discardableResult
     func pushCurrentBranch(repoID: UUID) async -> Bool {
+        await gitOperationCoordinator.withOperation(repoID: repoID) { [self] in
+            await performPushCurrentBranch(repoID: repoID)
+        }
+    }
+
+    private func performPushCurrentBranch(repoID: UUID) async -> Bool {
         guard let idx = repoIndex(id: repoID), repos[idx].isCloned else { return false }
 
         let vaultDir = vaultURL(for: repoID)
@@ -2847,6 +2905,12 @@ final class AppState {
 
     @discardableResult
     func push(repoID: UUID, message: String, operationID suppliedOperationID: String? = nil) async -> Bool {
+        await gitOperationCoordinator.withOperation(repoID: repoID) { [self] in
+            await performPush(repoID: repoID, message: message, operationID: suppliedOperationID)
+        }
+    }
+
+    private func performPush(repoID: UUID, message: String, operationID suppliedOperationID: String?) async -> Bool {
         guard let idx = repoIndex(id: repoID) else {
             showError(message: String(localized: "Repository not found"))
             return false
