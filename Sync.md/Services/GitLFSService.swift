@@ -250,8 +250,14 @@ struct GitLFSAttributes: Sendable {
     }
 
     static func load(from repositoryURL: URL) -> GitLFSAttributes {
-        let attributesURL = repositoryURL.appendingPathComponent(".gitattributes")
-        let text = (try? String(contentsOf: attributesURL, encoding: .utf8)) ?? ""
+        let root = repositoryURL.standardizedFileURL
+        let attributesURL = root.appendingPathComponent(".gitattributes")
+        let safeURL = try? RepositoryFileDestinationValidator.existingFileURL(
+            attributesURL,
+            in: root,
+            repositoryRootURL: root
+        )
+        let text = safeURL.flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
         return GitLFSAttributes(text: text)
     }
 
@@ -1502,15 +1508,16 @@ extension GitLFSService {
               let workdirPointer = git_repository_workdir(repo) else { return }
 
         let repositoryURL = URL(fileURLWithPath: String(cString: workdirPointer), isDirectory: true)
-        let attributesURL = repositoryURL.appendingPathComponent(".gitattributes")
+        let requestedAttributesURL = repositoryURL.appendingPathComponent(".gitattributes")
         let isAutoTrackingDisabled = autoTrackingPolicy.binaryExtensions.isEmpty
             && autoTrackingPolicy.largeFileThresholdBytes == .max
         if candidatePaths == nil,
            isAutoTrackingDisabled,
-           !FileManager.default.fileExists(atPath: attributesURL.path) {
+           !FileManager.default.fileExists(atPath: requestedAttributesURL.path) {
             return
         }
 
+        let attributesURL = try validatedGitattributesURL(repositoryURL: repositoryURL)
         var attributesText = (try? String(contentsOf: attributesURL, encoding: .utf8)) ?? ""
         var attributes = GitLFSAttributes(text: attributesText)
         let paths = try candidatePaths ?? enumerateWorktreeFiles(in: repositoryURL)
@@ -1568,6 +1575,27 @@ extension GitLFSService {
         if didModifyAttributes {
             try stageGitattributes(in: index)
         }
+    }
+
+    private static func validatedGitattributesURL(repositoryURL: URL) throws -> URL {
+        let root = repositoryURL.standardizedFileURL
+        let attributesURL = root.appendingPathComponent(".gitattributes")
+        let values = try? attributesURL.resourceValues(forKeys: [.isSymbolicLinkKey])
+        guard values?.isSymbolicLink != true else {
+            throw RepositoryFileDestinationError.outsideRepository
+        }
+        if FileManager.default.fileExists(atPath: attributesURL.path) {
+            return try RepositoryFileDestinationValidator.existingFileURL(
+                attributesURL,
+                in: root,
+                repositoryRootURL: root
+            )
+        }
+        return try RepositoryFileDestinationValidator.destinationURL(
+            for: ".gitattributes",
+            in: root,
+            repositoryRootURL: root
+        )
     }
 
     static func pointersInIndex(

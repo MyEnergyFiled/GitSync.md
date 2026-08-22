@@ -3794,6 +3794,54 @@ final class SyncMDTests: XCTestCase {
         XCTAssertFalse(fm.fileExists(atPath: repoURL.appendingPathComponent(".gitattributes").path))
     }
 
+    func testGitLFSAttributesDoesNotLoadSymlinkOutsideRepository() throws {
+        let fileManager = FileManager.default
+        let temporaryRoot = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let repositoryURL = temporaryRoot.appendingPathComponent("repository", isDirectory: true)
+        let outsideAttributes = temporaryRoot.appendingPathComponent("outside-attributes")
+        let linkedAttributes = repositoryURL.appendingPathComponent(".gitattributes")
+        defer { try? fileManager.removeItem(at: temporaryRoot) }
+        try fileManager.createDirectory(at: repositoryURL, withIntermediateDirectories: true)
+        try "*.pdf filter=lfs diff=lfs merge=lfs -text\n".write(
+            to: outsideAttributes,
+            atomically: true,
+            encoding: .utf8
+        )
+        try fileManager.createSymbolicLink(at: linkedAttributes, withDestinationURL: outsideAttributes)
+
+        let attributes = GitLFSAttributes.load(from: repositoryURL)
+
+        XCTAssertFalse(attributes.isLFSTracked(path: "private.pdf"))
+    }
+
+    func testLocalGitServiceDoesNotWriteGitattributesThroughSymlinkOutsideRepository() async throws {
+        let fileManager = FileManager.default
+        let temporaryRoot = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let repositoryURL = temporaryRoot.appendingPathComponent("repository", isDirectory: true)
+        let outsideAttributes = temporaryRoot.appendingPathComponent("outside-attributes")
+        let linkedAttributes = repositoryURL.appendingPathComponent(".gitattributes")
+        let designURL = repositoryURL.appendingPathComponent("Design", isDirectory: true)
+        let figURL = designURL.appendingPathComponent("mockup.fig")
+        defer { try? fileManager.removeItem(at: temporaryRoot) }
+        try fileManager.createDirectory(at: designURL, withIntermediateDirectories: true)
+        var repository: OpaquePointer?
+        XCTAssertEqual(git_repository_init(&repository, repositoryURL.path, 0), 0)
+        if let repository { git_repository_free(repository) }
+        try "outside\n".write(to: outsideAttributes, atomically: true, encoding: .utf8)
+        try fileManager.createSymbolicLink(at: linkedAttributes, withDestinationURL: outsideAttributes)
+        try Data(repeating: 0xFA, count: 256).write(to: figURL)
+        let service = LocalGitService(localURL: repositoryURL)
+
+        do {
+            try await service.stage(path: "Design/mockup.fig", oldPath: nil, lfsAutoTrack: true)
+            XCTFail("Expected symbolic link to be rejected")
+        } catch {
+            XCTAssertEqual(error as? RepositoryFileDestinationError, .outsideRepository)
+        }
+
+        XCTAssertEqual(try String(contentsOf: outsideAttributes, encoding: .utf8), "outside\n")
+    }
+
     func testLocalGitServiceAutoTracksPDFAsLFSWithoutExistingGitattributes() async throws {
         let fm = FileManager.default
         let repoURL = try makeTemporaryGitRepository(prefix: "SyncMD-AutoLFSPDF")
