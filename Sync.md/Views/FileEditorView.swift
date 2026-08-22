@@ -142,7 +142,9 @@ struct FileEditorView: View {
                     message: String(localized: "This will be reflected in git status as a deletion."),
                     confirmLabel: String(localized: "Delete"),
                     isDestructive: true,
-                    onConfirm: { Task { await performDelete() } },
+                    onConfirm: {
+                        Task<Void, Never> { @MainActor in await performDelete() }
+                    },
                     onCancel: { showDeleteConfirm = false }
                 )
                 .transition(.opacity.combined(with: .scale(scale: 0.97)))
@@ -157,7 +159,7 @@ struct FileEditorView: View {
                     onConfirm: {
                         showDiscardConfirm = false
                         isDiscardingEdits = true
-                        Task {
+                        Task<Void, Never> { @MainActor in
                             let pendingTask = draftSaveTask
                             draftSaveTask = nil
                             pendingTask?.cancel()
@@ -189,7 +191,7 @@ struct FileEditorView: View {
                     isPublishing: isQuickPublishing,
                     progress: isQuickPublishing ? state.syncProgress : persistenceMessage,
                     onPublish: {
-                        Task {
+                        Task<Void, Never> { @MainActor in
                             if canRetryPublish {
                                 await retryQuickPublish()
                             } else {
@@ -206,7 +208,9 @@ struct FileEditorView: View {
                 BRenameModal(
                     title: String(localized: "Rename File"),
                     text: $renameText,
-                    onConfirm: { Task { await performRename() } },
+                    onConfirm: {
+                        Task<Void, Never> { @MainActor in await performRename() }
+                    },
                     onCancel: { showRenameModal = false; renameText = "" }
                 )
                 .transition(.opacity.combined(with: .scale(scale: 0.97)))
@@ -338,7 +342,7 @@ struct FileEditorView: View {
         }
         .onChange(of: selectedPhoto) { _, item in
             guard let item else { return }
-            Task { await importPhoto(item) }
+            Task<Void, Never> { @MainActor in await importPhoto(item) }
         }
         .alert("Error", isPresented: Binding(
             get: { imageMessage != nil },
@@ -355,7 +359,7 @@ struct FileEditorView: View {
             customFrontMatterFields = HugoContentService.loadConfiguration(
                 from: state.vaultURL(for: repoID)
             ).frontMatterFields
-            Task { await loadContent() }
+            Task<Void, Never> { @MainActor in await loadContent() }
             loadThemePreviewChoices()
             loadImages()
             state.detectChanges(repoID: repoID)
