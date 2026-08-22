@@ -132,11 +132,11 @@ final class LocalGitService: GitRepositoryProtocol, @unchecked Sendable {
         do {
             let lfsResult = try await Self.hydrateLFSIfNeeded(localURL: localURL, pat: pat)
             if lfsResult.checkedOutCount > 0 {
-                DebugLogger.shared.info("lfs", "Hydrated Git LFS files after clone", detail: "\(lfsResult.checkedOutCount) files")
+                await DebugLogger.shared.info("lfs", "Hydrated Git LFS files after clone", detail: "\(lfsResult.checkedOutCount) files")
             }
         } catch LocalGitError.lfsFailed(let message) {
             lfsWarning = "Clone completed, but some Git LFS files could not be downloaded: \(message)"
-            DebugLogger.shared.error("lfs", "Git LFS hydration after clone failed", detail: message)
+            await DebugLogger.shared.error("lfs", "Git LFS hydration after clone failed", detail: message)
         }
 
         return LocalCloneResult(
@@ -392,7 +392,7 @@ final class LocalGitService: GitRepositoryProtocol, @unchecked Sendable {
                 candidatePaths: fastForward.changedPaths
             )
             if lfsResult.checkedOutCount > 0 {
-                DebugLogger.shared.info("lfs", "Hydrated Git LFS files after pull", detail: "\(lfsResult.checkedOutCount) files")
+                await DebugLogger.shared.info("lfs", "Hydrated Git LFS files after pull", detail: "\(lfsResult.checkedOutCount) files")
             }
         }
 
@@ -509,7 +509,7 @@ final class LocalGitService: GitRepositoryProtocol, @unchecked Sendable {
                 candidatePaths: rebaseResult.changedPaths
             )
             if lfsResult.checkedOutCount > 0 {
-                DebugLogger.shared.info("lfs", "Hydrated Git LFS files after rebase", detail: "\(lfsResult.checkedOutCount) files")
+                await DebugLogger.shared.info("lfs", "Hydrated Git LFS files after rebase", detail: "\(lfsResult.checkedOutCount) files")
             }
         }
 
@@ -1237,7 +1237,7 @@ final class LocalGitService: GitRepositoryProtocol, @unchecked Sendable {
                 candidatePaths: rebaseResult.changedPaths
             )
             if lfsResult.checkedOutCount > 0 {
-                DebugLogger.shared.info("lfs", "Hydrated Git LFS files after continuing rebase", detail: "\(lfsResult.checkedOutCount) files")
+                await DebugLogger.shared.info("lfs", "Hydrated Git LFS files after continuing rebase", detail: "\(lfsResult.checkedOutCount) files")
             }
         }
 
@@ -2591,7 +2591,7 @@ final class LocalGitService: GitRepositoryProtocol, @unchecked Sendable {
                     localURL: URL(fileURLWithPath: path, isDirectory: true),
                     credentials: GitRemoteCredentials.fromTransportPayload(pat)
                 ).uploadObjects(lfsPointers)
-                DebugLogger.shared.info("lfs", "Uploaded Git LFS objects before push", detail: "\(uploaded) uploaded, \(lfsPointers.count) referenced")
+                await DebugLogger.shared.info("lfs", "Uploaded Git LFS objects before push", detail: "\(uploaded) uploaded, \(lfsPointers.count) referenced")
             }
 
             // Push to origin
@@ -2733,7 +2733,7 @@ final class LocalGitService: GitRepositoryProtocol, @unchecked Sendable {
                     localURL: URL(fileURLWithPath: path, isDirectory: true),
                     credentials: GitRemoteCredentials.fromTransportPayload(pat)
                 ).uploadObjects(lfsPointers)
-                DebugLogger.shared.info("lfs", "Uploaded Git LFS objects before branch push", detail: "\(uploaded) uploaded, \(lfsPointers.count) referenced")
+                await DebugLogger.shared.info("lfs", "Uploaded Git LFS objects before branch push", detail: "\(uploaded) uploaded, \(lfsPointers.count) referenced")
             }
 
             var pushRemote: OpaquePointer?
