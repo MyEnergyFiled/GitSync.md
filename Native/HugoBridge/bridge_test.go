@@ -221,6 +221,104 @@ func TestBuildRealFixtureUsesThemePipesAndEditorSegment(t *testing.T) {
 	}
 }
 
+func TestBuildHotbitdRealSite(t *testing.T) {
+	root := os.Getenv("HUGO_REAL_SITE")
+	if root == "" {
+		t.Skip("HUGO_REAL_SITE is not set")
+	}
+	article := os.Getenv("HUGO_REAL_ARTICLE")
+	if article == "" {
+		article = "content/posts/hugo/hugo-app/index.md"
+	}
+	if _, err := os.Stat(filepath.Join(root, article)); err != nil {
+		t.Fatalf("real Hugo article is unavailable: %v", err)
+	}
+
+	before := snapshotTree(t, root)
+	for _, theme := range []string{"PaperMod-PE", "PaperMod", "PaperModX"} {
+		workspace := t.TempDir()
+		output := filepath.Join(workspace, "output")
+		resource := filepath.Join(workspace, "resources")
+		cache := filepath.Join(workspace, "cache")
+		overlay := filepath.Join(workspace, "overlay")
+		for _, directory := range []string{output, resource, cache, overlay} {
+			if err := os.MkdirAll(directory, 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		runtime := NewRuntime()
+		openJSON, err := json.Marshal(openRequest{
+			RepositoryRoot: root,
+			OutputDirectory: output,
+			ResourceDirectory: resource,
+			CacheDirectory: cache,
+			OverlayDirectory: overlay,
+			SelectedTheme: stringPointer(theme),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		id, err := runtime.OpenSession(string(openJSON))
+		if err != nil {
+			t.Fatalf("open %s: %v", theme, err)
+		}
+
+		buildJSON, err := json.Marshal(buildRequest{
+			Mode: "editorPage",
+			RepositoryRoot: root,
+			ArticleRepositoryRelativePath: stringPointer(article),
+			SelectedTheme: stringPointer(theme),
+			BaseURL: "http://127.0.0.1:1234/real-site/",
+			Environment: "production",
+			BuildDrafts: true,
+			BuildFuture: true,
+			BuildExpired: true,
+			Generation: 1,
+		})
+		if err != nil {
+			_ = runtime.CloseSession(id)
+			t.Fatal(err)
+		}
+		responseJSON, err := runtime.Build(id, string(buildJSON))
+		if err != nil {
+			_ = runtime.CloseSession(id)
+			t.Fatalf("build %s: %v", theme, err)
+		}
+		var response buildResponse
+		if err := json.Unmarshal([]byte(responseJSON), &response); err != nil {
+			_ = runtime.CloseSession(id)
+			t.Fatal(err)
+		}
+		if response.EntryPath == "" || !strings.HasSuffix(response.EntryPath, ".html") {
+			_ = runtime.CloseSession(id)
+			t.Fatalf("%s produced no HTML entry: %+v", theme, response)
+		}
+		entry, err := runtime.ReadOutput(id, response.EntryPath)
+		if err != nil {
+			_ = runtime.CloseSession(id)
+			t.Fatalf("read %s entry: %v", theme, err)
+		}
+		if !strings.Contains(string(entry), "<html") {
+			_ = runtime.CloseSession(id)
+			t.Fatalf("%s entry is not a rendered HTML document", theme)
+		}
+		if err := runtime.CloseSession(id); err != nil {
+			t.Fatalf("close %s: %v", theme, err)
+		}
+	}
+
+	after := snapshotTree(t, root)
+	if len(before) != len(after) {
+		t.Fatalf("runtime changed real site file list: before=%d after=%d", len(before), len(after))
+	}
+	for path, contents := range before {
+		if after[path] != contents {
+			t.Fatalf("runtime changed real site file %q", path)
+		}
+	}
+}
+
 func stringPointer(value string) *string { return &value }
 
 func containsPath(paths []string, expected string) bool {
@@ -249,6 +347,12 @@ func snapshotTree(t *testing.T, root string) map[string]string {
 			return err
 		}
 		if entry.IsDir() {
+			if entry.Name() == ".git" {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
 			return nil
 		}
 		contents, err := os.ReadFile(path)
