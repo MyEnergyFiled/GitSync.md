@@ -1,0 +1,11 @@
+baseURL = "https://fixture.invalid/"
+title = "Real Hugo Preview Fixture"
+theme = "ThemeA"
+
+[outputs]
+home = ["html"]
+page = ["html"]
+section = ["html"]
+
+[params]
+fixture = true

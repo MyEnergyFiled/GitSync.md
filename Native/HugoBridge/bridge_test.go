@@ -2,6 +2,7 @@ package hugobridge
 
 import (
 	"encoding/json"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -45,10 +46,11 @@ func TestLogicalPagePathRecognizesContentBundles(t *testing.T) {
 
 func TestBuildUsesOverlayWithoutChangingRepository(t *testing.T) {
 	root := t.TempDir()
-	output := filepath.Join(root, "output")
-	resource := filepath.Join(root, "resource")
-	cache := filepath.Join(root, "cache")
-	overlay := filepath.Join(root, "overlay")
+	workspace := t.TempDir()
+	output := filepath.Join(workspace, "output")
+	resource := filepath.Join(workspace, "resource")
+	cache := filepath.Join(workspace, "cache")
+	overlay := filepath.Join(workspace, "overlay")
 	for _, dir := range []string{output, resource, cache, overlay} {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			t.Fatal(err)
@@ -129,5 +131,125 @@ func TestBuildUsesOverlayWithoutChangingRepository(t *testing.T) {
 	}
 	if string(current) != string(original) {
 		t.Fatalf("repository content was modified")
+	}
+}
+
+func TestBuildRealFixtureUsesThemePipesAndEditorSegment(t *testing.T) {
+	root := t.TempDir()
+	fixture := filepath.Join("..", "..", "SyncMDTests", "HugoRealPreviewFixture")
+	copyFixture(t, fixture, root)
+	output := filepath.Join(t.TempDir(), "output")
+	resource := filepath.Join(t.TempDir(), "resources")
+	cache := filepath.Join(t.TempDir(), "cache")
+	overlay := filepath.Join(t.TempDir(), "overlay")
+	runtime := NewRuntime()
+	openJSON, err := json.Marshal(openRequest{
+		RepositoryRoot: root,
+		OutputDirectory: output,
+		ResourceDirectory: resource,
+		CacheDirectory: cache,
+		OverlayDirectory: overlay,
+		SelectedTheme: stringPointer("ThemeA"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := runtime.OpenSession(string(openJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.CloseSession(id)
+
+	buildJSON, err := json.Marshal(buildRequest{
+		Mode: "editorPage",
+		RepositoryRoot: root,
+		ArticleRepositoryRelativePath: stringPointer("content/posts/first/index.md"),
+		SelectedTheme: stringPointer("ThemeA"),
+		BaseURL: "http://127.0.0.1:1234/fixture/",
+		Environment: "production",
+		BuildDrafts: true,
+		BuildFuture: true,
+		BuildExpired: true,
+		Generation: 7,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	responseJSON, err := runtime.Build(id, string(buildJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var response buildResponse
+	if err := json.Unmarshal([]byte(responseJSON), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.EntryPath != "posts/first/index.html" {
+		t.Fatalf("unexpected entry path: %q", response.EntryPath)
+	}
+	if containsPath(response.RenderedPaths, "posts/second/index.html") {
+		t.Fatalf("editor segment rendered the unrelated page: %+v", response.RenderedPaths)
+	}
+	entry, err := runtime.ReadOutput(id, response.EntryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(entry)
+	for _, marker := range []string{
+		"data-theme=\"a\"",
+		"First fixture page",
+		"shortcode output",
+		"project layout override",
+		"next",
+	} {
+		if !strings.Contains(page, marker) {
+			t.Fatalf("rendered fixture is missing %q: %s", marker, page)
+		}
+	}
+	if !containsSuffix(response.RenderedPaths, ".css") || !containsSuffix(response.RenderedPaths, ".js") {
+		t.Fatalf("resource pipeline output missing: %+v", response.RenderedPaths)
+	}
+}
+
+func stringPointer(value string) *string { return &value }
+
+func containsPath(paths []string, expected string) bool {
+	for _, path := range paths {
+		if path == expected {
+			return true
+		}
+	}
+	return false
+}
+
+func containsSuffix(paths []string, suffix string) bool {
+	for _, path := range paths {
+		if strings.HasSuffix(path, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
+func copyFixture(t *testing.T, source, destination string) {
+	t.Helper()
+	err := fs.WalkDir(os.DirFS(source), ".", func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(destination, filepath.FromSlash(path))
+		if entry.IsDir() {
+			return os.MkdirAll(target, 0o700)
+		}
+		contents, err := os.ReadFile(filepath.Join(source, filepath.FromSlash(path)))
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+			return err
+		}
+		return os.WriteFile(target, contents, 0o600)
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }

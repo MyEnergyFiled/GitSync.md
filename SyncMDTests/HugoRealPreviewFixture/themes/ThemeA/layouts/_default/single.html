@@ -1,0 +1,1 @@
+{{ define "main" }}<main><article><h1>{{ .Title }}</h1>{{ .Content }}{{ partial "project-mark.html" . }}{{ with .PrevInSection }}<a class="previous" href="{{ .RelPermalink }}">previous</a>{{ end }}{{ with .NextInSection }}<a class="next" href="{{ .RelPermalink }}">next</a>{{ end }}</article></main>{{ end }}

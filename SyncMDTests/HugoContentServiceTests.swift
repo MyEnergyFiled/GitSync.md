@@ -452,7 +452,7 @@ final class HugoContentServiceTests: XCTestCase {
         XCTAssertNil(HugoThemePreviewService.resourceFileURL(from: scriptURL, repositoryRoot: root))
     }
 
-    func testThemePreviewSemanticSnapshotMatchesOfficialHugoBuild() throws {
+    func testLegacyQuickPreviewSemanticSnapshotRegression() throws {
         let fixture = try XCTUnwrap(
             Bundle(for: HugoContentServiceTests.self).url(
                 forResource: "HugoThemePreviewFixture",

@@ -1,4 +1,7 @@
-# Hugo theme preview snapshot fixture
+# Legacy quick-preview snapshot fixture
+
+This fixture is retained only for regression coverage of the legacy Swift quick
+preview during migration. It is not used by the real Hugo theme preview.
 
 `expected.html` was generated with the official [Hugo v0.164.0](https://github.com/gohugoio/hugo/releases/tag/v0.164.0) Linux amd64 release:
 

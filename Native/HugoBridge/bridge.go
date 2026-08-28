@@ -456,6 +456,7 @@ func logicalPagePath(repositoryRelativePath string) string {
 	}
 	logical := strings.TrimPrefix(relative, "content/")
 	logical = strings.TrimSuffix(logical, filepath.Ext(logical))
+	logical = strings.TrimSuffix(logical, "_index")
 	logical = strings.TrimSuffix(logical, "/index")
 	logical = strings.TrimSuffix(logical, "/_index")
 	logical = strings.Trim(logical, "/")
