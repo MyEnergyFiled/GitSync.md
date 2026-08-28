@@ -1133,13 +1133,13 @@ iOS 无法像桌面系统一样任意执行 Node、PostCSS、Tailwind、Pandoc�
 ## 25.1 当前执行记录（2026-08-29）
 
 - Hugo `0.134.3 Standard` Go runtime、真机/模拟器 XCFramework、Swift adapter 和真实主题 fixture 已实现。
-- GitHub Actions 已通过：Hugo runtime/Simulator XCTest（run `33194025932`）、普通 XCTest（run `33194025866`）、Build Number Guard、hotbitd access check，以及 SideStore unsigned IPA 构建（run `33194042486`，artifact `HugoInk-SideStore-31`）。
+- GitHub Actions 已通过：Hugo runtime/Simulator XCTest（run `33196678147`）、普通 XCTest（run `33196678189`）、Build Number Guard、hotbitd access check，以及 SideStore unsigned IPA 构建（run `33194042486`，artifact `HugoInk-SideStore-31`）。
 - runtime Simulator XCTest 已验证真实 Hugo 输出经 loopback HTTP Origin 加载到 WKWebView，并执行 fixture 主题 JavaScript；曾出现的 `warnings: null` 协议错误已修复。
 - `hotbitd` 本地真实站点验收已通过 PaperMod-PE 编辑构建和完整 productionSite 构建；PaperMod/PaperModX 在当前项目根 `layouts` 覆盖下由真实 Hugo 严格报模板兼容错误，不允许伪造成功页面。
 - 生产对照已生成 93 个 HTML 页面（`6,245,009` bytes）；`posts/hugo/hugo-app/index.html` 与线上 Cloudflare 页面 HTML 字节级一致，双方 SHA-256 均为 `63d038388029af442e4b85bf6f8f7213f902d2e2dcc83039841fd457ae184cd8`。浏览器对照还验证了 PaperMod-PE 深色模式 JavaScript，以及 390/768 宽度无横向溢出。
 - 已加入生产模式输出断言、LRU 缓存淘汰测试、构建耗时/输出统计 DebugLogger，以及内存警告时保留当前主题并回收其他预览缓存的处理。
 - 真实主题路径已接入 `FileEditorView`；近似 Theme renderer、兼容性服务、弱语义 snapshot 和旧 fixture 已删除。
-- 当前无法在本环境代执行的验收是物理 iPad/iPhone 上安装 IPA 后使用 `hotbitd + PaperMod-PE`，以及与 Cloudflare/Production 站点的 Standard/Extended 确认和视觉对照。这些需要真实设备、Cloudflare 构建日志和线上站点，不能用模拟器结果冒充。
+- 当前无法在本环境代执行的验收仅剩：物理 iPad/iPhone 上安装 IPA 后使用 `hotbitd + PaperMod-PE`，以及从 Cloudflare 构建日志确认 Standard/Extended 与实际 draft/future/expired 参数。这些需要真实设备或 Cloudflare 控制台/构建日志；线上页面的结构和视觉对照已由字节级 HTML 与浏览器验证完成。
 - `Hugo hotbitd Acceptance` workflow 需要 GitHub 仓库 secret `HOTBITD_READ_TOKEN`（仅授予私有 `MyEnergyFiled/hotbitd` 读取权限）；未配置时 job 会跳过，不会把权限失败误报为 Hugo 失败。
 
 ## 26. 建议新对话的首条消息
