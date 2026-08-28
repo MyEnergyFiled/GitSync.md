@@ -376,6 +376,7 @@ func newHugoSites(s *session, request buildRequest) (*hugolib.HugoSites, error) 
 	configDir := ""
 	if request.Mode == "editorPage" && request.ArticleRepositoryRelativePath != nil && logicalPagePath(*request.ArticleRepositoryRelativePath) != "" {
 		configDir = ".hugo-preview-config"
+		flags.Set("renderSegments", []string{"hugoInkCurrentPage"})
 	}
 	logger := loggers.New(loggers.Options{Stdout: io.Discard, Stderr: io.Discard, Level: logg.LevelError})
 	configs, err := allconfig.LoadConfig(allconfig.ConfigSourceDescriptor{
@@ -420,7 +421,7 @@ func writePreviewConfig(overlayRoot string, request buildRequest) error {
 	config := "renderSegments = [\"hugoInkCurrentPage\"]\n\n" +
 		"[segments.hugoInkCurrentPage]\n" +
 		"[[segments.hugoInkCurrentPage.includes]]\n" +
-		"path = " + strconv.Quote(logicalPath) + "\n"
+		"path = " + strconv.Quote("{"+logicalPath+","+logicalPath+"/**}") + "\n"
 	if err := os.WriteFile(filepath.Join(configRoot, "preview.toml"), []byte(config), 0o600); err != nil {
 		return fmt.Errorf("write preview config: %w", err)
 	}
