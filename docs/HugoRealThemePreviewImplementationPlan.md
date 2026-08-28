@@ -1133,7 +1133,7 @@ iOS 无法像桌面系统一样任意执行 Node、PostCSS、Tailwind、Pandoc�
 ## 25.1 当前执行记录（2026-08-29）
 
 - Hugo `0.134.3 Standard` Go runtime、真机/模拟器 XCFramework、Swift adapter 和真实主题 fixture 已实现。
-- GitHub Actions 已通过：Hugo runtime/Simulator XCTest（run `33192790043`）、普通 XCTest（run `33192790055`）、Build Number Guard，以及此前的 SideStore unsigned IPA 构建。
+- GitHub Actions 已通过：Hugo runtime/Simulator XCTest（run `33194025932`）、普通 XCTest（run `33194025866`）、Build Number Guard、hotbitd access check，以及 SideStore unsigned IPA 构建（run `33194042486`，artifact `HugoInk-SideStore-31`）。
 - runtime Simulator XCTest 已验证真实 Hugo 输出经 loopback HTTP Origin 加载到 WKWebView，并执行 fixture 主题 JavaScript；曾出现的 `warnings: null` 协议错误已修复。
 - `hotbitd` 本地真实站点验收已通过 PaperMod-PE 编辑构建和完整 productionSite 构建；PaperMod/PaperModX 在当前项目根 `layouts` 覆盖下由真实 Hugo 严格报模板兼容错误，不允许伪造成功页面。
 - 已加入生产模式输出断言、LRU 缓存淘汰测试、构建耗时/输出统计 DebugLogger，以及内存警告时保留当前主题并回收其他预览缓存的处理。
