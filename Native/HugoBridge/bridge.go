@@ -423,7 +423,9 @@ func writePreviewConfig(overlayRoot string, request buildRequest) error {
 		"[segments.hugoInkCurrentPage]\n" +
 		"[[segments.hugoInkCurrentPage.includes]]\n" +
 		"path = " + strconv.Quote(pathGlob) + "\n"
-	if err := os.WriteFile(filepath.Join(configRoot, "preview.toml"), []byte(config), 0o600); err != nil {
+	// The default config filename is significant here: arbitrary filenames in
+	// ConfigDir are nested under that filename as a config namespace.
+	if err := os.WriteFile(filepath.Join(configRoot, "hugo.toml"), []byte(config), 0o600); err != nil {
 		return fmt.Errorf("write preview config: %w", err)
 	}
 	return nil
