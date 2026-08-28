@@ -188,6 +188,9 @@ func TestBuildRealFixtureUsesThemePipesAndEditorSegment(t *testing.T) {
 	if response.EntryPath != "posts/first/index.html" {
 		t.Fatalf("unexpected entry path: %q", response.EntryPath)
 	}
+	if response.Warnings == nil {
+		t.Fatal("build response warnings must be an array, not null")
+	}
 	if containsPath(response.RenderedPaths, "posts/second/index.html") {
 		t.Fatalf("editor segment rendered the unrelated page: %+v", response.RenderedPaths)
 	}
@@ -309,6 +312,37 @@ func TestBuildHotbitdRealSite(t *testing.T) {
 		if !strings.Contains(string(entry), "<html") {
 			_ = runtime.CloseSession(id)
 			t.Fatalf("%s entry is not a rendered HTML document", theme)
+		}
+		if theme == "PaperMod-PE" {
+			productionJSON, err := json.Marshal(buildRequest{
+				Mode: "productionSite",
+				RepositoryRoot: root,
+				SelectedTheme: stringPointer(theme),
+				BaseURL: "https://hotbitd.example/",
+				Environment: "production",
+				BuildDrafts: false,
+				BuildFuture: false,
+				BuildExpired: false,
+				Generation: 2,
+			})
+			if err != nil {
+				_ = runtime.CloseSession(id)
+				t.Fatal(err)
+			}
+			productionResponseJSON, err := runtime.Build(id, string(productionJSON))
+			if err != nil {
+				_ = runtime.CloseSession(id)
+				t.Fatalf("production build %s: %v", theme, err)
+			}
+			var productionResponse buildResponse
+			if err := json.Unmarshal([]byte(productionResponseJSON), &productionResponse); err != nil {
+				_ = runtime.CloseSession(id)
+				t.Fatal(err)
+			}
+			if productionResponse.Generation != 2 || countHTML(productionResponse.RenderedPaths) < 2 {
+				_ = runtime.CloseSession(id)
+				t.Fatalf("production build did not render the complete site: %+v", productionResponse)
+			}
 		}
 		if err := runtime.CloseSession(id); err != nil {
 			t.Fatalf("close %s: %v", theme, err)

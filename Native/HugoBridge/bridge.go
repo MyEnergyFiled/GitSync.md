@@ -238,6 +238,7 @@ func (r *Runtime) Build(id int64, requestJSON string) (string, error) {
 		Generation: request.Generation,
 		EntryPath: entry,
 		RenderedPaths: paths,
+		Warnings: []diagnostic{},
 		Statistics: buildStatistics{
 			DurationMilliseconds: time.Since(started).Milliseconds(),
 			RenderedPageCount: countHTML(paths),

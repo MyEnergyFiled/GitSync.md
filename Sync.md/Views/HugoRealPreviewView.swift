@@ -129,6 +129,12 @@ final class HugoRealPreviewModel: ObservableObject {
                 session: opened.session,
                 sessionKey: key
             )
+            DebugLogger.shared.info(
+                "hugo-preview",
+                "Real Hugo build completed",
+                detail: "duration_ms=\(result.statistics.durationMilliseconds) rendered_pages=\(result.statistics.renderedPageCount) output_bytes=\(result.statistics.outputByteCount)",
+                repoID: repositoryID
+            )
             await HugoPreviewCache.shared.touch(opened.workspace)
             guard result.generation == request.generation else {
                 throw HugoRuntimeError.failure(HugoPreviewFailure(

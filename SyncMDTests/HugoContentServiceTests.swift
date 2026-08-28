@@ -943,6 +943,27 @@ final class HugoContentServiceTests: XCTestCase {
         )
     }
 
+    func testHugoPreviewCacheEvictsLeastRecentlyUsedThemeWorkspace() async throws {
+        let fileManager = FileManager.default
+        let cacheRoot = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? fileManager.removeItem(at: cacheRoot) }
+        let repositoryA = UUID()
+        let repositoryB = UUID()
+        let workspaceA = try HugoPreviewWorkspace(repositoryID: repositoryA, themeID: "ThemeA", baseURL: cacheRoot)
+        try Data(repeating: 0x41, count: 1_100_000).write(to: workspaceA.outputURL.appendingPathComponent("a.bin"))
+        let cache = HugoPreviewCache(rootURL: cacheRoot)
+        await cache.touch(workspaceA)
+        try await Task.sleep(nanoseconds: 20_000_000)
+
+        let workspaceB = try HugoPreviewWorkspace(repositoryID: repositoryB, themeID: "ThemeA", baseURL: cacheRoot)
+        try Data(repeating: 0x42, count: 1_100_000).write(to: workspaceB.outputURL.appendingPathComponent("b.bin"))
+        await cache.touch(workspaceB)
+        await cache.evict(maxBytes: 1_500_000)
+
+        XCTAssertFalse(fileManager.fileExists(atPath: workspaceA.rootURL.path))
+        XCTAssertTrue(fileManager.fileExists(atPath: workspaceB.rootURL.path))
+    }
+
     func testHugoThemeDiscoveryChecksMinimumVersionAndCapabilityWarnings() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let theme = root.appendingPathComponent("themes/ThemeA")
