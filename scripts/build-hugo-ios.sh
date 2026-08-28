@@ -19,7 +19,7 @@ fi
 command -v go >/dev/null || { echo "error: Go is required" >&2; exit 2; }
 command -v xcodebuild >/dev/null || { echo "error: Xcode is required" >&2; exit 2; }
 
-XCODE_VERSION=$(xcodebuild -version | head -n 1)
+XCODE_VERSION=$(xcodebuild -version)
 GO_VERSION=$(go version)
 echo "Building Hugo runtime"
 echo "  Hugo: $HUGO_VERSION_EXPECTED"
