@@ -4,6 +4,6 @@
 <link rel="stylesheet" href="{{ $css.RelPermalink }}">
 {{ $js := resources.Get "js/theme.js" | js.Build | fingerprint }}
 <script src="{{ $js.RelPermalink }}"></script>
-</head><body data-theme="a">
+</head><body data-theme="a" data-page-path="{{ .Path }}">
 {{ block "main" . }}{{ end }}
 </body></html>
