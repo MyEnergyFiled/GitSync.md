@@ -40,6 +40,7 @@ go get "golang.org/x/mobile@$GOMOBILE_VERSION"
 # Do not run `go mod tidy` here. gomobile bind intentionally requires the
 # x/mobile module to remain in the module graph even though the bridge source
 # does not import the command package directly.
+go mod download
 # Hugo 0.134.3 contains packages that panic in the newer Go printf analyzer
 # during vet. Test the façade without running third-party vet analyzers; the
 # actual Hugo packages are still compiled by gomobile bind below.
