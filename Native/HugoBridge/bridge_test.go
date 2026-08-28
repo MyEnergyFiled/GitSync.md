@@ -14,7 +14,7 @@ func TestRuntimeVersionIsPinned(t *testing.T) {
 	if err := json.Unmarshal([]byte(NewRuntime().RuntimeVersion()), &version); err != nil {
 		t.Fatal(err)
 	}
-	if version.HugoVersion != "0.134.3" || version.Extended || version.Target != "ios" {
+	if version.HugoVersion != "0.134.3" || version.Extended || !strings.HasPrefix(version.Target, "ios/") {
 		t.Fatalf("unexpected runtime version: %+v", version)
 	}
 }
@@ -177,7 +177,8 @@ func TestBuildRealFixtureUsesThemePipesAndEditorSegment(t *testing.T) {
 	}
 	responseJSON, err := runtime.Build(id, string(buildJSON))
 	if err != nil {
-		t.Fatal(err)
+		paths, _, collectErr := collectOutput(output)
+		t.Fatalf("%v; output paths=%v (collect error: %v)", err, paths, collectErr)
 	}
 	var response buildResponse
 	if err := json.Unmarshal([]byte(responseJSON), &response); err != nil {

@@ -117,7 +117,7 @@ func (r *Runtime) RuntimeVersion() string {
 		HugoVersion: runtimeVersion,
 		Extended: false,
 		GoVersion: runtimeGoVersion,
-		Target: "ios",
+		Target: "ios/" + goruntime.GOARCH,
 	})
 	return string(value)
 }
@@ -254,6 +254,8 @@ func (r *Runtime) ReadOutput(id int64, path string) ([]byte, error) {
 	if s == nil {
 		return nil, errors.New("Hugo session not found")
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	relative, err := safeRelativePath(path)
 	if err != nil {
 		return nil, err
@@ -263,9 +265,13 @@ func (r *Runtime) ReadOutput(id int64, path string) ([]byte, error) {
 	if !isInside(candidate, root) {
 		return nil, errors.New("output path escapes preview directory")
 	}
-	info, err := os.Stat(candidate)
+	info, err := os.Lstat(candidate)
 	if err != nil || !info.Mode().IsRegular() {
 		return nil, os.ErrNotExist
+	}
+	resolved, err := filepath.EvalSymlinks(candidate)
+	if err != nil || !isInside(resolved, root) {
+		return nil, errors.New("output path escapes preview directory")
 	}
 	return os.ReadFile(candidate)
 }
@@ -278,6 +284,8 @@ func (r *Runtime) ListOutput(id int64) (string, error) {
 	if s == nil {
 		return "", errors.New("Hugo session not found")
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	paths, _, err := collectOutput(s.outputDir)
 	if err != nil {
 		return "", err
@@ -294,6 +302,8 @@ func (r *Runtime) Invalidate(id int64, requestJSON string) error {
 	if s == nil {
 		return errors.New("Hugo session not found")
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return os.RemoveAll(s.outputDir)
 }
 
@@ -353,12 +363,13 @@ func newHugoSites(s *session, request buildRequest) (*hugolib.HugoSites, error) 
 	}
 	if request.Mode == "editorPage" && request.ArticleRepositoryRelativePath != nil {
 		if logicalPath := logicalPagePath(*request.ArticleRepositoryRelativePath); logicalPath != "" {
+			includes := []any{map[string]any{"path": logicalPath}}
+			if logicalPath != "/" {
+				includes = append(includes, map[string]any{"path": logicalPath + "/**"})
+			}
 			flags.Set("segments", map[string]any{
 				"hugoInkCurrentPage": map[string]any{
-					"includes": []any{map[string]any{
-						"path": logicalPath,
-						"output": "html",
-					}},
+					"includes": includes,
 				},
 			})
 			flags.Set("renderSegments", []string{"hugoInkCurrentPage"})

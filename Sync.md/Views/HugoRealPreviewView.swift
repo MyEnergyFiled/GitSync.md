@@ -217,6 +217,61 @@ final class HugoRealPreviewModel: ObservableObject {
     func suspendListener() {
         Task { await server.stop() }
     }
+
+    func buildLinkedPage(
+        _ url: URL,
+        from request: HugoBuildRequest,
+        repositoryID: UUID
+    ) async {
+        guard let root = repositoryRoot,
+              let relativePath = linkedArticlePath(for: url, repositoryRoot: root) else {
+            return
+        }
+        let linkedRequest = HugoBuildRequest(
+            mode: request.mode,
+            repositoryRoot: request.repositoryRoot,
+            articleRepositoryRelativePath: relativePath,
+            selectedTheme: request.selectedTheme,
+            baseURL: request.baseURL,
+            environment: request.environment,
+            buildDrafts: request.buildDrafts,
+            buildFuture: request.buildFuture,
+            buildExpired: request.buildExpired,
+            overlayFiles: request.overlayFiles,
+            generation: snapshot.generation &+ 1
+        )
+        await build(linkedRequest, repositoryID: repositoryID)
+    }
+
+    private func linkedArticlePath(for url: URL, repositoryRoot: URL) -> String? {
+        let components = url.path.split(separator: "/", omittingEmptySubsequences: true)
+        guard components.count >= 2 else { return nil }
+        var route = components.dropFirst().joined(separator: "/")
+        if route.hasSuffix("/index.html") {
+            route.removeLast("/index.html".count)
+        } else if route.hasSuffix(".html") {
+            route.removeLast(".html".count)
+        }
+        route = route.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard !route.isEmpty else { return nil }
+        let candidates = [
+            "content/\(route)/index.md",
+            "content/\(route)/_index.md",
+            "content/\(route).md"
+        ]
+        return candidates.first { relativePath in
+            let candidate = repositoryRoot.appendingPathComponent(relativePath).standardizedFileURL
+            guard candidate.path.hasPrefix(repositoryRoot.standardizedFileURL.path + "/"),
+                  let values = try? candidate.resourceValues(
+                    forKeys: [.isRegularFileKey, .isSymbolicLinkKey]
+                  ),
+                  values.isRegularFile == true,
+                  values.isSymbolicLink != true else { return false }
+            return candidate.resolvingSymlinksInPath().path.hasPrefix(
+                repositoryRoot.resolvingSymlinksInPath().path + "/"
+            )
+        }
+    }
 }
 
 struct HugoRealPreviewView: View {
@@ -261,7 +316,15 @@ struct HugoRealPreviewView: View {
     private var content: some View {
         switch model.snapshot.phase {
         case .ready(let url):
-            HugoRealPreviewWebView(url: url)
+            HugoRealPreviewWebView(url: url) { linkedURL in
+                Task {
+                    await model.buildLinkedPage(
+                        linkedURL,
+                        from: request,
+                        repositoryID: repositoryID
+                    )
+                }
+            }
                 .frame(width: device.width)
         case .failed(let failure):
             VStack(alignment: .leading, spacing: 10) {
@@ -306,6 +369,12 @@ struct HugoRealPreviewView: View {
 
 struct HugoRealPreviewWebView: UIViewRepresentable {
     let url: URL
+    let onLocalNavigation: (URL) -> Void
+
+    init(url: URL, onLocalNavigation: @escaping (URL) -> Void = { _ in }) {
+        self.url = url
+        self.onLocalNavigation = onLocalNavigation
+    }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -315,6 +384,7 @@ struct HugoRealPreviewWebView: UIViewRepresentable {
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
         let webView = WKWebView(frame: .zero, configuration: configuration)
         context.coordinator.setAllowedURL(url)
+        context.coordinator.onLocalNavigation = onLocalNavigation
         webView.navigationDelegate = context.coordinator
         webView.isInspectable = false
         webView.scrollView.contentInsetAdjustmentBehavior = .never
@@ -325,6 +395,7 @@ struct HugoRealPreviewWebView: UIViewRepresentable {
 
     func updateUIView(_ webView: WKWebView, context: Context) {
         context.coordinator.setAllowedURL(url)
+        context.coordinator.onLocalNavigation = onLocalNavigation
         guard context.coordinator.loadedURL != url else { return }
         context.coordinator.loadedURL = url
         webView.load(URLRequest(url: url))
@@ -334,6 +405,7 @@ struct HugoRealPreviewWebView: UIViewRepresentable {
         var loadedURL: URL?
         var allowedPathPrefix = ""
         var allowedPort: Int?
+        var onLocalNavigation: ((URL) -> Void)?
 
         func setAllowedURL(_ url: URL) {
             allowedPathPrefix = Self.tokenPathPrefix(for: url)
@@ -354,7 +426,14 @@ struct HugoRealPreviewWebView: UIViewRepresentable {
                url.port == allowedPort,
                let requestedPath = url.path.removingPercentEncoding,
                requestedPath == allowedPathPrefix || requestedPath.hasPrefix(allowedPathPrefix + "/") {
-                decisionHandler(.allow)
+                if navigationAction.navigationType == .linkActivated,
+                   let loadedURL,
+                   loadedURL.path != url.path {
+                    onLocalNavigation?(url)
+                    decisionHandler(.cancel)
+                } else {
+                    decisionHandler(.allow)
+                }
             } else if url.scheme == "http" || url.scheme == "https" {
                 decisionHandler(.cancel)
                 UIApplication.shared.open(url)
