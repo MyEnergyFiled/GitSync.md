@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	goruntime "runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -28,6 +29,7 @@ import (
 )
 
 const runtimeVersion = "0.134.3"
+const maximumOutputBytes int64 = 200 * 1024 * 1024
 
 type Runtime struct {
 	mu       sync.Mutex
@@ -192,6 +194,9 @@ func (r *Runtime) Build(id int64, requestJSON string) (string, error) {
 	if err := replaceOverlayFiles(s.overlayDir, request.OverlayFiles); err != nil {
 		return "", err
 	}
+	if err := writePreviewConfig(s.overlayDir, request); err != nil {
+		return "", err
+	}
 	if err := os.RemoveAll(s.outputDir); err != nil {
 		return "", fmt.Errorf("clear preview output: %w", err)
 	}
@@ -261,6 +266,10 @@ func (r *Runtime) ReadOutput(id int64, path string) ([]byte, error) {
 		return nil, err
 	}
 	root := filepath.Clean(s.outputDir)
+	resolvedRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return nil, os.ErrNotExist
+	}
 	candidate := filepath.Join(root, filepath.FromSlash(relative))
 	if !isInside(candidate, root) {
 		return nil, errors.New("output path escapes preview directory")
@@ -270,8 +279,11 @@ func (r *Runtime) ReadOutput(id int64, path string) ([]byte, error) {
 		return nil, os.ErrNotExist
 	}
 	resolved, err := filepath.EvalSymlinks(candidate)
-	if err != nil || !isInside(resolved, root) {
+	if err != nil || !isInside(resolved, resolvedRoot) {
 		return nil, errors.New("output path escapes preview directory")
+	}
+	if info.Size() > maximumOutputBytes {
+		return nil, errors.New("preview output file exceeds the runtime limit")
 	}
 	return os.ReadFile(candidate)
 }
@@ -361,23 +373,14 @@ func newHugoSites(s *session, request buildRequest) (*hugolib.HugoSites, error) 
 	if request.SelectedTheme != nil && *request.SelectedTheme != "" {
 		flags.Set("theme", *request.SelectedTheme)
 	}
-	if request.Mode == "editorPage" && request.ArticleRepositoryRelativePath != nil {
-		if logicalPath := logicalPagePath(*request.ArticleRepositoryRelativePath); logicalPath != "" {
-			includes := []any{map[string]any{"path": logicalPath}}
-			if logicalPath != "/" {
-				includes = append(includes, map[string]any{"path": logicalPath + "/**"})
-			}
-			flags.Set("segments", map[string]any{
-				"hugoInkCurrentPage": map[string]any{
-					"includes": includes,
-				},
-			})
-			flags.Set("renderSegments", []string{"hugoInkCurrentPage"})
-		}
+	configDir := ""
+	if request.Mode == "editorPage" && request.ArticleRepositoryRelativePath != nil && logicalPagePath(*request.ArticleRepositoryRelativePath) != "" {
+		configDir = ".hugo-preview-config"
 	}
 	logger := loggers.New(loggers.Options{Stdout: io.Discard, Stderr: io.Discard, Level: logg.LevelError})
 	configs, err := allconfig.LoadConfig(allconfig.ConfigSourceDescriptor{
 		Fs: source,
+		ConfigDir: configDir,
 		Flags: flags,
 		Environment: request.Environment,
 		Logger: logger,
@@ -394,6 +397,34 @@ func newHugoSites(s *session, request buildRequest) (*hugolib.HugoSites, error) 
 		LogLevel: logg.LevelError,
 		LogOut: io.Discard,
 	})
+}
+
+// writePreviewConfig puts the editor-only render segment in the overlay. Hugo
+// loads this through its normal ConfigDir path, so the repository's config is
+// still authoritative and no temporary file is ever written into the repo.
+func writePreviewConfig(overlayRoot string, request buildRequest) error {
+	configRoot := filepath.Join(overlayRoot, ".hugo-preview-config", "_default")
+	if err := os.RemoveAll(filepath.Dir(configRoot)); err != nil {
+		return fmt.Errorf("clear preview config: %w", err)
+	}
+	if request.Mode != "editorPage" || request.ArticleRepositoryRelativePath == nil {
+		return nil
+	}
+	logicalPath := logicalPagePath(*request.ArticleRepositoryRelativePath)
+	if logicalPath == "" {
+		return nil
+	}
+	if err := os.MkdirAll(configRoot, 0o700); err != nil {
+		return fmt.Errorf("create preview config: %w", err)
+	}
+	config := "renderSegments = [\"hugoInkCurrentPage\"]\n\n" +
+		"[segments.hugoInkCurrentPage]\n" +
+		"[[segments.hugoInkCurrentPage.includes]]\n" +
+		"path = " + strconv.Quote(logicalPath) + "\n"
+	if err := os.WriteFile(filepath.Join(configRoot, "preview.toml"), []byte(config), 0o600); err != nil {
+		return fmt.Errorf("write preview config: %w", err)
+	}
+	return nil
 }
 
 func replaceOverlayFiles(root string, files []overlayFile) error {
@@ -429,6 +460,9 @@ func collectOutput(root string) ([]string, int64, error) {
 		if err != nil { return err }
 		if info.IsDir() { return nil }
 		if !info.Mode().IsRegular() { return nil }
+		if bytesWritten+info.Size() > maximumOutputBytes {
+			return errors.New("preview output exceeds the runtime limit")
+		}
 		relative, err := filepath.Rel(root, path)
 		if err != nil { return err }
 		paths = append(paths, filepath.ToSlash(relative))

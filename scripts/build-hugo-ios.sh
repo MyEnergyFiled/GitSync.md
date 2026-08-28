@@ -10,7 +10,9 @@ BRIDGE_DIR="$REPO_ROOT/Native/HugoBridge"
 OUTPUT_PATH=${1:-"$REPO_ROOT/HugoRuntime.xcframework"}
 HUGO_VERSION_EXPECTED="0.134.3"
 IOS_VERSION=${IOS_VERSION:-17.0}
-GOMOBILE_VERSION=${GOMOBILE_VERSION:-latest}
+# Pin the bridge tool independently from Hugo. A floating x/mobile release can
+# silently change the generated Objective-C module or its minimum Go version.
+GOMOBILE_VERSION=${GOMOBILE_VERSION:-v0.0.0-20260821190718-4776eadac327}
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "error: Hugo iOS runtime must be built on macOS with Xcode" >&2
@@ -31,10 +33,10 @@ TOOL_DIR=${RUNNER_TEMP:-"$REPO_ROOT/.build"}/hugo-runtime-tools
 mkdir -p "$TOOL_DIR/bin"
 GOBIN="$TOOL_DIR/bin" go install "golang.org/x/mobile/cmd/gomobile@$GOMOBILE_VERSION"
 export PATH="$TOOL_DIR/bin:$PATH"
-gomobile version
-gomobile init
 
 pushd "$BRIDGE_DIR" >/dev/null
+gomobile version
+gomobile init
 # gomobile bind requires golang.org/x/mobile to be present in the module graph.
 go get "golang.org/x/mobile@$GOMOBILE_VERSION"
 # Do not run `go mod tidy` here. gomobile bind intentionally requires the
