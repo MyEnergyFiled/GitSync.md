@@ -224,6 +224,18 @@ final class HugoRealPreviewModel: ObservableObject {
         Task { await server.stop() }
     }
 
+    func handleMemoryWarning() {
+        let currentWorkspace = workspace
+        Task {
+            if let currentWorkspace {
+                await HugoPreviewCache.shared.removeAllExcept(currentWorkspace)
+                await HugoPreviewCache.shared.touch(currentWorkspace)
+            } else {
+                await HugoPreviewCache.shared.evict(maxBytes: 32 * 1024 * 1024)
+            }
+        }
+    }
+
     func buildLinkedPage(
         _ url: URL,
         from request: HugoBuildRequest,
@@ -314,6 +326,11 @@ struct HugoRealPreviewView: View {
             for: UIApplication.willEnterForegroundNotification
         )) { _ in
             Task { await model.build(request, repositoryID: repositoryID) }
+        }
+        .onReceive(NotificationCenter.default.publisher(
+            for: UIApplication.didReceiveMemoryWarningNotification
+        )) { _ in
+            model.handleMemoryWarning()
         }
         .onDisappear { model.stop() }
     }

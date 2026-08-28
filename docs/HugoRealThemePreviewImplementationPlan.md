@@ -1,6 +1,6 @@
 # iOS/iPadOS 真实 Hugo 主题预览开发规格
 
-> 文档状态：已确认方向，等待实现
+> 文档状态：核心实现与自动化验证完成，等待真实设备和 Cloudflare 外部验收
 > 目标项目：HugoInk（`Sync.md`）
 > 目标平台：iOS / iPadOS 16+
 > 固定 Hugo 版本：`0.134.3`
@@ -1057,8 +1057,8 @@ Fixture 必须覆盖：
 任务：
 
 - [ ] Cloudflare Standard/Extended 确认。
-- [ ] 完整生产验证模式。
-- [ ] 性能、缓存和内存测试。
+- [x] 完整生产验证模式。
+- [x] 性能、缓存和内存测试。
 - [x] 第三方许可证。
 - [ ] CI 和真机验证记录。
 
@@ -1124,7 +1124,7 @@ iOS 无法像桌面系统一样任意执行 Node、PostCSS、Tailwind、Pandoc�
 - [x] 切换主题不修改 `hugo.yaml`。
 - [x] 不复制完整博客仓库。
 - [x] 仓库内不生成或修改 `public`、lock、resources cache。
-- [ ] WKWebView 主题 JavaScript 正常运行。
+- [x] WKWebView 主题 JavaScript 正常运行。
 - [x] 内部链接可按需构建。
 - [x] 外部工具/更高版本主题明确报错。
 - [ ] 生产验证结果与 Cloudflare 结构和视觉一致。
@@ -1133,9 +1133,12 @@ iOS 无法像桌面系统一样任意执行 Node、PostCSS、Tailwind、Pandoc�
 ## 25.1 当前执行记录（2026-08-29）
 
 - Hugo `0.134.3 Standard` Go runtime、真机/模拟器 XCFramework、Swift adapter 和真实主题 fixture 已实现。
-- GitHub Actions 已通过：Hugo runtime/Simulator XCTest、普通 XCTest、Build Number Guard，以及 SideStore unsigned IPA 构建。
+- GitHub Actions 已通过：Hugo runtime/Simulator XCTest（run `33192790043`）、普通 XCTest（run `33192790055`）、Build Number Guard，以及此前的 SideStore unsigned IPA 构建。
+- runtime Simulator XCTest 已验证真实 Hugo 输出经 loopback HTTP Origin 加载到 WKWebView，并执行 fixture 主题 JavaScript；曾出现的 `warnings: null` 协议错误已修复。
+- `hotbitd` 本地真实站点验收已通过 PaperMod-PE 编辑构建和完整 productionSite 构建；PaperMod/PaperModX 在当前项目根 `layouts` 覆盖下由真实 Hugo 严格报模板兼容错误，不允许伪造成功页面。
+- 已加入生产模式输出断言、LRU 缓存淘汰测试、构建耗时/输出统计 DebugLogger，以及内存警告时保留当前主题并回收其他预览缓存的处理。
 - 真实主题路径已接入 `FileEditorView`；近似 Theme renderer、兼容性服务、弱语义 snapshot 和旧 fixture 已删除。
-- 当前唯一无法在本环境代执行的验收是物理 iPad/iPhone 上安装 IPA 后使用 `hotbitd + PaperMod-PE`，以及与 Cloudflare/Production 站点的视觉对照。这两项需要真实仓库和设备，不能用模拟器结果冒充。
+- 当前无法在本环境代执行的验收是物理 iPad/iPhone 上安装 IPA 后使用 `hotbitd + PaperMod-PE`，以及与 Cloudflare/Production 站点的 Standard/Extended 确认和视觉对照。这些需要真实设备、Cloudflare 构建日志和线上站点，不能用模拟器结果冒充。
 - `Hugo hotbitd Acceptance` workflow 需要 GitHub 仓库 secret `HOTBITD_READ_TOKEN`（仅授予私有 `MyEnergyFiled/hotbitd` 读取权限）；未配置时 job 会跳过，不会把权限失败误报为 Hugo 失败。
 
 ## 26. 建议新对话的首条消息
