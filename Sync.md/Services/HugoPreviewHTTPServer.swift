@@ -43,7 +43,7 @@ actor HugoPreviewHTTPServer {
             }
             listener.start(queue: self.queue)
         }
-        guard let port = listener.port?.rawValue else { throw URLError(.cannotGetHostFromURL) }
+        guard let port = listener.port?.rawValue else { throw URLError(.unknown) }
         return try origin(port: port)
     }
 
