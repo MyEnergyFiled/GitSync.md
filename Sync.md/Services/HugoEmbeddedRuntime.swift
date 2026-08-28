@@ -33,12 +33,7 @@ final class HugoEmbeddedRuntime: HugoRuntimeProviding, @unchecked Sendable {
     }
 
     func readOutput(path: String, in session: HugoSessionID) async throws -> Data {
-        var error: NSError?
-        guard let data = bridge.readOutput(Int64(session), path: path, error: &error) else {
-            if let error { throw error }
-            throw HugoRuntimeError.malformedResponse
-        }
-        return data
+        return try bridge.readOutput(Int64(session), path: path)
     }
 
     func listOutput(in session: HugoSessionID) async throws -> [String] {
