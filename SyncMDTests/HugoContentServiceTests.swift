@@ -1137,4 +1137,99 @@ final class HugoContentServiceTests: XCTestCase {
     func testSlugifyUsesEnglishPathCharacters() {
         XCTAssertEqual(HugoContentService.slugify("My First Post!"), "my-first-post")
     }
+
+    func testHugoPreviewWorkspaceRejectsUnsafeOverlayPaths() {
+        XCTAssertTrue(HugoPreviewWorkspace.isSafeRepositoryRelativePath("content/posts/index.md"))
+        XCTAssertTrue(HugoPreviewWorkspace.isSafeRepositoryRelativePath("主题/文章.md"))
+        XCTAssertFalse(HugoPreviewWorkspace.isSafeRepositoryRelativePath("/etc/passwd"))
+        XCTAssertFalse(HugoPreviewWorkspace.isSafeRepositoryRelativePath("content/../secret.md"))
+        XCTAssertFalse(HugoPreviewWorkspace.isSafeRepositoryRelativePath("https://example.com/file"))
+        XCTAssertFalse(HugoPreviewWorkspace.isSafeRepositoryRelativePath("content/\0.md"))
+    }
+
+    func testHugoPreviewWorkspaceWritesOverlayOutsideRepository() throws {
+        let fileManager = FileManager.default
+        let repository = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let cache = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer {
+            try? fileManager.removeItem(at: repository)
+            try? fileManager.removeItem(at: cache)
+        }
+        try fileManager.createDirectory(at: repository, withIntermediateDirectories: true)
+        let article = repository.appendingPathComponent("content/posts/index.md")
+        try fileManager.createDirectory(at: article.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "saved".write(to: article, atomically: true, encoding: .utf8)
+        let original = try Data(contentsOf: article)
+        let workspace = try HugoPreviewWorkspace(
+            repositoryID: UUID(),
+            themeID: "ThemeA",
+            baseURL: cache
+        )
+        _ = try workspace.materializeOverlay(HugoOverlayFile(
+            repositoryRelativePath: "content/posts/index.md",
+            contents: Data("unsaved".utf8)
+        ))
+
+        XCTAssertEqual(try Data(contentsOf: article), original)
+        XCTAssertNotEqual(workspace.rootURL.path, repository.path)
+        XCTAssertEqual(
+            try Data(contentsOf: workspace.overlayURL.appendingPathComponent("content/posts/index.md")),
+            Data("unsaved".utf8)
+        )
+    }
+
+    func testHugoThemeDiscoveryChecksMinimumVersionAndCapabilityWarnings() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let theme = root.appendingPathComponent("themes/ThemeA")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: theme, withIntermediateDirectories: true)
+        try "name = \"Theme A\"\nmin_version = \"0.200.0\"\nlicense = \"MIT\"".write(
+            to: theme.appendingPathComponent("theme.toml"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let layout = theme.appendingPathComponent("layouts/index.html")
+        try FileManager.default.createDirectory(at: layout.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "{{ $image := resources.GetRemote \"https://example.com/a.png\" }}".write(
+            to: layout,
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let themes = HugoThemeDiscoveryService.discover(in: root)
+
+        XCTAssertEqual(themes.count, 1)
+        XCTAssertEqual(themes[0].displayName, "Theme A")
+        XCTAssertFalse(themes[0].isCompatible)
+        XCTAssertTrue(themes[0].capabilityWarnings.contains(.remoteResource))
+        XCTAssertEqual(
+            HugoThemeDiscoveryService.compareVersions("0.134.3", "0.125.3"),
+            .orderedDescending
+        )
+    }
+
+    func testUnavailableHugoRuntimeFailsClosedWithoutRenderingFallback() async {
+        do {
+            _ = try await UnavailableHugoRuntime().version()
+            XCTFail("The real preview must not silently fall back to Swift rendering.")
+        } catch let error as HugoRuntimeError {
+            XCTAssertEqual(error, .unavailable)
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    func testHugoPreviewHTTPServerRejectsTokenAndTraversalEscapes() {
+        XCTAssertEqual(
+            HugoPreviewHTTPServer.relativeOutputPath(for: "/abc/posts/first/", token: "abc"),
+            "posts/first"
+        )
+        XCTAssertEqual(
+            HugoPreviewHTTPServer.relativeOutputPath(for: "/abc", token: "abc"),
+            "index.html"
+        )
+        XCTAssertNil(HugoPreviewHTTPServer.relativeOutputPath(for: "/wrong/posts/first/", token: "abc"))
+        XCTAssertNil(HugoPreviewHTTPServer.relativeOutputPath(for: "/abc/%2e%2e/private.html", token: "abc"))
+        XCTAssertNil(HugoPreviewHTTPServer.relativeOutputPath(for: "/abc/../private.html", token: "abc"))
+    }
 }
