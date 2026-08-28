@@ -26,13 +26,13 @@ Hugo itself uses the Apache-2.0 license, which is compatible with distribution, 
 
 | Gate | Requirement | Current result |
 | --- | --- | --- |
-| Platform | Runs as signed iOS code without spawning an unsupported child process | Fails; no upstream iOS build or supported CLI execution path |
-| App size | Acceptable download/install increase with architecture slicing | Fails; measured standard binary is about 58 MiB before app packaging |
-| Sandbox | Reads only the selected repository and cannot write outside a disposable output directory | Unproven; full Hugo modules, caches, and asset pipelines need a dedicated port and audit |
-| Security | No downloaded executable code, JIT, unsigned plug-ins, or unrestricted network access | Fails for a direct CLI approach |
-| Licensing | Apache-2.0 text, notices, source attribution, and all transitive dependencies reviewed | Feasible but incomplete |
-| Signing | Works in App Store and SideStore distributions without special private entitlements | Unproven and not acceptable for release |
-| Fidelity | Produces deterministic output for supported sites within bounded time and memory | Desktop reference succeeds; no iOS implementation exists |
+| Platform | Runs as signed iOS code without spawning an unsupported child process | Pass for the embedded Go façade; device and simulator XCFrameworks build in CI |
+| App size | Acceptable download/install increase with architecture slicing | Release artifact is architecture-sliced; final product-size acceptance remains a release check |
+| Sandbox | Reads only the selected repository and cannot write outside a disposable output directory | Pass in Go fixture tests; output/resource/cache are external to the repository |
+| Security | No downloaded executable code, JIT, unsigned plug-ins, or unrestricted network access | Pass for the runtime path; WebView is loopback-only with tokenized output URLs |
+| Licensing | Apache-2.0 text, notices, source attribution, and all transitive dependencies reviewed | Inventory recorded in `THIRD_PARTY_NOTICES.md`; release packaging must retain module inventory |
+| Signing | Works in App Store and SideStore distributions without special private entitlements | Unsigned IPA built successfully; SideStore installation on a physical device remains pending |
+| Fidelity | Produces deterministic output for supported sites within bounded time and memory | Pass for the real Hugo fixture; PaperMod-PE/Cloudflare visual acceptance remains pending |
 
 ## Acceptable approaches
 

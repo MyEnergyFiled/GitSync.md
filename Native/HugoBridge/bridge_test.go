@@ -138,6 +138,7 @@ func TestBuildRealFixtureUsesThemePipesAndEditorSegment(t *testing.T) {
 	root := t.TempDir()
 	fixture := filepath.Join("..", "..", "SyncMDTests", "HugoRealPreviewFixture")
 	copyFixture(t, fixture, root)
+	before := snapshotTree(t, root)
 	output := filepath.Join(t.TempDir(), "output")
 	resource := filepath.Join(t.TempDir(), "resources")
 	cache := filepath.Join(t.TempDir(), "cache")
@@ -209,6 +210,15 @@ func TestBuildRealFixtureUsesThemePipesAndEditorSegment(t *testing.T) {
 	if !containsSuffix(response.RenderedPaths, ".css") || !containsSuffix(response.RenderedPaths, ".js") {
 		t.Fatalf("resource pipeline output missing: %+v", response.RenderedPaths)
 	}
+	after := snapshotTree(t, root)
+	if len(before) != len(after) {
+		t.Fatalf("runtime changed repository file list: before=%d after=%d", len(before), len(after))
+	}
+	for path, contents := range before {
+		if after[path] != contents {
+			t.Fatalf("runtime changed repository file %q", path)
+		}
+	}
 }
 
 func stringPointer(value string) *string { return &value }
@@ -229,6 +239,33 @@ func containsSuffix(paths []string, suffix string) bool {
 		}
 	}
 	return false
+}
+
+func snapshotTree(t *testing.T, root string) map[string]string {
+	t.Helper()
+	snapshot := map[string]string{}
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		contents, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		snapshot[filepath.ToSlash(relative)] = string(contents)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return snapshot
 }
 
 func copyFixture(t *testing.T, source, destination string) {

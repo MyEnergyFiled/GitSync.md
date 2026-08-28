@@ -958,17 +958,17 @@ Fixture 必须覆盖：
 
 ## 20. 安全审查清单
 
-- [ ] Hugo runtime 不接触 GitHub Token 或 Keychain。
-- [ ] 预览 listener 仅绑定 loopback。
-- [ ] URL 带随机不可预测 token。
-- [ ] 所有输出路径防止 `../` 和编码绕过。
-- [ ] 不允许 WebView 调用 App 内部 privileged bridge。
-- [ ] 外部链接由导航策略处理。
-- [ ] 主题构建错误不输出文章正文。
-- [ ] 资源大小和响应大小有合理上限。
-- [ ] 构建取消不会留下锁或半写入源仓库。
-- [ ] 删除 repository 时同步关闭 session/listener/cache。
-- [ ] 第三方 Hugo/Go/主题许可证随 App 分发。
+- [x] Hugo runtime 不接触 GitHub Token 或 Keychain。
+- [x] 预览 listener 仅绑定 loopback。
+- [x] URL 带随机不可预测 token。
+- [x] 所有输出路径防止 `../` 和编码绕过。
+- [x] 不允许 WebView 调用 App 内部 privileged bridge。
+- [x] 外部链接由导航策略处理。
+- [x] 主题构建错误不输出文章正文。
+- [x] 资源大小和响应大小有合理上限。
+- [x] 构建取消不会留下锁或半写入源仓库。
+- [x] 删除 repository 时同步关闭 session/listener/cache。
+- [x] 第三方 Hugo/Go/主题许可证随 App 分发。
 
 ## 21. 分阶段开发任务与完成定义
 
@@ -976,11 +976,11 @@ Fixture 必须覆盖：
 
 任务：
 
-- [ ] 固定 Hugo `v0.134.3`。
-- [ ] 建立 Go façade。
-- [ ] 生成真机和模拟器 XCFramework。
-- [ ] Swift 调用版本接口。
-- [ ] 构建最小测试站点。
+- [x] 固定 Hugo `v0.134.3`。
+- [x] 建立 Go façade。
+- [x] 生成真机和模拟器 XCFramework。
+- [x] Swift 调用版本接口。
+- [x] 构建最小测试站点。
 
 完成定义：满足第 6.4 节全部条件。
 
@@ -988,11 +988,11 @@ Fixture 必须覆盖：
 
 任务：
 
-- [ ] `HugoRuntimeService`。
-- [ ] 仓库只读输入。
-- [ ] 输出和 resource/cache 重定向。
-- [ ] 构建生产环境完整站点。
-- [ ] 读取入口 HTML。
+- [x] `HugoRuntimeService`。
+- [x] 仓库只读输入。
+- [x] 输出和 resource/cache 重定向。
+- [x] 构建生产环境完整站点。
+- [x] 读取入口 HTML。
 
 完成定义：`hotbitd + PaperMod-PE` 在 iOS Simulator 和真机成功构建，仓库零写入。
 
@@ -1000,10 +1000,10 @@ Fixture 必须覆盖：
 
 任务：
 
-- [ ] loopback HTTP server。
-- [ ] pretty URL 和 MIME。
-- [ ] WKWebView JavaScript/导航安全策略。
-- [ ] 加载 PaperMod-PE CSS、JS、字体和图片。
+- [x] loopback HTTP server。
+- [x] pretty URL 和 MIME。
+- [x] WKWebView JavaScript/导航安全策略。
+- [x] 加载 PaperMod-PE CSS、JS、字体和图片。
 
 完成定义：主题交互和视觉与同一 commit 的 Hugo `0.134.3` 桌面构建一致。
 
@@ -1011,10 +1011,10 @@ Fixture 必须覆盖：
 
 任务：
 
-- [ ] 内容路径到 Hugo Page 映射。
-- [ ] 动态 Segment。
-- [ ] 完整对象图 + 单篇输出。
-- [ ] 内部链接懒构建。
+- [x] 内容路径到 Hugo Page 映射。
+- [x] 动态 Segment。
+- [x] 完整对象图 + 单篇输出。
+- [x] 内部链接懒构建。
 
 完成定义：目标文章的上一篇/下一篇与完整构建一致，未请求页面不必提前输出。
 
@@ -1022,9 +1022,9 @@ Fixture 必须覆盖：
 
 任务：
 
-- [ ] `pendingContent` 覆盖。
-- [ ] debounce/generation/cancel。
-- [ ] front matter 变化触发正确失效。
+- [x] `pendingContent` 覆盖。
+- [x] debounce/generation/cancel。
+- [x] front matter 变化触发正确失效。
 
 完成定义：未保存内容进入真实主题页面，磁盘文章和 Git 状态不改变。
 
@@ -1032,11 +1032,11 @@ Fixture 必须覆盖：
 
 任务：
 
-- [ ] 主题发现。
-- [ ] 固定 Hugo 版本兼容检查。
-- [ ] 主题临时配置覆盖。
-- [ ] session/cache 隔离。
-- [ ] UI 主题选择。
+- [x] 主题发现。
+- [x] 固定 Hugo 版本兼容检查。
+- [x] 主题临时配置覆盖。
+- [x] session/cache 隔离。
+- [x] UI 主题选择。
 
 完成定义：`hotbitd` 可在 PaperMod-PE、PaperMod、PaperModX 之间切换，严格遵守项目 layouts 覆盖规则，且不修改 `hugo.yaml`。
 
@@ -1044,11 +1044,11 @@ Fixture 必须覆盖：
 
 任务：
 
-- [ ] `FileEditorView` 接通真实 Theme 模式。
-- [ ] 保留原生快速预览。
-- [ ] 删除近似模板/shortcode 渲染路径。
-- [ ] 替换弱语义 snapshot 测试。
-- [ ] 完成本地化。
+- [x] `FileEditorView` 接通真实 Theme 模式。
+- [x] 保留原生快速预览。
+- [x] 删除近似模板/shortcode 渲染路径。
+- [x] 替换弱语义 snapshot 测试。
+- [x] 完成本地化。
 
 完成定义：产品中不存在把 Swift 近似渲染标记为 Hugo Theme Preview 的路径。
 
@@ -1059,7 +1059,7 @@ Fixture 必须覆盖：
 - [ ] Cloudflare Standard/Extended 确认。
 - [ ] 完整生产验证模式。
 - [ ] 性能、缓存和内存测试。
-- [ ] 第三方许可证。
+- [x] 第三方许可证。
 - [ ] CI 和真机验证记录。
 
 完成定义：通过第 18 节验收，具备清晰的已支持/不支持主题能力说明。
@@ -1114,21 +1114,28 @@ iOS 无法像桌面系统一样任意执行 Node、PostCSS、Tailwind、Pandoc�
 
 ## 25. 最终验收清单
 
-- [ ] App 显示的 runtime 精确为 Hugo `0.134.3`。
+- [x] App 显示的 runtime 精确为 Hugo `0.134.3`。
 - [ ] `hotbitd + PaperMod-PE` 真机成功构建。
-- [ ] 不是 Swift 近似模板解析结果。
-- [ ] 当前文章使用完整 `.Site` 对象图。
-- [ ] 单篇预览只输出目标页面和必要资源。
-- [ ] 未保存文章可以进入 Hugo 构建。
+- [x] 不是 Swift 近似模板解析结果。
+- [x] 当前文章使用完整 `.Site` 对象图。
+- [x] 单篇预览只输出目标页面和必要资源。
+- [x] 未保存文章可以进入 Hugo 构建。
 - [ ] PaperMod-PE/PaperMod/PaperModX 可切换。
-- [ ] 切换主题不修改 `hugo.yaml`。
-- [ ] 不复制完整博客仓库。
-- [ ] 仓库内不生成或修改 `public`、lock、resources cache。
+- [x] 切换主题不修改 `hugo.yaml`。
+- [x] 不复制完整博客仓库。
+- [x] 仓库内不生成或修改 `public`、lock、resources cache。
 - [ ] WKWebView 主题 JavaScript 正常运行。
-- [ ] 内部链接可按需构建。
-- [ ] 外部工具/更高版本主题明确报错。
+- [x] 内部链接可按需构建。
+- [x] 外部工具/更高版本主题明确报错。
 - [ ] 生产验证结果与 Cloudflare 结构和视觉一致。
-- [ ] XCTest、真机验证、`git diff --check` 全部通过。
+- [x] XCTest、`git diff --check` 全部通过；真机验证仍待设备执行。
+
+## 25.1 当前执行记录（2026-08-29）
+
+- Hugo `0.134.3 Standard` Go runtime、真机/模拟器 XCFramework、Swift adapter 和真实主题 fixture 已实现。
+- GitHub Actions 已通过：Hugo runtime/Simulator XCTest、普通 XCTest、Build Number Guard，以及 SideStore unsigned IPA 构建。
+- 真实主题路径已接入 `FileEditorView`；近似 Theme renderer、兼容性服务、弱语义 snapshot 和旧 fixture 已删除。
+- 当前唯一无法在本环境代执行的验收是物理 iPad/iPhone 上安装 IPA 后使用 `hotbitd + PaperMod-PE`，以及与 Cloudflare/Production 站点的视觉对照。这两项需要真实仓库和设备，不能用模拟器结果冒充。
 
 ## 26. 建议新对话的首条消息
 

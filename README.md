@@ -40,7 +40,7 @@ Choose an archetype such as `archetypes/default.md` or `archetypes/moments.md`, 
 
 The article manager displays covers, titles, dates, and draft state, with search, filtering, sorting by title, directory, publication date, modification time, or draft state, direct draft/published switching, and safe article directory moves or renames. Moving an article keeps bundle-local image links unchanged and recalculates relative image paths that point outside the bundle. Each repository can configure additional top-level text, boolean, and number Front Matter fields in `.gitsync-hugo.json`; unconfigured fields remain untouched. The editor keeps the current publication state visible and editable in every Markdown mode, provides publication-date selection that preserves common Hugo formats and time zones, and supports Markdown formatting, syntax highlighting, undo/redo, a live native preview of the title, publication metadata, tags, cover, relative images and links, code blocks, tables, shortcode placeholders, and body, image insertion and management, and recoverable local drafts. Split mode adapts between side-by-side iPad and stacked compact layouts and marks unsaved preview content explicitly. **Save, Commit & Push** stages only the current article bundle and presents one pre-publish summary for Front Matter, missing image references, unusually large images, and unsaved editor changes. Failed pushes keep the local content and publish selection and offer a retry that reuses either the staged files or the existing local commit.
 
-The native preview uses a readable paper-style canvas with serif headings, quotations, rules, code panels, and tables. Theme-aware Hugo rendering remains a separate longer-term roadmap item.
+The native preview remains a readable paper-style Quick Preview. The separate Hugo Theme mode embeds the pinned Hugo 0.134.3 Standard engine, builds the site through an isolated disposable workspace, and loads the generated output in a loopback WebView. It never labels the Swift Quick Preview as a real Hugo render.
 
 ## How It Works
 
@@ -170,10 +170,10 @@ Tokens are stored in the iOS Keychain. Debug logs never intentionally include au
 
 ## Development Status and Roadmap
 
-The core Git workspace, Git LFS transport, authentication methods, file editor, automation entry points, and Hugo writing workflow described above are implemented. P3 Git stability and automation evaluation and P4 isolated Hugo theme preview are complete. The user-facing app brand is now HugoInk while compatibility-sensitive identifiers retain their legacy values. Current work is focused on:
+The core Git workspace, Git LFS transport, authentication methods, file editor, automation entry points, and Hugo writing workflow described above are implemented. P3 Git stability and automation evaluation and the automated portion of P4 isolated Hugo theme preview are complete. Physical-device acceptance and production/Cloudflare visual comparison remain release checks. The user-facing app brand is now HugoInk while compatibility-sensitive identifiers retain their legacy values. Current work is focused on:
 
 - Maintaining the [real-device Git regression matrix](REAL_DEVICE_REGRESSION.md) for release candidates
-- Maintaining Hugo configuration, theme preview, and compatibility snapshot coverage
+- Maintaining Hugo configuration, real-theme fixture, and compatibility coverage
 
 Theme preview scope and known differences from a full Hugo build are tracked in [HUGO_THEME_PREVIEW_COMPATIBILITY.md](HUGO_THEME_PREVIEW_COMPATIBILITY.md).
 The executable size, signing, licensing, and sandbox decision is recorded in [HUGO_EXECUTABLE_EVALUATION.md](HUGO_EXECUTABLE_EVALUATION.md).
