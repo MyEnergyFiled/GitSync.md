@@ -304,14 +304,26 @@ func (r *Runtime) CloseSession(id int64) error {
 func newHugoSites(s *session, request buildRequest) (*hugolib.HugoSites, error) {
 	sourceOverlay := afero.NewBasePathFs(hugofs.Os, s.overlayDir)
 	sourceRepository := afero.NewBasePathFs(hugofs.Os, s.repositoryRoot)
-	source := overlayfs.New(overlayfs.Options{Fss: []afero.Fs{sourceOverlay, sourceRepository}})
+	// Hugo's config loader probes and creates cache/resource directories through
+	// the source filesystem. Mount those virtual names to the disposable
+	// workspace instead of allowing it to touch the repository's resources/
+	// directory or its parent.
+	workspaceParent := filepath.Dir(s.cacheDir)
+	sourceResources := afero.NewBasePathFs(hugofs.Os, workspaceParent)
+	sourceCache := afero.NewBasePathFs(hugofs.Os, workspaceParent)
+	source := overlayfs.New(overlayfs.Options{Fss: []afero.Fs{
+		sourceOverlay,
+		sourceResources,
+		sourceRepository,
+		sourceCache,
+	}})
 	flags := config.New()
 	flags.Set("workingDir", "/")
 	flags.Set("publishDir", s.outputDir)
 	flags.Set("publishDirDynamic", s.outputDir)
 	flags.Set("publishDirStatic", s.outputDir)
-	flags.Set("resourceDir", s.resourceDir)
-	flags.Set("cacheDir", s.cacheDir)
+	flags.Set("resourceDir", filepath.Base(s.resourceDir))
+	flags.Set("cacheDir", filepath.Base(s.cacheDir))
 	flags.Set("themesDir", "themes")
 	flags.Set("baseURL", request.BaseURL)
 	flags.Set("buildDrafts", request.BuildDrafts)
