@@ -74,6 +74,7 @@ struct FileEditorView: View {
     @State private var siteConfiguration = HugoSiteConfiguration()
     @State private var themePreviewOptions = HugoThemePreviewOptions()
     @State private var themePreviewChoices = HugoThemePreviewChoices()
+    @State private var themeDescriptors: [HugoThemeDescriptor] = []
     @State private var themeResourceRevision = 0
 
     private let draftStore = FileEditorDraftStore.shared
@@ -611,33 +612,42 @@ struct FileEditorView: View {
         showImageAlert = true
     }
 
+    @ViewBuilder
     private var markdownPreview: some View {
-        nativeMarkdownPreview
+        VStack(spacing: 0) {
+            Picker("Preview Style", selection: $previewStyle) {
+                ForEach(HugoPreviewStyle.allCases) { style in
+                    Text(style.title).tag(style)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Color.brutalSurface)
+
+            switch previewStyle {
+            case .native:
+                nativeMarkdownPreview
+            case .theme:
+                themeWebPreview
+            }
+        }
     }
 
     private var themeWebPreview: some View {
-        let _ = themeResourceRevision
         let root = state.vaultURL(for: repoID)
-        let selectedMarkdown: String = {
-            guard let variantURL = themePreviewChoices.languageVariantURLs[themePreviewOptions.language],
-                  variantURL.standardizedFileURL != liveURL.standardizedFileURL else { return pendingContent }
-            return (try? String(contentsOf: variantURL, encoding: .utf8)) ?? pendingContent
-        }()
-        let page = HugoThemePreviewService.render(
-            markdown: selectedMarkdown,
-            articleURL: themePreviewChoices.languageVariantURLs[themePreviewOptions.language] ?? liveURL,
-            repositoryRoot: root,
-            configuration: siteConfiguration,
-            options: themePreviewOptions
-        )
         return VStack(spacing: 0) {
             themePreviewControls
             GeometryReader { geometry in
                 ScrollView(.horizontal) {
                     HStack(spacing: 0) {
                         Spacer(minLength: 0)
-                        HugoThemeWebPreview(page: page, repositoryRoot: root)
-                            .frame(width: themePreviewOptions.device.width)
+                        HugoRealPreviewView(
+                            request: realThemePreviewRequest(root: root),
+                            repositoryID: repoID,
+                            device: themePreviewOptions.device
+                        )
+                        .frame(width: themePreviewOptions.device.width)
                             .overlay { Rectangle().stroke(Color.brutalBorder, lineWidth: 1) }
                         Spacer(minLength: 0)
                     }
@@ -652,31 +662,32 @@ struct FileEditorView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 12) {
                 Menu {
-                    ForEach(themePreviewChoices.layouts, id: \.self) { layout in
-                        Button(layout) { themePreviewOptions.layout = layout }
+                    ForEach(themeDescriptors) { descriptor in
+                        Button {
+                            themePreviewOptions.selectedTheme = descriptor.directoryName
+                            UserDefaults.standard.set(
+                                descriptor.directoryName,
+                                forKey: themePreferenceKey
+                            )
+                            themeResourceRevision += 1
+                        } label: {
+                            HStack {
+                                Text(descriptor.displayName)
+                                if descriptor.directoryName == themePreviewOptions.selectedTheme {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
                     }
                 } label: {
-                    Label(themePreviewOptions.layout, systemImage: "rectangle.3.group")
+                    Label(selectedThemeDisplayName, systemImage: "paintpalette")
                 }
-                .accessibilityLabel(Text("Layout"))
 
-                Menu {
-                    ForEach(themePreviewChoices.contentTypes, id: \.self) { contentType in
-                        Button(contentType) { themePreviewOptions.contentType = contentType }
-                    }
+                Button {
+                    themeResourceRevision += 1
                 } label: {
-                    Label(themePreviewOptions.contentType, systemImage: "doc.on.doc")
+                    Label("Refresh", systemImage: "arrow.clockwise")
                 }
-                .accessibilityLabel(Text("Content Type"))
-
-                Menu {
-                    ForEach(themePreviewChoices.languages, id: \.self) { language in
-                        Button(language) { themePreviewOptions.language = language }
-                    }
-                } label: {
-                    Label(themePreviewOptions.language, systemImage: "globe")
-                }
-                .accessibilityLabel(Text("Language"))
 
                 Picker("Device Width", selection: $themePreviewOptions.device) {
                     ForEach(HugoPreviewDevice.allCases) { device in
@@ -711,25 +722,50 @@ struct FileEditorView: View {
             configuration: siteConfiguration,
             articleURL: liveURL
         )
-        let matter = MarkdownFrontMatter(markdown: pendingContent)
-        let requestedLayout = matter.customValues["layout"] ?? "single"
-        if themePreviewChoices.layouts.contains(requestedLayout) {
-            themePreviewOptions.layout = requestedLayout
-        }
-        let pathComponents = liveURL.path.replacingOccurrences(of: root.path + "/", with: "")
-            .split(separator: "/").map(String.init)
-        let requestedType = matter.customValues["type"]
-            ?? (pathComponents.first == "content" && pathComponents.count > 2 ? pathComponents[1] : "page")
-        if themePreviewChoices.contentTypes.contains(requestedType) {
-            themePreviewOptions.contentType = requestedType
-        }
-        let stemParts = liveURL.deletingPathExtension().lastPathComponent.split(separator: ".").map(String.init)
-        let requestedLanguage = stemParts.count == 2
-            ? stemParts[1]
-            : (siteConfiguration.defaultContentLanguage ?? themePreviewChoices.languages.first ?? "en")
-        if themePreviewChoices.languages.contains(requestedLanguage) {
-            themePreviewOptions.language = requestedLanguage
-        }
+        themeDescriptors = HugoThemeDiscoveryService.discover(
+            in: root,
+            configuredThemes: siteConfiguration.themes
+        )
+        let storedTheme = UserDefaults.standard.string(forKey: themePreferenceKey)
+        themePreviewOptions.selectedTheme = themeDescriptors.contains {
+            $0.directoryName == storedTheme
+        } ? storedTheme : (themeDescriptors.first?.directoryName ?? siteConfiguration.themes.first)
+    }
+
+    private var themePreferenceKey: String {
+        "hugoPreviewTheme.\(repoID.uuidString.lowercased())"
+    }
+
+    private var selectedThemeDisplayName: String {
+        themeDescriptors.first { $0.directoryName == themePreviewOptions.selectedTheme }?.displayName
+            ?? themePreviewOptions.selectedTheme
+            ?? String(localized: "Default theme")
+    }
+
+    private func realThemePreviewRequest(root: URL) -> HugoBuildRequest {
+        let rootPath = root.standardizedFileURL.path
+        let filePath = liveURL.standardizedFileURL.path
+        let relativePath = filePath.hasPrefix(rootPath + "/")
+            ? String(filePath.dropFirst(rootPath.count + 1))
+            : nil
+        let contentData = Data(pendingContent.utf8)
+        let contentSignature = HugoPreviewBuildCoordinator.contentSignature(contentData)
+        let signatureValue = UInt64(String(contentSignature.prefix(16)), radix: 16) ?? 0
+        return HugoBuildRequest(
+            mode: .editorPage,
+            repositoryRoot: rootPath,
+            articleRepositoryRelativePath: relativePath,
+            selectedTheme: themePreviewOptions.selectedTheme,
+            baseURL: "http://127.0.0.1/",
+            environment: "production",
+            buildDrafts: true,
+            buildFuture: true,
+            buildExpired: true,
+            overlayFiles: relativePath.map {
+                [HugoOverlayFile(repositoryRelativePath: $0, contents: contentData)]
+            } ?? [],
+            generation: signatureValue ^ UInt64(themeResourceRevision)
+        )
     }
 
     private func monitorThemeResources() async {

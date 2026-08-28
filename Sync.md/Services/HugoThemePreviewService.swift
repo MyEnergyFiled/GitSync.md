@@ -2,8 +2,8 @@ import Foundation
 import UniformTypeIdentifiers
 
 enum HugoPreviewStyle: String, CaseIterable, Identifiable {
-    case native = "Native"
-    case theme = "Theme"
+    case native = "Quick Preview"
+    case theme = "Hugo Theme"
 
     var id: String { rawValue }
     var title: String { String(localized: String.LocalizationValue(rawValue)) }
@@ -30,6 +30,7 @@ struct HugoThemePreviewOptions: Equatable {
     var contentType = "page"
     var language = "en"
     var device: HugoPreviewDevice = .tablet
+    var selectedTheme: String?
 }
 
 struct HugoThemePreviewChoices: Equatable {
