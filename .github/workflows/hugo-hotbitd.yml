@@ -16,8 +16,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  check-access:
+    name: Check hotbitd access
+    runs-on: ubuntu-latest
+    outputs:
+      available: ${{ steps.check.outputs.available }}
+    steps:
+      - id: check
+        name: Check read-only repository token
+        env:
+          HOTBITD_READ_TOKEN: ${{ secrets.HOTBITD_READ_TOKEN }}
+        run: |
+          if [ -n "$HOTBITD_READ_TOKEN" ]; then
+            echo 'available=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'available=false' >> "$GITHUB_OUTPUT"
+            echo '::notice::HOTBITD_READ_TOKEN is not configured; skipping the private hotbitd acceptance job.'
+          fi
+
   real-site:
-    if: ${{ secrets.HOTBITD_READ_TOKEN != '' }}
+    needs: check-access
+    if: needs.check-access.outputs.available == 'true'
     name: Build hotbitd with Hugo 0.134.3
     runs-on: macos-26
     timeout-minutes: 45
