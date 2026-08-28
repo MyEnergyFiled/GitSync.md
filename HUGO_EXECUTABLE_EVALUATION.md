@@ -2,7 +2,17 @@
 
 ## Decision
 
-Do not embed or execute the Hugo command-line binary in the current iOS/iPadOS app. HugoInk will keep the isolated native theme approximation as its on-device preview engine. “Exact preview” remains a future, opt-in capability only if it can meet every gate below without weakening the iOS security model.
+Do not embed or execute the Hugo command-line binary in the iOS/iPadOS app.
+The real-preview implementation instead uses a separately built Hugo
+`v0.134.3` Standard library façade and a gomobile-generated XCFramework. The
+library is called directly from signed app code; it does not launch a process,
+download executable code, or use a remote preview service.
+
+The native library route remains gated by the Phase 0 fixture, simulator, and
+real-device checks in
+`docs/HugoRealThemePreviewImplementationPlan.md`. Until those checks pass,
+the app must fail closed rather than label the approximation as a real Hugo
+preview.
 
 ## Evidence
 
@@ -24,10 +34,16 @@ Hugo itself uses the Apache-2.0 license, which is compatible with distribution, 
 | Signing | Works in App Store and SideStore distributions without special private entitlements | Unproven and not acceptable for release |
 | Fidelity | Produces deterministic output for supported sites within bounded time and memory | Desktop reference succeeds; no iOS implementation exists |
 
-## Acceptable future approaches
+## Acceptable approaches
 
 1. A separately installed macOS companion may run a user-installed Hugo binary through Foundation `Process`, with explicit folder access and no hidden upload.
 2. An opt-in GitHub Actions preview may build a repository already hosted on GitHub and return a static artifact, provided private-repository disclosure, retention, workflow permissions, and artifact cleanup are explicit.
-3. A compiled-in Go library port may be reconsidered only after an upstream-supported iOS target exists or a maintained fork passes App Store review, size, dependency, memory, cancellation, and sandbox audits. It must expose library calls rather than spawn or download executables.
+3. A compiled-in Go library façade is the selected implementation. It must
+   expose library calls rather than spawn or download executables, and must
+   pass the repository's runtime, size, dependency, memory, cancellation,
+   sandbox, and device checks.
 
-None of these approaches is enabled by P4. The current on-device theme preview is intentionally bounded, offline, script-free, and repository-scoped; its compatibility limits are documented in [HUGO_THEME_PREVIEW_COMPATIBILITY.md](HUGO_THEME_PREVIEW_COMPATIBILITY.md).
+The direct CLI approach remains disabled. The Swift fallback remains available
+only as “Quick Preview”; the “Hugo Theme” path is fail-closed when the native
+runtime artifact is not linked. Compatibility limits for unsupported themes
+are documented in [HUGO_THEME_PREVIEW_COMPATIBILITY.md](HUGO_THEME_PREVIEW_COMPATIBILITY.md).

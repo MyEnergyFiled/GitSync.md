@@ -63,7 +63,11 @@ struct UnavailableHugoRuntime: HugoRuntimeProviding {
 /// Application-facing runtime service. A generated/native implementation can
 /// be injected by the app target without changing preview UI or coordination.
 actor HugoRuntimeService {
-    static let shared = HugoRuntimeService()
+#if HUGO_RUNTIME_AVAILABLE
+	static let shared = HugoRuntimeService(runtime: HugoEmbeddedRuntime())
+#else
+	static let shared = HugoRuntimeService()
+#endif
 
     private let runtime: any HugoRuntimeProviding
 
