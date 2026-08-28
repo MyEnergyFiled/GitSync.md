@@ -17,6 +17,7 @@ concurrency:
 
 jobs:
   real-site:
+    if: ${{ secrets.HOTBITD_READ_TOKEN != '' }}
     name: Build hotbitd with Hugo 0.134.3
     runs-on: macos-26
     timeout-minutes: 45
@@ -34,6 +35,7 @@ jobs:
           repository: MyEnergyFiled/hotbitd
           ref: ac24be5
           path: external/hotbitd
+          token: ${{ secrets.HOTBITD_READ_TOKEN }}
 
       - name: Set up Go
         uses: actions/setup-go@v5

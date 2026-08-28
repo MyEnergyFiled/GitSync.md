@@ -1136,6 +1136,7 @@ iOS 无法像桌面系统一样任意执行 Node、PostCSS、Tailwind、Pandoc�
 - GitHub Actions 已通过：Hugo runtime/Simulator XCTest、普通 XCTest、Build Number Guard，以及 SideStore unsigned IPA 构建。
 - 真实主题路径已接入 `FileEditorView`；近似 Theme renderer、兼容性服务、弱语义 snapshot 和旧 fixture 已删除。
 - 当前唯一无法在本环境代执行的验收是物理 iPad/iPhone 上安装 IPA 后使用 `hotbitd + PaperMod-PE`，以及与 Cloudflare/Production 站点的视觉对照。这两项需要真实仓库和设备，不能用模拟器结果冒充。
+- `Hugo hotbitd Acceptance` workflow 需要 GitHub 仓库 secret `HOTBITD_READ_TOKEN`（仅授予私有 `MyEnergyFiled/hotbitd` 读取权限）；未配置时 job 会跳过，不会把权限失败误报为 Hugo 失败。
 
 ## 26. 建议新对话的首条消息
 
