@@ -1,15 +1,15 @@
 import Foundation
 
 #if HUGO_RUNTIME_AVAILABLE
-import Hugobridge
+import HugoRuntime
 
 /// Swift adapter for the generated gomobile bindings. The generated API only
 /// receives JSON strings, byte arrays, integer handles, and NSError failures.
 final class HugoEmbeddedRuntime: HugoRuntimeProviding, @unchecked Sendable {
-    private let bridge: HugoRuntime
+    private let bridge: HugoHugobridgeRuntime
 
     init() {
-        bridge = HugoNewRuntime()
+        bridge = HugoHugobridgeNewRuntime()!
     }
 
     func version() async throws -> HugoRuntimeVersion {

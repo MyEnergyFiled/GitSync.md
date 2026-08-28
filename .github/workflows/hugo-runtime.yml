@@ -77,7 +77,7 @@ jobs:
             -derivedDataPath "$RUNNER_TEMP/DerivedData" \
             SWIFT_ACTIVE_COMPILATION_CONDITIONS='$(inherited) HUGO_RUNTIME_AVAILABLE' \
             FRAMEWORK_SEARCH_PATHS="$(inherited) $RUNTIME_FRAMEWORKS" \
-            OTHER_LDFLAGS="$(inherited) -framework Hugobridge" \
+            OTHER_LDFLAGS="$(inherited) -framework HugoRuntime" \
             CODE_SIGNING_ALLOWED=NO
 
       - name: Boot simulator
@@ -102,7 +102,7 @@ jobs:
             -derivedDataPath "$RUNNER_TEMP/DerivedData" \
             SWIFT_ACTIVE_COMPILATION_CONDITIONS='$(inherited) HUGO_RUNTIME_AVAILABLE' \
             FRAMEWORK_SEARCH_PATHS="$(inherited) $RUNTIME_FRAMEWORKS" \
-            OTHER_LDFLAGS="$(inherited) -framework Hugobridge" \
+            OTHER_LDFLAGS="$(inherited) -framework HugoRuntime" \
             CODE_SIGNING_ALLOWED=NO
 
       - name: Upload runtime and test results
