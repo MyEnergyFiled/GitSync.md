@@ -418,10 +418,11 @@ func writePreviewConfig(overlayRoot string, request buildRequest) error {
 	if err := os.MkdirAll(configRoot, 0o700); err != nil {
 		return fmt.Errorf("create preview config: %w", err)
 	}
+	pathGlob := "{" + logicalPath + "," + logicalPath + "/**," + strings.TrimPrefix(logicalPath, "/") + "," + strings.TrimPrefix(logicalPath, "/") + "/**}"
 	config := "renderSegments = [\"hugoInkCurrentPage\"]\n\n" +
 		"[segments.hugoInkCurrentPage]\n" +
 		"[[segments.hugoInkCurrentPage.includes]]\n" +
-		"path = " + strconv.Quote("{"+logicalPath+","+logicalPath+"/**}") + "\n"
+		"path = " + strconv.Quote(pathGlob) + "\n"
 	if err := os.WriteFile(filepath.Join(configRoot, "preview.toml"), []byte(config), 0o600); err != nil {
 		return fmt.Errorf("write preview config: %w", err)
 	}
