@@ -130,12 +130,23 @@ func (r *Runtime) OpenSession(requestJSON string) (int64, error) {
 		return 0, fmt.Errorf("invalid open session request: %w", err)
 	}
 	paths := []string{request.RepositoryRoot, request.OutputDirectory, request.ResourceDirectory, request.CacheDirectory, request.OverlayDirectory}
-	for _, path := range paths {
+	if err := validateAbsolutePath(request.RepositoryRoot); err != nil {
+		return 0, err
+	}
+	if info, err := os.Stat(request.RepositoryRoot); err != nil || !info.IsDir() {
+		return 0, fmt.Errorf("repository root must be an existing directory: %s", request.RepositoryRoot)
+	}
+	for _, path := range paths[1:] {
 		if err := validateAbsolutePath(path); err != nil {
 			return 0, err
 		}
 		if err := os.MkdirAll(path, 0o700); err != nil {
 			return 0, fmt.Errorf("create runtime directory: %w", err)
+		}
+	}
+	for _, path := range paths[1:] {
+		if isInside(path, request.RepositoryRoot) {
+			return 0, errors.New("preview directories must not be inside the repository")
 		}
 	}
 
@@ -188,19 +199,22 @@ func (r *Runtime) Build(id int64, requestJSON string) (string, error) {
 		return "", fmt.Errorf("create preview output: %w", err)
 	}
 
-	if s.sites == nil || s.baseURL != request.BaseURL {
-		if s.sites != nil && s.sites.Deps != nil {
-			_ = s.sites.Deps.Close()
-		}
-		s.sites = nil
-		s.baseURL = ""
-		sites, err := newHugoSites(s, request)
-		if err != nil {
-			return "", err
-		}
-		s.sites = sites
-		s.baseURL = request.BaseURL
+	// Recreate the Hugo object graph for every serialized build. This is
+	// intentionally conservative: an overlay may change front matter,
+	// configuration, layouts, data, or theme files, and Hugo's page graph must
+	// not be reused across those changes. The disposable resource/file caches
+	// remain mounted, so this does not copy or rebuild the repository itself.
+	if s.sites != nil && s.sites.Deps != nil {
+		_ = s.sites.Deps.Close()
 	}
+	s.sites = nil
+	s.baseURL = ""
+	sites, err := newHugoSites(s, request)
+	if err != nil {
+		return "", err
+	}
+	s.sites = sites
+	s.baseURL = request.BaseURL
 
 	started := time.Now()
 	if err := s.sites.Build(hugolib.BuildCfg{NoBuildLock: true}); err != nil {
@@ -337,6 +351,19 @@ func newHugoSites(s *session, request buildRequest) (*hugolib.HugoSites, error) 
 	if request.SelectedTheme != nil && *request.SelectedTheme != "" {
 		flags.Set("theme", *request.SelectedTheme)
 	}
+	if request.Mode == "editorPage" && request.ArticleRepositoryRelativePath != nil {
+		if logicalPath := logicalPagePath(*request.ArticleRepositoryRelativePath); logicalPath != "" {
+			flags.Set("segments", map[string]any{
+				"hugoInkCurrentPage": map[string]any{
+					"includes": []any{map[string]any{
+						"path": logicalPath,
+						"output": "html",
+					}},
+				},
+			})
+			flags.Set("renderSegments", []string{"hugoInkCurrentPage"})
+		}
+	}
 	logger := loggers.New(loggers.Options{Stdout: io.Discard, Stderr: io.Discard, Level: logg.LevelError})
 	configs, err := allconfig.LoadConfig(allconfig.ConfigSourceDescriptor{
 		Fs: source,
@@ -408,6 +435,7 @@ func chooseEntry(outputDir string, article *string) string {
 		relative := filepath.ToSlash(filepath.Clean(*article))
 		relative = strings.TrimPrefix(relative, "content/")
 		stem := strings.TrimSuffix(relative, filepath.Ext(relative))
+		stem = strings.TrimSuffix(stem, "/_index")
 		candidates := []string{stem + "/index.html", stem + ".html"}
 		if strings.HasSuffix(stem, "/index") {
 			candidates = append([]string{strings.TrimSuffix(stem, "/index") + "/index.html"}, candidates...)
@@ -419,6 +447,22 @@ func chooseEntry(outputDir string, article *string) string {
 	for _, path := range paths { if path == "index.html" { return path } }
 	for _, path := range paths { if strings.HasSuffix(path, "/index.html") { return path } }
 	return ""
+}
+
+func logicalPagePath(repositoryRelativePath string) string {
+	relative, err := safeRelativePath(repositoryRelativePath)
+	if err != nil || !strings.HasPrefix(relative, "content/") {
+		return ""
+	}
+	logical := strings.TrimPrefix(relative, "content/")
+	logical = strings.TrimSuffix(logical, filepath.Ext(logical))
+	logical = strings.TrimSuffix(logical, "/index")
+	logical = strings.TrimSuffix(logical, "/_index")
+	logical = strings.Trim(logical, "/")
+	if logical == "" {
+		return "/"
+	}
+	return "/" + logical
 }
 
 func countHTML(paths []string) int { n := 0; for _, path := range paths { if strings.HasSuffix(path, ".html") { n++ } }; return n }

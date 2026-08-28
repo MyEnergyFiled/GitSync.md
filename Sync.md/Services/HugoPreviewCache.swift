@@ -15,6 +15,10 @@ actor HugoPreviewCache {
 
     func touch(_ workspace: HugoPreviewWorkspace) {
         lastAccess[workspace.rootURL] = Date()
+        try? FileManager.default.createDirectory(
+            at: rootURL,
+            withIntermediateDirectories: true
+        )
         try? FileManager.default.setAttributes(
             [.modificationDate: Date()],
             ofItemAtPath: workspace.rootURL.path
@@ -31,23 +35,14 @@ actor HugoPreviewCache {
     }
 
     func removeAllExcept(_ workspace: HugoPreviewWorkspace) {
-        guard let entries = try? FileManager.default.contentsOfDirectory(
-            at: rootURL,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
-        ) else { return }
-        for entry in entries where entry.standardizedFileURL != workspace.rootURL.standardizedFileURL {
+        for entry in workspaceRoots() where entry.standardizedFileURL != workspace.rootURL.standardizedFileURL {
             try? FileManager.default.removeItem(at: entry)
-            lastAccess.removeValue(forKey: entry)
+            lastAccess.removeValue(forKey: entry.standardizedFileURL)
         }
     }
 
     func evict(maxBytes: Int64) {
-        guard let entries = try? FileManager.default.contentsOfDirectory(
-            at: rootURL,
-            includingPropertiesForKeys: [.isDirectoryKey, .fileAllocatedSizeKey],
-            options: [.skipsHiddenFiles]
-        ) else { return }
+        let entries = workspaceRoots()
         var candidates = entries.map { ($0, directorySize($0)) }
         var total = candidates.reduce(Int64(0)) { $0 + $1.1 }
         candidates.sort { lastAccess[$0.0, default: .distantPast] < lastAccess[$1.0, default: .distantPast] }
@@ -56,6 +51,39 @@ actor HugoPreviewCache {
             try? FileManager.default.removeItem(at: candidate.0)
             total -= candidate.1
         }
+    }
+
+    private func workspaceRoots() -> [URL] {
+        guard let repositories = try? FileManager.default.contentsOfDirectory(
+            at: rootURL,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else { return [] }
+        var result: [URL] = []
+        for repository in repositories {
+            guard isDirectory(repository) else { continue }
+            guard let namespaces = try? FileManager.default.contentsOfDirectory(
+                at: repository,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            ) else { continue }
+            for namespace in namespaces where isDirectory(namespace) {
+                guard let themes = try? FileManager.default.contentsOfDirectory(
+                    at: namespace,
+                    includingPropertiesForKeys: [.isDirectoryKey],
+                    options: [.skipsHiddenFiles]
+                ) else { continue }
+                result.append(contentsOf: themes.filter(isDirectory))
+            }
+        }
+        return result
+    }
+
+    private func isDirectory(_ url: URL) -> Bool {
+        guard let values = try? url.resourceValues(forKeys: [.isDirectoryKey]) else {
+            return false
+        }
+        return values.isDirectory == true
     }
 
     private func directorySize(_ url: URL) -> Int64 {

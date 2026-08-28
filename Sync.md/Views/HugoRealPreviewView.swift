@@ -213,6 +213,10 @@ final class HugoRealPreviewModel: ObservableObject {
         session = nil
         workspace = nil
     }
+
+    func suspendListener() {
+        Task { await server.stop() }
+    }
 }
 
 struct HugoRealPreviewView: View {
@@ -239,6 +243,16 @@ struct HugoRealPreviewView: View {
         }
         .task(id: request.generation) {
             await model.build(request, repositoryID: repositoryID)
+        }
+        .onReceive(NotificationCenter.default.publisher(
+            for: UIApplication.didEnterBackgroundNotification
+        )) { _ in
+            model.suspendListener()
+        }
+        .onReceive(NotificationCenter.default.publisher(
+            for: UIApplication.willEnterForegroundNotification
+        )) { _ in
+            Task { await model.build(request, repositoryID: repositoryID) }
         }
         .onDisappear { model.stop() }
     }
@@ -300,6 +314,7 @@ struct HugoRealPreviewWebView: UIViewRepresentable {
         configuration.websiteDataStore = .nonPersistent()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
         let webView = WKWebView(frame: .zero, configuration: configuration)
+        context.coordinator.setAllowedURL(url)
         webView.navigationDelegate = context.coordinator
         webView.isInspectable = false
         webView.scrollView.contentInsetAdjustmentBehavior = .never
@@ -309,6 +324,7 @@ struct HugoRealPreviewWebView: UIViewRepresentable {
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
+        context.coordinator.setAllowedURL(url)
         guard context.coordinator.loadedURL != url else { return }
         context.coordinator.loadedURL = url
         webView.load(URLRequest(url: url))
@@ -316,6 +332,13 @@ struct HugoRealPreviewWebView: UIViewRepresentable {
 
     final class Coordinator: NSObject, WKNavigationDelegate {
         var loadedURL: URL?
+        var allowedPathPrefix = ""
+        var allowedPort: Int?
+
+        func setAllowedURL(_ url: URL) {
+            allowedPathPrefix = Self.tokenPathPrefix(for: url)
+            allowedPort = url.port
+        }
 
         func webView(
             _ webView: WKWebView,
@@ -326,7 +349,11 @@ struct HugoRealPreviewWebView: UIViewRepresentable {
                 decisionHandler(.cancel)
                 return
             }
-            if url.scheme == "http", url.host == "127.0.0.1" {
+            if url.scheme == "http",
+               url.host == "127.0.0.1",
+               url.port == allowedPort,
+               let requestedPath = url.path.removingPercentEncoding,
+               requestedPath == allowedPathPrefix || requestedPath.hasPrefix(allowedPathPrefix + "/") {
                 decisionHandler(.allow)
             } else if url.scheme == "http" || url.scheme == "https" {
                 decisionHandler(.cancel)
@@ -334,6 +361,13 @@ struct HugoRealPreviewWebView: UIViewRepresentable {
             } else {
                 decisionHandler(.cancel)
             }
+        }
+
+        private static func tokenPathPrefix(for url: URL) -> String {
+            guard let token = url.path.split(separator: "/").first, !token.isEmpty else {
+                return ""
+            }
+            return "/" + token
         }
     }
 }

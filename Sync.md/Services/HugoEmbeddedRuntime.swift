@@ -19,21 +19,32 @@ final class HugoEmbeddedRuntime: HugoRuntimeProviding, @unchecked Sendable {
 
     func openSession(_ request: HugoOpenSessionRequest) async throws -> HugoSessionID {
         let json = try encode(request)
-        return HugoSessionID(try bridge.openSession(json))
+        var handle: Int64 = 0
+        try bridge.openSession(json, ret0_: &handle)
+        return HugoSessionID(handle)
     }
 
     func build(_ request: HugoBuildRequest, in session: HugoSessionID) async throws -> HugoBuildResult {
         let json = try encode(request)
-        let response = try bridge.build(Int64(session), requestJSON: json)
+        var error: NSError?
+        let response = bridge.build(Int64(session), requestJSON: json, error: &error)
+        if let error { throw error }
         return try decode(response, as: HugoBuildResult.self)
     }
 
     func readOutput(path: String, in session: HugoSessionID) async throws -> Data {
-        try bridge.readOutput(Int64(session), path: path)
+        var error: NSError?
+        guard let data = bridge.readOutput(Int64(session), path: path, error: &error) else {
+            if let error { throw error }
+            throw HugoRuntimeError.malformedResponse
+        }
+        return data
     }
 
     func listOutput(in session: HugoSessionID) async throws -> [String] {
-        let json = try bridge.listOutput(Int64(session))
+        var error: NSError?
+        let json = bridge.listOutput(Int64(session), error: &error)
+        if let error { throw error }
         return try decode(json, as: [String].self)
     }
 

@@ -29,6 +29,20 @@ func TestSafeRelativePathRejectsTraversal(t *testing.T) {
 	}
 }
 
+func TestLogicalPagePathRecognizesContentBundles(t *testing.T) {
+	tests := map[string]string{
+		"content/posts/hello.md":       "/posts/hello",
+		"content/posts/hello/index.md": "/posts/hello",
+		"content/posts/_index.md":      "/posts",
+		"content/_index.md":            "/",
+	}
+	for input, expected := range tests {
+		if actual := logicalPagePath(input); actual != expected {
+			t.Errorf("logicalPagePath(%q) = %q, want %q", input, actual, expected)
+		}
+	}
+}
+
 func TestBuildUsesOverlayWithoutChangingRepository(t *testing.T) {
 	root := t.TempDir()
 	output := filepath.Join(root, "output")
