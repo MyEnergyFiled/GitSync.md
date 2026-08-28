@@ -90,29 +90,6 @@ func TestBuildUsesOverlayWithoutChangingRepository(t *testing.T) {
 	}
 	defer runtime.CloseSession(id)
 
-	fullJSON, err := json.Marshal(buildRequest{
-		Mode: "full",
-		RepositoryRoot: root,
-		SelectedTheme: stringPointer("ThemeA"),
-		BaseURL: "http://127.0.0.1:1234/fixture/",
-		Environment: "production",
-		BuildDrafts: true,
-		BuildFuture: true,
-		BuildExpired: true,
-		Generation: 6,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := runtime.Build(id, string(fullJSON)); err != nil {
-		t.Fatal(err)
-	}
-	fullTarget, err := runtime.ReadOutput(id, "posts/first/index.html")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Logf("Hugo full-build target marker: %s", fullTarget)
-
 	buildJSON, err := json.Marshal(buildRequest{
 		Mode: "editorPage",
 		RepositoryRoot: root,
@@ -182,6 +159,29 @@ func TestBuildRealFixtureUsesThemePipesAndEditorSegment(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer runtime.CloseSession(id)
+
+	fullJSON, err := json.Marshal(buildRequest{
+		Mode: "full",
+		RepositoryRoot: root,
+		SelectedTheme: stringPointer("ThemeA"),
+		BaseURL: "http://127.0.0.1:1234/fixture/",
+		Environment: "production",
+		BuildDrafts: true,
+		BuildFuture: true,
+		BuildExpired: true,
+		Generation: 6,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.Build(id, string(fullJSON)); err != nil {
+		t.Fatal(err)
+	}
+	fullTarget, err := runtime.ReadOutput(id, "posts/first/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("Hugo full-build target marker: %s", fullTarget)
 
 	buildJSON, err := json.Marshal(buildRequest{
 		Mode: "editorPage",
