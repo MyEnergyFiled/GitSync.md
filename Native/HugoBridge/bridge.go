@@ -19,6 +19,7 @@ import (
 
 	"github.com/bep/logg"
 	"github.com/bep/overlayfs"
+	commonmaps "github.com/gohugoio/hugo/common/maps"
 	"github.com/gohugoio/hugo/common/loggers"
 	"github.com/gohugoio/hugo/config"
 	"github.com/gohugoio/hugo/config/allconfig"
@@ -376,6 +377,12 @@ func newHugoSites(s *session, request buildRequest) (*hugolib.HugoSites, error) 
 	configDir := ""
 	if request.Mode == "editorPage" && request.ArticleRepositoryRelativePath != nil && logicalPagePath(*request.ArticleRepositoryRelativePath) != "" {
 		configDir = ".hugo-preview-config"
+		logicalPath := logicalPagePath(*request.ArticleRepositoryRelativePath)
+		flags.Set("segments", commonmaps.Params{
+			"hugoInkCurrentPage": commonmaps.Params{
+				"includes": []any{commonmaps.Params{"path": logicalPath}, commonmaps.Params{"path": logicalPath + "/**"}},
+			},
+		})
 		flags.Set("renderSegments", []string{"hugoInkCurrentPage"})
 	}
 	logger := loggers.New(loggers.Options{Stdout: io.Discard, Stderr: io.Discard, Level: logg.LevelError})
