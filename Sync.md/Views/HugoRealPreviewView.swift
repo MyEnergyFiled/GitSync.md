@@ -186,6 +186,12 @@ final class HugoRealPreviewModel: ObservableObject {
                     isRetryable: true
                 )
             }
+            DebugLogger.shared.error(
+                "hugo-preview",
+                "Real Hugo preview failed",
+                detail: failure.diagnostic ?? failure.summary,
+                repoID: repositoryID
+            )
             snapshot = HugoPreviewStateSnapshot(
                 phase: .failed(failure),
                 runtimeVersion: snapshot.runtimeVersion,
@@ -201,6 +207,12 @@ final class HugoRealPreviewModel: ObservableObject {
                 )),
                 runtimeVersion: snapshot.runtimeVersion,
                 generation: request.generation
+            )
+            DebugLogger.shared.error(
+                "hugo-preview",
+                "Real Hugo preview failed",
+                detail: error.localizedDescription,
+                repoID: repositoryID
             )
         }
     }

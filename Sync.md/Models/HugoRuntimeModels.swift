@@ -8,6 +8,16 @@ struct HugoRuntimeVersion: Codable, Equatable, Sendable {
     let goVersion: String
     let target: String
 
+    // The Go bridge keeps its public JSON names explicit so they are stable
+    // across gomobile-generated bindings. Map those names to Swift's model
+    // names instead of relying on synthesized keys.
+    enum CodingKeys: String, CodingKey {
+        case version = "hugoVersion"
+        case isExtended = "extended"
+        case goVersion
+        case target
+    }
+
     static let required = HugoRuntimeVersion(
         version: "0.134.3",
         isExtended: false,
