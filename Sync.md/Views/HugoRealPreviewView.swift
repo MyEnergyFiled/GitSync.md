@@ -417,6 +417,13 @@ struct HugoRealPreviewWebView: UIViewRepresentable {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+        configuration.userContentController.addUserScript(
+            WKUserScript(
+                source: Self.touchInteractionCompatibilityScript,
+                injectionTime: .atDocumentEnd,
+                forMainFrameOnly: false
+            )
+        )
         let webView = WKWebView(frame: .zero, configuration: configuration)
         context.coordinator.setAllowedURL(url)
         context.coordinator.onLocalNavigation = onLocalNavigation
@@ -435,6 +442,63 @@ struct HugoRealPreviewWebView: UIViewRepresentable {
         context.coordinator.loadedURL = url
         webView.load(URLRequest(url: url))
     }
+
+    private static let touchInteractionCompatibilityScript = """
+    (() => {
+      const selector = '.hidden-text';
+      const revealedClass = 'hugo-ink-touch-revealed';
+      let ignoreClickUntil = 0;
+
+      const style = document.createElement('style');
+      style.textContent = `
+        .hidden-text.${revealedClass} { color: white !important; }
+        .hidden-text.${revealedClass}::before { opacity: 0 !important; pointer-events: none !important; }
+      `;
+      document.head.appendChild(style);
+
+      const setAccessibility = (element) => {
+        if (!element.hasAttribute('role')) element.setAttribute('role', 'button');
+        if (!element.hasAttribute('tabindex')) element.setAttribute('tabindex', '0');
+        element.setAttribute('aria-pressed', element.classList.contains(revealedClass) ? 'true' : 'false');
+      };
+
+      const toggle = (element) => {
+        element.classList.toggle(revealedClass);
+        setAccessibility(element);
+      };
+
+      const prepare = () => document.querySelectorAll(selector).forEach(setAccessibility);
+      prepare();
+
+      const observer = new MutationObserver(prepare);
+      observer.observe(document.documentElement, { childList: true, subtree: true });
+
+      document.addEventListener('touchend', (event) => {
+        const element = event.target instanceof Element ? event.target.closest(selector) : null;
+        if (!element) return;
+        event.preventDefault();
+        event.stopPropagation();
+        ignoreClickUntil = Date.now() + 500;
+        toggle(element);
+      }, { capture: true, passive: false });
+
+      document.addEventListener('click', (event) => {
+        const element = event.target instanceof Element ? event.target.closest(selector) : null;
+        if (!element || Date.now() < ignoreClickUntil) return;
+        event.preventDefault();
+        event.stopPropagation();
+        toggle(element);
+      }, { capture: true });
+
+      document.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        const element = event.target instanceof Element ? event.target.closest(selector) : null;
+        if (!element) return;
+        event.preventDefault();
+        toggle(element);
+      }, { capture: true });
+    })();
+    """
 
     final class Coordinator: NSObject, WKNavigationDelegate {
         var loadedURL: URL?

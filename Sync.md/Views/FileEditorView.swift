@@ -639,20 +639,27 @@ struct FileEditorView: View {
         return VStack(spacing: 0) {
             themePreviewControls
             GeometryReader { geometry in
-                ScrollView(.horizontal) {
-                    HStack(spacing: 0) {
-                        Spacer(minLength: 0)
-                        HugoRealPreviewView(
-                            request: realThemePreviewRequest(root: root),
-                            repositoryID: repoID,
-                            device: themePreviewOptions.device
-                        )
-                        .frame(width: themePreviewOptions.device.width)
-                            .overlay { Rectangle().stroke(Color.brutalBorder, lineWidth: 1) }
-                        Spacer(minLength: 0)
-                    }
-                    .frame(minWidth: geometry.size.width, minHeight: geometry.size.height)
+                let previewScale = min(
+                    1,
+                    geometry.size.width / themePreviewOptions.device.width
+                )
+                let scaledPreviewWidth = themePreviewOptions.device.width * previewScale
+                HStack(spacing: 0) {
+                    HugoRealPreviewView(
+                        request: realThemePreviewRequest(root: root),
+                        repositoryID: repoID,
+                        device: themePreviewOptions.device
+                    )
+                    .frame(width: themePreviewOptions.device.width)
+                    .overlay { Rectangle().stroke(Color.brutalBorder, lineWidth: 1) }
+                    .scaleEffect(previewScale, anchor: .topLeading)
+                    .frame(
+                        width: scaledPreviewWidth,
+                        height: geometry.size.height,
+                        alignment: .topLeading
+                    )
                 }
+                .frame(maxWidth: .infinity, minHeight: geometry.size.height, alignment: .top)
             }
             .background(Color.hugoCanvas)
         }
