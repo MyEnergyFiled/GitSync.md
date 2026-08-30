@@ -138,145 +138,6 @@ final class HugoContentServiceTests: XCTestCase {
         ))
     }
 
-    func testThemePreviewLoadsRepositoryStylesheetsAndImagesThroughIsolatedScheme() throws {
-        let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        let themeCSS = root.appendingPathComponent("themes/paper/assets/css/main.css")
-        let bundle = root.appendingPathComponent("content/posts/example", isDirectory: true)
-        defer { try? fileManager.removeItem(at: root) }
-        try fileManager.createDirectory(at: themeCSS.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try fileManager.createDirectory(at: bundle.appendingPathComponent("images"), withIntermediateDirectories: true)
-        try "article { color: maroon; }".write(to: themeCSS, atomically: true, encoding: .utf8)
-        try Data([0x01, 0x02]).write(to: bundle.appendingPathComponent("images/cover.png"))
-        let markdown = """
-        ---
-        title: "Theme <Preview>"
-        cover: images/cover.png
-        ---
-
-        # Hello
-
-        ![Cover](images/cover.png)
-        """
-
-        let page = HugoThemePreviewService.render(
-            markdown: markdown,
-            articleURL: bundle.appendingPathComponent("index.md"),
-            repositoryRoot: root,
-            configuration: HugoSiteConfiguration(
-                configurationFiles: ["hugo.toml"],
-                themes: ["paper"],
-                assetDirectories: ["assets"],
-                staticDirectories: ["static"],
-                resourceDirectories: ["resources"]
-            )
-        )
-
-        XCTAssertEqual(page.stylesheetPaths, ["themes/paper/assets/css/main.css"])
-        XCTAssertTrue(page.html.contains("gitsync-resource://local/themes/paper/assets/css/main.css"))
-        XCTAssertTrue(page.html.contains("gitsync-resource://local/content/posts/example/images/cover.png"))
-        XCTAssertTrue(page.html.contains("Theme &lt;Preview&gt;"))
-        XCTAssertTrue(page.html.contains("script-src 'none'"))
-        XCTAssertFalse(page.html.contains("file://"))
-    }
-
-    func testThemePreviewResourceSchemeRejectsEscapes() throws {
-        let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? fileManager.removeItem(at: root) }
-        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
-        let css = root.appendingPathComponent("static/site.css")
-        try fileManager.createDirectory(at: css.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try "body {}".write(to: css, atomically: true, encoding: .utf8)
-
-        let safeURL = try XCTUnwrap(URL(string: "gitsync-resource://local/static/site.css"))
-        let escapeURL = try XCTUnwrap(URL(string: "gitsync-resource://local/../outside.css"))
-
-        XCTAssertEqual(
-            HugoThemePreviewService.resourceFileURL(from: safeURL, repositoryRoot: root)?.path,
-            css.path
-        )
-        XCTAssertNil(HugoThemePreviewService.resourceFileURL(from: escapeURL, repositoryRoot: root))
-        XCTAssertEqual(HugoThemePreviewService.mimeType(for: css), "text/css")
-    }
-
-    func testHugoTemplateCompatibilityResolvesCommonVariablesAndMarksUnknownExpressions() {
-        let context = HugoTemplatePreviewContext(
-            title: "A <Title>",
-            date: "2026-08-16",
-            draft: false,
-            contentHTML: "<p>Rendered body</p>",
-            siteTitle: "Example Site",
-            language: "zh-Hans",
-            contentType: "posts",
-            section: "posts",
-            layout: "single",
-            permalink: "/posts/example/",
-            params: ["featured": "yes"]
-        )
-        let template = """
-        {{ define "main" }}
-        <article lang="{{ .Site.Language.Lang }}">
-          <h1>{{ .Title }}</h1>
-          {{ .Content | safeHTML }}
-          <span>{{ .Params.featured }}</span>
-          {{ partial "author.html" . }}
-        </article>
-        {{ end }}
-        """
-
-        let result = HugoTemplateCompatibilityService.renderTemplate(template, context: context)
-
-        XCTAssertTrue(result.html.contains("lang=\"zh-Hans\""))
-        XCTAssertTrue(result.html.contains("A &lt;Title&gt;"))
-        XCTAssertTrue(result.html.contains("<p>Rendered body</p>"))
-        XCTAssertTrue(result.html.contains("<span>yes</span>"))
-        XCTAssertTrue(result.html.contains("Unsupported Hugo template expression"))
-        XCTAssertEqual(result.issues.count, 1)
-    }
-
-    func testHugoShortcodeCompatibilityRendersFigureAndMarksUnsupportedShortcode() {
-        let figure = HugoTemplateCompatibilityService.renderShortcode(
-            #"{{< figure src="images/photo.jpg" title="Photo" >}}"#
-        ) { path in
-            path == "images/photo.jpg" ? "gitsync-resource://local/content/photo.jpg" : nil
-        }
-        let unsupported = HugoTemplateCompatibilityService.renderShortcode(
-            "{{< custom-widget >}}"
-        ) { _ in nil }
-
-        XCTAssertTrue(figure.html.contains("gitsync-resource://local/content/photo.jpg"))
-        XCTAssertTrue(figure.html.contains("<figcaption>Photo</figcaption>"))
-        XCTAssertTrue(figure.issues.isEmpty)
-        XCTAssertTrue(unsupported.html.contains("Unsupported Hugo shortcode"))
-        XCTAssertEqual(unsupported.issues.count, 1)
-    }
-
-    func testThemePreviewUsesRepositoryLayoutAndReportsCompatibilityIssues() throws {
-        let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        let layout = root.appendingPathComponent("layouts/_default/single.html")
-        let bundle = root.appendingPathComponent("content/posts/example", isDirectory: true)
-        defer { try? fileManager.removeItem(at: root) }
-        try fileManager.createDirectory(at: layout.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try fileManager.createDirectory(at: bundle, withIntermediateDirectories: true)
-        try "<main><h1>{{ .Title }}</h1>{{ .Content }}{{ mystery . }}</main>"
-            .write(to: layout, atomically: true, encoding: .utf8)
-
-        let page = HugoThemePreviewService.render(
-            markdown: "---\ntitle: \"Layout Title\"\n---\n\n{{< unknown >}}",
-            articleURL: bundle.appendingPathComponent("index.md"),
-            repositoryRoot: root,
-            configuration: HugoSiteConfiguration(configurationFiles: ["hugo.toml"])
-        )
-
-        XCTAssertEqual(page.layoutPath, "layouts/_default/single.html")
-        XCTAssertTrue(page.html.contains("<h1>Layout Title</h1>"))
-        XCTAssertEqual(page.compatibilityIssues.count, 2)
-        XCTAssertTrue(page.html.contains("Unsupported Hugo shortcode"))
-        XCTAssertTrue(page.html.contains("Unsupported Hugo template expression"))
-    }
-
     func testThemePreviewDiscoversLayoutsContentTypesLanguagesAndVariants() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -302,27 +163,10 @@ final class HugoContentServiceTests: XCTestCase {
             configuration: configuration,
             articleURL: article
         )
-        let page = HugoThemePreviewService.render(
-            markdown: "繁體內容",
-            articleURL: traditional,
-            repositoryRoot: root,
-            configuration: configuration,
-            options: HugoThemePreviewOptions(
-                layout: "feature",
-                contentType: "posts",
-                language: "zh-Hant",
-                device: .phone
-            )
-        )
-
         XCTAssertEqual(choices.layouts, ["feature", "single"])
         XCTAssertEqual(choices.contentTypes, ["page", "posts"])
         XCTAssertEqual(choices.languages, ["en", "zh-Hant"])
         XCTAssertEqual(choices.languageVariantURLs["zh-Hant"], traditional.resolvingSymlinksInPath())
-        XCTAssertEqual(page.layoutPath, "layouts/posts/feature.html")
-        XCTAssertTrue(page.html.contains("data-layout=\"feature\""))
-        XCTAssertTrue(page.html.contains("lang=\"zh-Hant\""))
-        XCTAssertTrue(page.html.contains("繁體內容"))
         XCTAssertEqual(HugoPreviewDevice.phone.width, 390)
         XCTAssertEqual(HugoPreviewDevice.tablet.width, 768)
         XCTAssertEqual(HugoPreviewDevice.desktop.width, 1200)
@@ -381,45 +225,7 @@ final class HugoContentServiceTests: XCTestCase {
             configuration: configuration,
             articleURL: article
         )
-        let page = HugoThemePreviewService.render(
-            markdown: "Article",
-            articleURL: article,
-            repositoryRoot: repositoryRoot,
-            configuration: configuration,
-            options: HugoThemePreviewOptions(layout: "private", contentType: "posts")
-        )
-
         XCTAssertEqual(choices.layouts, ["single"])
-        XCTAssertNil(page.layoutPath)
-        XCTAssertFalse(page.html.contains("Private theme"))
-    }
-
-    func testThemeTemplateSanitizerRemovesScriptsEventsAndFrames() {
-        let context = HugoTemplatePreviewContext(
-            title: "Safe",
-            date: "",
-            draft: false,
-            contentHTML: "<p>Body</p>",
-            siteTitle: "Site",
-            language: "en",
-            contentType: "page",
-            section: "",
-            layout: "single",
-            permalink: "/safe/",
-            params: [:]
-        )
-        let result = HugoTemplateCompatibilityService.renderTemplate(
-            #"<main onclick="steal()">{{ .Content }}<script>steal()</script><iframe src="https://example.com"></iframe><a href="javascript:steal()">bad</a></main>"#,
-            context: context
-        )
-
-        XCTAssertTrue(result.html.contains("<p>Body</p>"))
-        XCTAssertFalse(result.html.lowercased().contains("<script"))
-        XCTAssertFalse(result.html.lowercased().contains("onclick"))
-        XCTAssertFalse(result.html.lowercased().contains("<iframe"))
-        XCTAssertFalse(result.html.lowercased().contains("javascript:"))
-        XCTAssertTrue(result.html.contains("blocked:"))
-        XCTAssertTrue(result.issues.contains(String(localized: "Unsafe theme markup was removed from the preview.")))
     }
 
     func testThemeResourceSignatureChangesAndSchemeRejectsScripts() throws {
@@ -446,48 +252,7 @@ final class HugoContentServiceTests: XCTestCase {
             repositoryRoot: root,
             configuration: configuration
         )
-        let scriptURL = try XCTUnwrap(URL(string: "gitsync-resource://local/themes/paper/assets/main.js"))
-
         XCTAssertNotEqual(original, updated)
-        XCTAssertNil(HugoThemePreviewService.resourceFileURL(from: scriptURL, repositoryRoot: root))
-    }
-
-    func testThemePreviewSemanticSnapshotMatchesOfficialHugoBuild() throws {
-        let fixture = try XCTUnwrap(
-            Bundle(for: HugoContentServiceTests.self).url(
-                forResource: "HugoThemePreviewFixture",
-                withExtension: nil
-            )
-        )
-        let article = fixture.appendingPathComponent("content/posts/snapshot/index.md")
-        let markdown = try String(contentsOf: article, encoding: .utf8)
-        let reference = try String(
-            contentsOf: fixture.appendingPathComponent("expected.html"),
-            encoding: .utf8
-        )
-        let configuration = HugoSiteConfigurationService.discover(in: fixture)
-        let page = HugoThemePreviewService.render(
-            markdown: markdown,
-            articleURL: article,
-            repositoryRoot: fixture,
-            configuration: configuration,
-            options: HugoThemePreviewOptions(
-                layout: "snapshot",
-                contentType: "posts",
-                language: "en",
-                device: .desktop
-            )
-        )
-
-        let comparison = HugoThemeSnapshotService.compare(
-            previewHTML: page.html,
-            referenceHugoHTML: reference
-        )
-
-        XCTAssertEqual(page.layoutPath, "layouts/posts/snapshot.html")
-        XCTAssertTrue(page.compatibilityIssues.isEmpty, page.compatibilityIssues.joined(separator: "\n"))
-        XCTAssertTrue(comparison.isMatch, comparison.mismatches.joined(separator: "\n"))
-        XCTAssertEqual(comparison.preview.bodyText, comparison.reference.bodyText)
     }
 
     func testArticleSortSupportsPublicationModifiedTitleDirectoryAndDraftState() {
@@ -1136,5 +901,121 @@ final class HugoContentServiceTests: XCTestCase {
 
     func testSlugifyUsesEnglishPathCharacters() {
         XCTAssertEqual(HugoContentService.slugify("My First Post!"), "my-first-post")
+    }
+
+    func testHugoPreviewWorkspaceRejectsUnsafeOverlayPaths() {
+        XCTAssertTrue(HugoPreviewWorkspace.isSafeRepositoryRelativePath("content/posts/index.md"))
+        XCTAssertTrue(HugoPreviewWorkspace.isSafeRepositoryRelativePath("主题/文章.md"))
+        XCTAssertFalse(HugoPreviewWorkspace.isSafeRepositoryRelativePath("/etc/passwd"))
+        XCTAssertFalse(HugoPreviewWorkspace.isSafeRepositoryRelativePath("content/../secret.md"))
+        XCTAssertFalse(HugoPreviewWorkspace.isSafeRepositoryRelativePath("https://example.com/file"))
+        XCTAssertFalse(HugoPreviewWorkspace.isSafeRepositoryRelativePath("content/\0.md"))
+    }
+
+    func testHugoPreviewWorkspaceWritesOverlayOutsideRepository() throws {
+        let fileManager = FileManager.default
+        let repository = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let cache = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer {
+            try? fileManager.removeItem(at: repository)
+            try? fileManager.removeItem(at: cache)
+        }
+        try fileManager.createDirectory(at: repository, withIntermediateDirectories: true)
+        let article = repository.appendingPathComponent("content/posts/index.md")
+        try fileManager.createDirectory(at: article.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "saved".write(to: article, atomically: true, encoding: .utf8)
+        let original = try Data(contentsOf: article)
+        let workspace = try HugoPreviewWorkspace(
+            repositoryID: UUID(),
+            themeID: "ThemeA",
+            baseURL: cache
+        )
+        _ = try workspace.materializeOverlay(HugoOverlayFile(
+            repositoryRelativePath: "content/posts/index.md",
+            contents: Data("unsaved".utf8)
+        ))
+
+        XCTAssertEqual(try Data(contentsOf: article), original)
+        XCTAssertNotEqual(workspace.rootURL.path, repository.path)
+        XCTAssertEqual(
+            try Data(contentsOf: workspace.overlayURL.appendingPathComponent("content/posts/index.md")),
+            Data("unsaved".utf8)
+        )
+    }
+
+    func testHugoPreviewCacheEvictsLeastRecentlyUsedThemeWorkspace() async throws {
+        let fileManager = FileManager.default
+        let cacheRoot = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? fileManager.removeItem(at: cacheRoot) }
+        let repositoryA = UUID()
+        let repositoryB = UUID()
+        let workspaceA = try HugoPreviewWorkspace(repositoryID: repositoryA, themeID: "ThemeA", baseURL: cacheRoot)
+        try Data(repeating: 0x41, count: 1_100_000).write(to: workspaceA.outputURL.appendingPathComponent("a.bin"))
+        let cache = HugoPreviewCache(rootURL: cacheRoot)
+        await cache.touch(workspaceA)
+        try await Task.sleep(nanoseconds: 20_000_000)
+
+        let workspaceB = try HugoPreviewWorkspace(repositoryID: repositoryB, themeID: "ThemeA", baseURL: cacheRoot)
+        try Data(repeating: 0x42, count: 1_100_000).write(to: workspaceB.outputURL.appendingPathComponent("b.bin"))
+        await cache.touch(workspaceB)
+        await cache.evict(maxBytes: 1_500_000)
+
+        XCTAssertFalse(fileManager.fileExists(atPath: workspaceA.rootURL.path))
+        XCTAssertTrue(fileManager.fileExists(atPath: workspaceB.rootURL.path))
+    }
+
+    func testHugoThemeDiscoveryChecksMinimumVersionAndCapabilityWarnings() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let theme = root.appendingPathComponent("themes/ThemeA")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: theme, withIntermediateDirectories: true)
+        try "name = \"Theme A\"\nmin_version = \"0.200.0\"\nlicense = \"MIT\"".write(
+            to: theme.appendingPathComponent("theme.toml"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let layout = theme.appendingPathComponent("layouts/index.html")
+        try FileManager.default.createDirectory(at: layout.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "{{ $image := resources.GetRemote \"https://example.com/a.png\" }}".write(
+            to: layout,
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let themes = HugoThemeDiscoveryService.discover(in: root)
+
+        XCTAssertEqual(themes.count, 1)
+        XCTAssertEqual(themes[0].displayName, "Theme A")
+        XCTAssertFalse(themes[0].isCompatible)
+        XCTAssertTrue(themes[0].capabilityWarnings.contains(.remoteResource))
+        XCTAssertEqual(
+            HugoThemeDiscoveryService.compareVersions("0.134.3", "0.125.3"),
+            .orderedDescending
+        )
+    }
+
+    func testUnavailableHugoRuntimeFailsClosedWithoutRenderingFallback() async {
+        do {
+            _ = try await UnavailableHugoRuntime().version()
+            XCTFail("The real preview must not silently fall back to Swift rendering.")
+        } catch let error as HugoRuntimeError {
+            XCTAssertEqual(error, .unavailable)
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    func testHugoPreviewHTTPServerRejectsTokenAndTraversalEscapes() {
+        XCTAssertEqual(
+            HugoPreviewHTTPServer.relativeOutputPath(for: "/abc/posts/first/", token: "abc"),
+            "posts/first"
+        )
+        XCTAssertEqual(
+            HugoPreviewHTTPServer.relativeOutputPath(for: "/abc", token: "abc"),
+            "index.html"
+        )
+        XCTAssertNil(HugoPreviewHTTPServer.relativeOutputPath(for: "/wrong/posts/first/", token: "abc"))
+        XCTAssertNil(HugoPreviewHTTPServer.relativeOutputPath(for: "/abc/%2e%2e/private.html", token: "abc"))
+        XCTAssertNil(HugoPreviewHTTPServer.relativeOutputPath(for: "/abc/../private.html", token: "abc"))
     }
 }

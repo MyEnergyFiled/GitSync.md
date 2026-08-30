@@ -15,6 +15,21 @@ final class SyncMDTests: XCTestCase {
         XCTAssertTrue(true)
     }
 
+    func testRepositoryFileBrowserBuildsNestedRelativePathWithoutAbsoluteURLs() {
+        XCTAssertEqual(
+            RepositoryFileBrowserPath.childPath(parent: "", name: "content"),
+            "content"
+        )
+        XCTAssertEqual(
+            RepositoryFileBrowserPath.childPath(parent: "content", name: "posts"),
+            "content/posts"
+        )
+        XCTAssertEqual(
+            RepositoryFileBrowserPath.childPath(parent: "content/posts", name: "article"),
+            "content/posts/article"
+        )
+    }
+
     func testGitOperationCoordinatorSerializesOperationsForSameRepository() async {
         let coordinator = GitOperationCoordinator()
         let probe = GitOperationConcurrencyProbe()

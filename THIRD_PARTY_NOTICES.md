@@ -7,6 +7,19 @@ not replace those terms.
 The versions below are taken from the checked-in build script and Swift Package
 lockfile. When dependencies are updated, this inventory must be updated too.
 
+## Native Hugo runtime
+
+| Component | Version | License | Source |
+|---|---:|---|---|
+| Hugo Standard library | 0.134.3 | Apache License 2.0 | https://github.com/gohugoio/hugo/releases/tag/v0.134.3 |
+| Go Mobile bindings | CI-pinned at runtime build | BSD 3-Clause | https://pkg.go.dev/golang.org/x/mobile/cmd/gomobile |
+
+The complete Go module inventory used for a given XCFramework is emitted as
+`HugoRuntime.modules.txt` by the `Hugo Runtime` workflow and must be retained
+with the corresponding release artifact. Hugo's upstream `LICENSE` and the
+licenses/notices of all modules in that inventory accompany any distributed
+runtime artifact.
+
 ## Native libraries bundled in `libgit2.xcframework`
 
 | Component | Version | License | Source |

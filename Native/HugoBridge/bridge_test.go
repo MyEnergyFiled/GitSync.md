@@ -1,0 +1,438 @@
+package hugobridge
+
+import (
+	"encoding/json"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestRuntimeVersionIsPinned(t *testing.T) {
+	var version runtimeVersionResponse
+	if err := json.Unmarshal([]byte(NewRuntime().RuntimeVersion()), &version); err != nil {
+		t.Fatal(err)
+	}
+	if version.HugoVersion != "0.134.3" || version.Extended || !strings.HasPrefix(version.Target, "ios/") {
+		t.Fatalf("unexpected runtime version: %+v", version)
+	}
+}
+
+func TestSafeRelativePathRejectsTraversal(t *testing.T) {
+	for _, path := range []string{"../secret", "a/../../secret", "/absolute", "file://remote", "", "."} {
+		if _, err := safeRelativePath(path); err == nil {
+			t.Errorf("expected %q to be rejected", path)
+		}
+	}
+	if value, err := safeRelativePath("content/posts/index.md"); err != nil || value != "content/posts/index.md" {
+		t.Fatalf("valid path rejected: %q, %v", value, err)
+	}
+}
+
+func TestLogicalPagePathRecognizesContentBundles(t *testing.T) {
+	tests := map[string]string{
+		"content/posts/hello.md":       "/posts/hello",
+		"content/posts/hello/index.md": "/posts/hello",
+		"content/posts/_index.md":      "/posts",
+		"content/_index.md":            "/",
+	}
+	for input, expected := range tests {
+		if actual := logicalPagePath(input); actual != expected {
+			t.Errorf("logicalPagePath(%q) = %q, want %q", input, actual, expected)
+		}
+	}
+}
+
+func TestBuildUsesOverlayWithoutChangingRepository(t *testing.T) {
+	root := t.TempDir()
+	workspace := t.TempDir()
+	output := filepath.Join(workspace, "output")
+	resource := filepath.Join(workspace, "resource")
+	cache := filepath.Join(workspace, "cache")
+	overlay := filepath.Join(workspace, "overlay")
+	for _, dir := range []string{output, resource, cache, overlay} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write := func(path, contents string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(filepath.Join(root, "hugo.toml"), "baseURL = \"https://example.test/\"\n")
+	write(filepath.Join(root, "layouts", "_default", "single.html"), "<h1>{{ .Title }}</h1>{{ .Content }}")
+	write(filepath.Join(root, "content", "posts", "hello.md"), "---\ntitle: Disk\n---\nDisk body")
+	original, err := os.ReadFile(filepath.Join(root, "content", "posts", "hello.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runtime := NewRuntime()
+	openJSON, err := json.Marshal(openRequest{
+		RepositoryRoot: root,
+		OutputDirectory: output,
+		ResourceDirectory: resource,
+		CacheDirectory: cache,
+		OverlayDirectory: overlay,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := runtime.OpenSession(string(openJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.CloseSession(id)
+
+	buildJSON, err := json.Marshal(buildRequest{
+		Mode: "editorPage",
+		RepositoryRoot: root,
+		BaseURL: "http://127.0.0.1:1234/token/",
+		Environment: "production",
+		BuildDrafts: true,
+		BuildFuture: true,
+		BuildExpired: true,
+		OverlayFiles: []overlayFile{{
+			RepositoryRelativePath: "content/posts/hello.md",
+			Contents: []byte("---\ntitle: Overlay\n---\nOverlay body"),
+		}},
+		Generation: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	responseJSON, err := runtime.Build(id, string(buildJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var response buildResponse
+	if err := json.Unmarshal([]byte(responseJSON), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.EntryPath == "" || len(response.RenderedPaths) == 0 {
+		t.Fatalf("empty build response: %+v", response)
+	}
+	entry, err := runtime.ReadOutput(id, response.EntryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(entry), "Overlay") || strings.Contains(string(entry), "Disk body") {
+		t.Fatalf("overlay was not rendered: %s", entry)
+	}
+	current, err := os.ReadFile(filepath.Join(root, "content", "posts", "hello.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(current) != string(original) {
+		t.Fatalf("repository content was modified")
+	}
+}
+
+func TestBuildRealFixtureUsesThemePipesAndEditorSegment(t *testing.T) {
+	root := t.TempDir()
+	fixture := filepath.Join("..", "..", "SyncMDTests", "HugoRealPreviewFixture")
+	copyFixture(t, fixture, root)
+	before := snapshotTree(t, root)
+	output := filepath.Join(t.TempDir(), "output")
+	resource := filepath.Join(t.TempDir(), "resources")
+	cache := filepath.Join(t.TempDir(), "cache")
+	overlay := filepath.Join(t.TempDir(), "overlay")
+	runtime := NewRuntime()
+	openJSON, err := json.Marshal(openRequest{
+		RepositoryRoot: root,
+		OutputDirectory: output,
+		ResourceDirectory: resource,
+		CacheDirectory: cache,
+		OverlayDirectory: overlay,
+		SelectedTheme: stringPointer("ThemeA"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := runtime.OpenSession(string(openJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.CloseSession(id)
+
+	buildJSON, err := json.Marshal(buildRequest{
+		Mode: "editorPage",
+		RepositoryRoot: root,
+		ArticleRepositoryRelativePath: stringPointer("content/posts/first/index.md"),
+		SelectedTheme: stringPointer("ThemeA"),
+		BaseURL: "http://127.0.0.1:1234/fixture/",
+		Environment: "production",
+		BuildDrafts: true,
+		BuildFuture: true,
+		BuildExpired: true,
+		Generation: 7,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	responseJSON, err := runtime.Build(id, string(buildJSON))
+	if err != nil {
+		paths, _, collectErr := collectOutput(output)
+		t.Fatalf("%v; output paths=%v (collect error: %v)", err, paths, collectErr)
+	}
+	var response buildResponse
+	if err := json.Unmarshal([]byte(responseJSON), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.EntryPath != "posts/first/index.html" {
+		t.Fatalf("unexpected entry path: %q", response.EntryPath)
+	}
+	if response.Warnings == nil {
+		t.Fatal("build response warnings must be an array, not null")
+	}
+	if containsPath(response.RenderedPaths, "posts/second/index.html") {
+		t.Fatalf("editor segment rendered the unrelated page: %+v", response.RenderedPaths)
+	}
+	entry, err := runtime.ReadOutput(id, response.EntryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(entry)
+	for _, marker := range []string{
+		"data-theme=\"a\"",
+		"First fixture page",
+		"shortcode output",
+		"project layout override",
+		"previous",
+	} {
+		if !strings.Contains(page, marker) {
+			t.Fatalf("rendered fixture is missing %q: %s", marker, page)
+		}
+	}
+	if !containsSuffix(response.RenderedPaths, ".css") || !containsSuffix(response.RenderedPaths, ".js") {
+		t.Fatalf("resource pipeline output missing: %+v", response.RenderedPaths)
+	}
+	after := snapshotTree(t, root)
+	if len(before) != len(after) {
+		t.Fatalf("runtime changed repository file list: before=%d after=%d", len(before), len(after))
+	}
+	for path, contents := range before {
+		if after[path] != contents {
+			t.Fatalf("runtime changed repository file %q", path)
+		}
+	}
+}
+
+func TestBuildHotbitdRealSite(t *testing.T) {
+	root := os.Getenv("HUGO_REAL_SITE")
+	if root == "" {
+		t.Skip("HUGO_REAL_SITE is not set")
+	}
+	article := os.Getenv("HUGO_REAL_ARTICLE")
+	if article == "" {
+		article = "content/posts/hugo/hugo-app/index.md"
+	}
+	if _, err := os.Stat(filepath.Join(root, article)); err != nil {
+		t.Fatalf("real Hugo article is unavailable: %v", err)
+	}
+
+	before := snapshotTree(t, root)
+	for _, theme := range []string{"PaperMod-PE", "PaperMod", "PaperModX"} {
+		workspace := t.TempDir()
+		output := filepath.Join(workspace, "output")
+		resource := filepath.Join(workspace, "resources")
+		cache := filepath.Join(workspace, "cache")
+		overlay := filepath.Join(workspace, "overlay")
+		for _, directory := range []string{output, resource, cache, overlay} {
+			if err := os.MkdirAll(directory, 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		runtime := NewRuntime()
+		openJSON, err := json.Marshal(openRequest{
+			RepositoryRoot: root,
+			OutputDirectory: output,
+			ResourceDirectory: resource,
+			CacheDirectory: cache,
+			OverlayDirectory: overlay,
+			SelectedTheme: stringPointer(theme),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		id, err := runtime.OpenSession(string(openJSON))
+		if err != nil {
+			t.Fatalf("open %s: %v", theme, err)
+		}
+
+		buildJSON, err := json.Marshal(buildRequest{
+			Mode: "editorPage",
+			RepositoryRoot: root,
+			ArticleRepositoryRelativePath: stringPointer(article),
+			SelectedTheme: stringPointer(theme),
+			BaseURL: "http://127.0.0.1:1234/real-site/",
+			Environment: "production",
+			BuildDrafts: true,
+			BuildFuture: true,
+			BuildExpired: true,
+			Generation: 1,
+		})
+		if err != nil {
+			_ = runtime.CloseSession(id)
+			t.Fatal(err)
+		}
+		responseJSON, err := runtime.Build(id, string(buildJSON))
+		if err != nil {
+			closeErr := runtime.CloseSession(id)
+			if theme == "PaperMod-PE" {
+				t.Fatalf("build %s: %v", theme, err)
+			}
+			if closeErr != nil {
+				t.Fatalf("close %s after expected strict compatibility error: %v", theme, closeErr)
+			}
+			t.Logf("%s rejected by the real Hugo build as an incompatible project override: %v", theme, err)
+			continue
+		}
+		var response buildResponse
+		if err := json.Unmarshal([]byte(responseJSON), &response); err != nil {
+			_ = runtime.CloseSession(id)
+			t.Fatal(err)
+		}
+		if response.EntryPath == "" || !strings.HasSuffix(response.EntryPath, ".html") {
+			_ = runtime.CloseSession(id)
+			t.Fatalf("%s produced no HTML entry: %+v", theme, response)
+		}
+		entry, err := runtime.ReadOutput(id, response.EntryPath)
+		if err != nil {
+			_ = runtime.CloseSession(id)
+			t.Fatalf("read %s entry: %v", theme, err)
+		}
+		if !strings.Contains(string(entry), "<html") {
+			_ = runtime.CloseSession(id)
+			t.Fatalf("%s entry is not a rendered HTML document", theme)
+		}
+		if theme == "PaperMod-PE" {
+			productionJSON, err := json.Marshal(buildRequest{
+				Mode: "productionSite",
+				RepositoryRoot: root,
+				SelectedTheme: stringPointer(theme),
+				BaseURL: "https://hotbitd.example/",
+				Environment: "production",
+				BuildDrafts: false,
+				BuildFuture: false,
+				BuildExpired: false,
+				Generation: 2,
+			})
+			if err != nil {
+				_ = runtime.CloseSession(id)
+				t.Fatal(err)
+			}
+			productionResponseJSON, err := runtime.Build(id, string(productionJSON))
+			if err != nil {
+				_ = runtime.CloseSession(id)
+				t.Fatalf("production build %s: %v", theme, err)
+			}
+			var productionResponse buildResponse
+			if err := json.Unmarshal([]byte(productionResponseJSON), &productionResponse); err != nil {
+				_ = runtime.CloseSession(id)
+				t.Fatal(err)
+			}
+			if productionResponse.Generation != 2 || countHTML(productionResponse.RenderedPaths) < 2 {
+				_ = runtime.CloseSession(id)
+				t.Fatalf("production build did not render the complete site: %+v", productionResponse)
+			}
+		}
+		if err := runtime.CloseSession(id); err != nil {
+			t.Fatalf("close %s: %v", theme, err)
+		}
+	}
+
+	after := snapshotTree(t, root)
+	if len(before) != len(after) {
+		t.Fatalf("runtime changed real site file list: before=%d after=%d", len(before), len(after))
+	}
+	for path, contents := range before {
+		if after[path] != contents {
+			t.Fatalf("runtime changed real site file %q", path)
+		}
+	}
+}
+
+func stringPointer(value string) *string { return &value }
+
+func containsPath(paths []string, expected string) bool {
+	for _, path := range paths {
+		if path == expected {
+			return true
+		}
+	}
+	return false
+}
+
+func containsSuffix(paths []string, suffix string) bool {
+	for _, path := range paths {
+		if strings.HasSuffix(path, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
+func snapshotTree(t *testing.T, root string) map[string]string {
+	t.Helper()
+	snapshot := map[string]string{}
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			if entry.Name() == ".git" {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			return nil
+		}
+		contents, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		snapshot[filepath.ToSlash(relative)] = string(contents)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return snapshot
+}
+
+func copyFixture(t *testing.T, source, destination string) {
+	t.Helper()
+	err := fs.WalkDir(os.DirFS(source), ".", func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(destination, filepath.FromSlash(path))
+		if entry.IsDir() {
+			return os.MkdirAll(target, 0o700)
+		}
+		contents, err := os.ReadFile(filepath.Join(source, filepath.FromSlash(path)))
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+			return err
+		}
+		return os.WriteFile(target, contents, 0o600)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}

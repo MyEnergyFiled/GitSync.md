@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Build the real Hugo engine as signed-in-app native code. This script must run
+# on macOS with Xcode; it intentionally never builds or bundles the Hugo CLI.
+
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+REPO_ROOT=$(cd -- "$SCRIPT_DIR/.." && pwd)
+BRIDGE_DIR="$REPO_ROOT/Native/HugoBridge"
+OUTPUT_PATH=${1:-"$REPO_ROOT/HugoRuntime.xcframework"}
+HUGO_VERSION_EXPECTED="0.134.3"
+IOS_VERSION=${IOS_VERSION:-17.0}
+# Pin the bridge tool independently from Hugo. A floating x/mobile release can
+# silently change the generated Objective-C module or its minimum Go version.
+GOMOBILE_VERSION=${GOMOBILE_VERSION:-v0.0.0-20260821190718-4776eadac327}
+
+if [[ "$(uname -s)" != "Darwin" ]]; then
+  echo "error: Hugo iOS runtime must be built on macOS with Xcode" >&2
+  exit 2
+fi
+command -v go >/dev/null || { echo "error: Go is required" >&2; exit 2; }
+command -v xcodebuild >/dev/null || { echo "error: Xcode is required" >&2; exit 2; }
+
+XCODE_VERSION=$(xcodebuild -version)
+GO_VERSION=$(go version)
+echo "Building Hugo runtime"
+echo "  Hugo: $HUGO_VERSION_EXPECTED"
+echo "  Go: $GO_VERSION"
+echo "  Xcode: $XCODE_VERSION"
+echo "  gomobile: $GOMOBILE_VERSION"
+
+TOOL_DIR=${RUNNER_TEMP:-"$REPO_ROOT/.build"}/hugo-runtime-tools
+mkdir -p "$TOOL_DIR/bin"
+GOBIN="$TOOL_DIR/bin" go install "golang.org/x/mobile/cmd/gomobile@$GOMOBILE_VERSION"
+export PATH="$TOOL_DIR/bin:$PATH"
+
+pushd "$BRIDGE_DIR" >/dev/null
+gomobile version
+gomobile init
+# gomobile bind requires golang.org/x/mobile to be present in the module graph.
+go get "golang.org/x/mobile@$GOMOBILE_VERSION"
+# Do not run `go mod tidy` here. gomobile bind intentionally requires the
+# x/mobile module to remain in the module graph even though the bridge source
+# does not import the command package directly.
+go mod download
+go get .
+# Hugo 0.134.3 contains packages that panic in the newer Go printf analyzer
+# during vet. Test the façade without running third-party vet analyzers; the
+# actual Hugo packages are still compiled by gomobile bind below.
+go test -vet=off .
+popd >/dev/null
+
+rm -rf "$OUTPUT_PATH"
+mkdir -p "$(dirname -- "$OUTPUT_PATH")"
+pushd "$BRIDGE_DIR" >/dev/null
+CGO_ENABLED=1 gomobile bind \
+  -target=ios \
+  -iosversion="$IOS_VERSION" \
+  -prefix=Hugo \
+  -trimpath \
+  -o "$OUTPUT_PATH" \
+  .
+popd >/dev/null
+
+[[ -d "$OUTPUT_PATH" ]] || { echo "error: XCFramework was not produced" >&2; exit 1; }
+find "$OUTPUT_PATH" -name '*.framework' -maxdepth 3 -print
+du -sh "$OUTPUT_PATH"
+
+# Keep a machine-readable dependency inventory next to the CI artifact. The
+# app release must ship this inventory with the corresponding notices.
+LICENSES_PATH="${OUTPUT_PATH%.*}.modules.txt"
+pushd "$BRIDGE_DIR" >/dev/null
+go list -m all | sort > "$LICENSES_PATH"
+popd >/dev/null
+echo "Dependency inventory: $LICENSES_PATH"

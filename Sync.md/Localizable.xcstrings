@@ -121797,6 +121797,116 @@
       "zh-Hans": { "stringUnit": { "state": "translated", "value": "无法删除本地仓库文件。仓库记录未被移除。" } },
       "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法刪除本機儲存庫檔案。儲存庫記錄未被移除。" } }
     } },
+    "The embedded Hugo runtime is not installed.": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "The embedded Hugo runtime is not installed." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "未安装内置 Hugo 运行时。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "未安裝內建 Hugo 執行環境。" } }
+    } },
+    "Link HugoRuntime.xcframework built from Hugo 0.134.3.": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Link HugoRuntime.xcframework built from Hugo 0.134.3." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "请链接由 Hugo 0.134.3 构建的 HugoRuntime.xcframework。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "請連結由 Hugo 0.134.3 建置的 HugoRuntime.xcframework。" } }
+    } },
+    "The embedded Hugo runtime returned an invalid response.": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "The embedded Hugo runtime returned an invalid response." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "内置 Hugo 运行时返回了无效响应。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "內建 Hugo 執行環境回傳了無效回應。" } }
+    } },
+    "This preview requires Hugo 0.134.3 Standard.": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "This preview requires Hugo 0.134.3 Standard." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "此预览需要 Hugo 0.134.3 Standard。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "此預覽需要 Hugo 0.134.3 Standard。" } }
+    } },
+    "A newer preview build is available.": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "A newer preview build is available." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "已有更新的预览构建。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "已有較新的預覽建置。" } }
+    } },
+    "Preview build cancelled.": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Preview build cancelled." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "预览构建已取消。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "預覽建置已取消。" } }
+    } },
+    "Hugo did not return a safe preview entry path.": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Hugo did not return a safe preview entry path." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "Hugo 未返回安全的预览入口路径。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "Hugo 未回傳安全的預覽入口路徑。" } }
+    } },
+    "Hugo preview failed.": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Hugo preview failed." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "Hugo 预览失败。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "Hugo 預覽失敗。" } }
+    } },
+    "The preview path is invalid.": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "The preview path is invalid." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "预览路径无效。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "預覽路徑無效。" } }
+    } },
+    "The preview path leaves the preview workspace.": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "The preview path leaves the preview workspace." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "预览路径离开了预览工作区。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "預覽路徑離開了預覽工作區。" } }
+    } },
+    "Building with Hugo 0.134.3…": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Building with Hugo 0.134.3…" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "正在使用 Hugo 0.134.3 构建…" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "正在使用 Hugo 0.134.3 建置…" } }
+    } },
+    "Default theme": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Default theme" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "默认主题" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "預設主題" } }
+    } },
+    "Ready": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Ready" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "就绪" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "就緒" } }
+    } },
+    "Failed": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Failed" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "失败" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "失敗" } }
+    } },
+    "Building": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Building" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "构建中" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "建置中" } }
+    } },
+    "The selected Hugo theme was not found in this repository.": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "The selected Hugo theme was not found in this repository." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "在此仓库中找不到所选 Hugo 主题。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "在此儲存庫中找不到所選 Hugo 主題。" } }
+    } },
+    "This theme requires a newer Hugo version.": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "This theme requires a newer Hugo version." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "此主题需要更高版本的 Hugo。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "此主題需要較新的 Hugo 版本。" } }
+    } },
+    "This theme requires Hugo Extended.": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "This theme requires Hugo Extended." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "此主题需要 Hugo Extended。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "此主題需要 Hugo Extended。" } }
+    } },
+    "This theme requires an external build tool that iOS cannot run.": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "This theme requires an external build tool that iOS cannot run." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "此主题需要 iOS 无法运行的外部构建工具。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "此主題需要 iOS 無法執行的外部建置工具。" } }
+    } },
+    "Quick Preview": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Quick Preview" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "快速预览" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "快速預覽" } }
+    } },
+    "Hugo Theme": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Hugo Theme" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "Hugo 主题" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "Hugo 主題" } }
+    } },
+    "Refresh": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Refresh" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "刷新" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "重新整理" } }
+    } },
     "Search logs, repositories, or operation IDs": {
       "localizations": {
         "en": {

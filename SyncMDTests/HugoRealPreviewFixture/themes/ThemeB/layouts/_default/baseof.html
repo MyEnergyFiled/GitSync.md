@@ -1,0 +1,7 @@
+<!doctype html>
+<html><head>
+{{ $css := resources.Get "css/theme.css" | resources.Minify | fingerprint }}
+<link rel="stylesheet" href="{{ $css.RelPermalink }}">
+</head><body data-theme="b">
+{{ block "main" . }}{{ end }}
+</body></html>
