@@ -7,6 +7,12 @@ struct FileBrowserDestination: Hashable {
     let relativePath: String  // "" = vault root
 }
 
+enum RepositoryFileBrowserPath {
+    static func childPath(parent: String, name: String) -> String {
+        parent.isEmpty ? name : parent + "/" + name
+    }
+}
+
 // MARK: - File Item
 
 private struct FileItem: Identifiable {
@@ -32,6 +38,7 @@ struct FileBrowserView: View {
     @State private var showHugoCreator = false
     @State private var newlyCreatedFile: FileEditorDestination?
     @State private var fileOperationError: String?
+    @State private var directoryLoadError: String?
 
     private var vaultURL: URL { state.vaultURL(for: repoID) }
     private var currentURL: URL {
@@ -52,7 +59,9 @@ struct FileBrowserView: View {
         ZStack {
             Color.brutalBg.ignoresSafeArea()
 
-            if items.isEmpty {
+            if let directoryLoadError {
+                directoryErrorState(directoryLoadError)
+            } else if items.isEmpty {
                 emptyState
             } else {
                 fileList
@@ -262,63 +271,79 @@ struct FileBrowserView: View {
         }
     }
 
+    private func directoryErrorState(_ message: String) -> some View {
+        VStack(spacing: 12) {
+            Spacer()
+            Image(systemName: "exclamationmark.folder")
+                .font(.system(size: 40))
+                .foregroundStyle(Color.brutalError)
+            Text("Error")
+                .font(.system(size: 14, weight: .bold, design: .monospaced))
+                .foregroundStyle(Color.brutalText)
+            Text(message)
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundStyle(Color.brutalTextFaint)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
+            BPrimaryButton(title: String(localized: "Refresh"), action: loadItems)
+                .frame(width: 180)
+            Spacer()
+        }
+    }
+
     // MARK: - Data Loading
 
     private func loadItems() {
-        guard let directory = try? RepositoryFileDestinationValidator.validatedDirectoryURL(
-            currentURL,
-            repositoryRootURL: vaultURL
-        ) else {
-            items = []
-            return
-        }
-        guard let contents = try? FileManager.default.contentsOfDirectory(
-            at: directory,
-            includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey],
-            options: .skipsHiddenFiles
-        ) else {
-            items = []
-            return
-        }
-
-        items = contents.compactMap { url -> FileItem? in
-            guard url.lastPathComponent != ".git" else { return nil }
-            let values = try? url.resourceValues(
-                forKeys: [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey]
+        directoryLoadError = nil
+        do {
+            let directory = try RepositoryFileDestinationValidator.validatedDirectoryURL(
+                currentURL,
+                repositoryRootURL: vaultURL
             )
-            guard values?.isSymbolicLink != true else { return nil }
-            if values?.isDirectory == true,
-               let safeURL = try? RepositoryFileDestinationValidator.existingDirectoryURL(
-                   url,
-                   in: directory,
-                   repositoryRootURL: vaultURL
-               ) {
-                return FileItem(url: safeURL, name: url.lastPathComponent, isDirectory: true)
+            let contents = try FileManager.default.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey],
+                options: .skipsHiddenFiles
+            )
+
+            items = contents.compactMap { url -> FileItem? in
+                guard url.lastPathComponent != ".git" else { return nil }
+                let values = try? url.resourceValues(
+                    forKeys: [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey]
+                )
+                guard values?.isSymbolicLink != true else { return nil }
+                if values?.isDirectory == true,
+                   let safeURL = try? RepositoryFileDestinationValidator.existingDirectoryURL(
+                       url,
+                       in: directory,
+                       repositoryRootURL: vaultURL
+                   ) {
+                    return FileItem(url: safeURL, name: url.lastPathComponent, isDirectory: true)
+                }
+                if values?.isRegularFile == true,
+                   let safeURL = try? RepositoryFileDestinationValidator.existingFileURL(
+                       url,
+                       in: directory,
+                       repositoryRootURL: vaultURL
+                   ) {
+                    return FileItem(url: safeURL, name: url.lastPathComponent, isDirectory: false)
+                }
+                return nil
             }
-            if values?.isRegularFile == true,
-               let safeURL = try? RepositoryFileDestinationValidator.existingFileURL(
-                   url,
-                   in: directory,
-                   repositoryRootURL: vaultURL
-               ) {
-                return FileItem(url: safeURL, name: url.lastPathComponent, isDirectory: false)
+            .sorted {
+                if $0.isDirectory != $1.isDirectory { return $0.isDirectory }
+                return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
             }
-            return nil
-        }
-        .sorted {
-            if $0.isDirectory != $1.isDirectory { return $0.isDirectory }
-            return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        } catch {
+            items = []
+            directoryLoadError = error.localizedDescription
         }
     }
 
     // MARK: - Helpers
 
     private func relativePathFor(_ item: FileItem) -> String {
-        let vaultPath = vaultURL.path
-        let itemPath = item.url.path
-        guard itemPath.hasPrefix(vaultPath) else { return item.name }
-        let rel = String(itemPath.dropFirst(vaultPath.count))
-        return rel.hasPrefix("/") ? String(rel.dropFirst()) : rel
+        RepositoryFileBrowserPath.childPath(parent: relativePath, name: item.name)
     }
 
     private func gitStatusFor(_ item: FileItem) -> GitStatusEntry? {
